@@ -2139,13 +2139,33 @@ function TextModelPanel({
               className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
             />
           </div>
+          <div className="space-y-1.5">
+            <label
+              htmlFor={`${idPrefix}-custom-api-key`}
+              className="block text-xs font-medium uppercase text-stone-500"
+            >
+              API key <span className="normal-case text-stone-600">(optional)</span>
+            </label>
+            <input
+              id={`${idPrefix}-custom-api-key`}
+              name={`${idPrefix}-custom-api-key`}
+              type="password"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              placeholder="only if your server requires one"
+              value={settings.customApiKey}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, customApiKey: event.target.value }))
+              }
+              className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
+            />
+          </div>
           <p className="text-xs leading-relaxed text-stone-500">
             Any OpenAI-compatible server: llama.cpp, LM Studio, vLLM, TabbyAPI, KoboldCpp,
-            or a remote Ollama. If your server needs a key, set{" "}
-            <code className="rounded bg-stone-900 px-1 py-0.5 text-amber-100">
-              OPENAI_COMPAT_API_KEY
-            </code>{" "}
-            in .env.server.
+            or a remote Ollama. Everything stays on your machine, and most local servers
+            need no key.
           </p>
         </div>
       ) : (

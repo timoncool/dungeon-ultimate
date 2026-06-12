@@ -150,17 +150,14 @@ enter:
   (`http://127.0.0.1:8080`), a versioned base (`.../v1`), or the full
   `.../chat/completions` endpoint all work.
 - **Model** — whatever model name your server expects.
+- **API key** — optional, right in the panel. Most local servers need none.
 
-Any OpenAI-compatible `/chat/completions` API works. If your server needs a
-key, set it once in `.env.local` or `.env.server`:
-
-```bash
-OPENAI_COMPAT_API_KEY=...
-```
-
-Most local servers need no key. The narrator's `generate_image` tool is sent
-when your server advertises tool support; if it doesn't, the turn is retried
-without it so the story still flows.
+That's it, no config files. Everything is entered in-app and stored locally
+with the chat. If you'd rather keep the key out of the UI, you can instead set
+`OPENAI_COMPAT_API_KEY` in `.env.local` or `.env.server` and leave the field
+blank. The narrator's `generate_image` tool is sent when your server
+advertises tool support; if it doesn't, the turn is retried without it so the
+story still flows.
 
 ## OpenRouter (optional)
 

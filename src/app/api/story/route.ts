@@ -85,6 +85,7 @@ const requestSchema = z.object({
     localTextModel: z.enum(LOCAL_TEXT_MODEL_IDS).default(DEFAULT_LOCAL_TEXT_MODEL),
     customBaseUrl: z.string().trim().max(500).default(""),
     customModel: z.string().trim().max(200).default(""),
+    customApiKey: z.string().trim().max(400).default(""),
     imageMode: z.enum(["fast", "slow"]).default("slow"),
     imageBackend: z.enum(["mflux-hs", "sdnq-hs"]).default("mflux-hs"),
     aspect: z.enum(["square", "portrait", "landscape"]).default("square"),
@@ -417,6 +418,7 @@ function customChatEndpoint(baseUrl: string): string {
 async function requestCustomMessage(
   baseUrl: string,
   model: string,
+  apiKey: string,
   messages: OpenRouterMessage[],
   includeImageTool: boolean,
 ): Promise<UpstreamResult> {
@@ -448,7 +450,8 @@ async function requestCustomMessage(
   }
 
   const endpoint = customChatEndpoint(trimmedBase);
-  const apiKey = serverEnv("OPENAI_COMPAT_API_KEY");
+  // In-app key wins; fall back to the env var for people who prefer it.
+  const resolvedKey = (apiKey || "").trim() || serverEnv("OPENAI_COMPAT_API_KEY");
   const requestPayload: Record<string, unknown> = {
     model: trimmedModel,
     messages,
@@ -467,7 +470,7 @@ async function requestCustomMessage(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...(resolvedKey ? { Authorization: `Bearer ${resolvedKey}` } : {}),
       },
       body: JSON.stringify(requestPayload),
     });
@@ -487,7 +490,7 @@ async function requestCustomMessage(
 
     // Some servers don't implement function tools; retry without auto images.
     if (includeImageTool && /tool|function|not support/i.test(text)) {
-      return requestCustomMessage(trimmedBase, trimmedModel, messages, false);
+      return requestCustomMessage(trimmedBase, trimmedModel, apiKey, messages, false);
     }
 
     return {
@@ -608,6 +611,7 @@ function requestStoryMessage(
     return requestCustomMessage(
       settings.customBaseUrl,
       settings.customModel,
+      settings.customApiKey,
       messages,
       includeImageTool,
     );

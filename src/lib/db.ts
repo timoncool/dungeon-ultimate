@@ -162,6 +162,8 @@ function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
     typeof merged.customBaseUrl === "string" ? merged.customBaseUrl.trim().slice(0, 500) : "";
   merged.customModel =
     typeof merged.customModel === "string" ? merged.customModel.trim().slice(0, 200) : "";
+  merged.customApiKey =
+    typeof merged.customApiKey === "string" ? merged.customApiKey.trim().slice(0, 400) : "";
 
   return merged;
 }

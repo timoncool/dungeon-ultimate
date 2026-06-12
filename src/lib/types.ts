@@ -58,6 +58,9 @@ export type StorySettings = {
   // Custom OpenAI-compatible backend (llama.cpp, LM Studio, vLLM, etc.).
   customBaseUrl: string;
   customModel: string;
+  // Optional key for the custom backend, stored locally. Most local servers
+  // need none. Falls back to OPENAI_COMPAT_API_KEY when blank.
+  customApiKey: string;
   imageMode: ImageMode;
   imageBackend: ImageBackend;
   aspect: AspectPreset;

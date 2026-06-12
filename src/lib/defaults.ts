@@ -12,6 +12,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   localTextModel: DEFAULT_LOCAL_TEXT_MODEL,
   customBaseUrl: "",
   customModel: "",
+  customApiKey: "",
   imageMode: "fast",
   imageBackend: "mflux-hs",
   aspect: "square",
