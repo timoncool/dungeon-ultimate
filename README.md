@@ -1,6 +1,6 @@
 # Open Dungeon
 
-The first lightweight, **fully on-device** AI roleplay app. The story and the
+The first **easy-to-use, fully local** AI roleplay app. The story and the
 **inline scene images** are both generated on your own machine — no accounts,
 no API keys, no cloud, no GPU rig. Your stories never leave your computer.
 
