@@ -6,12 +6,16 @@ import {
   Aperture,
   BookOpen,
   Check,
+  ChevronRight,
   Cpu,
+  Eraser,
   ImagePlus,
   Library,
   Loader2,
   Paperclip,
+  Pencil,
   Plus,
+  RotateCcw,
   Send,
   Settings2,
   Sparkles,
@@ -51,6 +55,29 @@ const MAX_IMAGE_REFERENCES = 2;
 
 const KICKOFF_DIRECTIVE =
   "Begin the story now. Write the opening passage: establish the scene, the player character, and the immediate situation in second person, ending on a beat that invites the player's first action. Do not ask the player any setup questions; the story has already started.";
+
+const CONTINUE_DIRECTIVE =
+  "Continue the story from exactly where it left off. The player is not taking an action this turn — advance the scene naturally with narration, dialogue, or events, then pause on a beat that invites their next action.";
+
+type InputMode = "do" | "say" | "story";
+
+const INPUT_MODES: Array<{ value: InputMode; label: string; placeholder: string }> = [
+  { value: "do", label: "Do", placeholder: "What do you do?" },
+  { value: "say", label: "Say", placeholder: "What do you say?" },
+  { value: "story", label: "Story", placeholder: "Write the next part of the story…" },
+];
+
+function formatPlayerInput(mode: InputMode, text: string): string {
+  const trimmed = text.trim();
+  if (mode === "say") {
+    const quoted = /^["'"].*["'"]$/.test(trimmed) ? trimmed : `"${trimmed}"`;
+    return `> You say ${quoted}`;
+  }
+  if (mode === "do") {
+    return `> ${trimmed}`;
+  }
+  return trimmed;
+}
 
 const STORY_PRESETS = [
   {
@@ -228,6 +255,9 @@ export default function Home() {
   const [mobileTool, setMobileTool] = useState<MobileTool>("characters");
   const [localTextStatus, setLocalTextStatus] = useState<LocalTextStatus | null>(null);
   const [newStoryOpen, setNewStoryOpen] = useState(false);
+  const [inputMode, setInputMode] = useState<InputMode>("do");
+  const [editingId, setEditingId] = useState("");
+  const [editDraft, setEditDraft] = useState("");
   const lastSavedSettingsRef = useRef(JSON.stringify(DEFAULT_STORY_SETTINGS));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -629,7 +659,16 @@ export default function Home() {
     }
   }
 
-  async function kickoffStory(chat: StoryChat) {
+  // Shared core for every narrator turn (new turn, kickoff, continue, retry).
+  async function runTurn(opts: {
+    chatId: string;
+    mode: "turn" | "kickoff" | "continue" | "retry";
+    input: string;
+    history: StoryMessage[];
+    settings: StorySettings;
+    attachments?: Attachment[];
+    userMessageId?: string;
+  }) {
     setBusy(true);
     setError("");
 
@@ -638,12 +677,13 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chatId: chat.id,
-          kickoff: true,
-          input: KICKOFF_DIRECTIVE,
-          messages: [],
-          attachments: [],
-          settings: chat.settings,
+          chatId: opts.chatId,
+          mode: opts.mode,
+          userMessageId: opts.userMessageId,
+          input: opts.input,
+          messages: opts.history,
+          attachments: opts.attachments || [],
+          settings: opts.settings,
         }),
       });
       const payload = await readApi<{
@@ -667,14 +707,150 @@ export default function Home() {
         void requestGeneratedImage(
           assistantMessage.id,
           payload.imageRequest.prompt,
-          referencesForImage(payload.imageRequest.characterIds, []),
+          referencesForImage(payload.imageRequest.characterIds, opts.attachments || []),
           payload.imageRequest,
         );
       }
     } catch (storyError) {
       setError(storyError instanceof Error ? storyError.message : "Story request failed.");
+      void refreshChats();
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function kickoffStory(chat: StoryChat) {
+    await runTurn({
+      chatId: chat.id,
+      mode: "kickoff",
+      input: KICKOFF_DIRECTIVE,
+      history: [],
+      settings: chat.settings,
+    });
+  }
+
+  async function continueStory() {
+    if (busy || !selectedChatId || !messages.length) {
+      return;
+    }
+    await runTurn({
+      chatId: selectedChatId,
+      mode: "continue",
+      input: CONTINUE_DIRECTIVE,
+      history: messages,
+      settings,
+    });
+  }
+
+  // Regenerate the most recent narrator passage for the same player action.
+  async function retryLastTurn() {
+    if (busy || !selectedChatId || !messages.length) {
+      return;
+    }
+
+    const lastAssistantIndex = messages.map((m) => m.role).lastIndexOf("assistant");
+    if (lastAssistantIndex < 0) {
+      return;
+    }
+
+    const target = messages[lastAssistantIndex];
+    const before = messages.slice(0, lastAssistantIndex);
+    // The action that prompted it (if any) is the user message just before.
+    const priorUser = [...before].reverse().find((m) => m.role === "user");
+
+    setError("");
+    try {
+      await fetch(`/api/chats/${selectedChatId}/messages/${target.id}?after=1`, {
+        method: "DELETE",
+      });
+    } catch {
+      // fall through — local state is still corrected below
+    }
+    setMessages(before);
+
+    if (priorUser) {
+      const historyBeforeUser = before.slice(0, before.lastIndexOf(priorUser));
+      await runTurn({
+        chatId: selectedChatId,
+        mode: "retry",
+        input: priorUser.content,
+        history: historyBeforeUser,
+        attachments: priorUser.attachments,
+        settings,
+      });
+    } else {
+      // No prior action (e.g. the opening passage) — regenerate as a kickoff.
+      await runTurn({
+        chatId: selectedChatId,
+        mode: "kickoff",
+        input: KICKOFF_DIRECTIVE,
+        history: [],
+        settings,
+      });
+    }
+  }
+
+  // Erase the most recent exchange (the latest narrator passage and the player
+  // action that prompted it), like AI Dungeon's Erase / Undo.
+  async function eraseLastTurn() {
+    if (busy || !selectedChatId || !messages.length) {
+      return;
+    }
+
+    const lastAssistantIndex = messages.map((m) => m.role).lastIndexOf("assistant");
+    const cutFrom =
+      lastAssistantIndex >= 0
+        ? // include the user action immediately before it, if present
+          before(messages, lastAssistantIndex)
+        : messages.length - 1;
+
+    const target = messages[cutFrom];
+    setError("");
+    try {
+      await fetch(`/api/chats/${selectedChatId}/messages/${target.id}?after=1`, {
+        method: "DELETE",
+      });
+    } catch {
+      // fall through
+    }
+    setMessages(messages.slice(0, cutFrom));
+    void refreshChats();
+  }
+
+  function before(list: StoryMessage[], assistantIndex: number) {
+    const prev = list[assistantIndex - 1];
+    return prev && prev.role === "user" ? assistantIndex - 1 : assistantIndex;
+  }
+
+  function startEditing(message: StoryMessage) {
+    setEditingId(message.id);
+    setEditDraft(message.content);
+  }
+
+  async function saveEdit() {
+    const id = editingId;
+    const content = editDraft.trim();
+    if (!id || !content) {
+      setEditingId("");
+      return;
+    }
+
+    setMessages((current) =>
+      current.map((m) => (m.id === id ? { ...m, content } : m)),
+    );
+    setEditingId("");
+
+    if (selectedChatId) {
+      try {
+        await fetch(`/api/chats/${selectedChatId}/messages/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+        });
+        void refreshChats();
+      } catch (editError) {
+        setError(editError instanceof Error ? editError.message : "Edit failed to save.");
+      }
     }
   }
 
@@ -710,12 +886,13 @@ export default function Home() {
       return;
     }
 
+    const formatted = formatPlayerInput(inputMode, trimmed);
     const conversationBeforeTurn = messages;
     const turnAttachments = attachments;
     const userMessage: StoryMessage = {
       id: makeId(),
       role: "user",
-      content: trimmed,
+      content: formatted,
       createdAt: new Date().toISOString(),
       attachments: turnAttachments,
     };
@@ -723,53 +900,16 @@ export default function Home() {
     setMessages((current) => [...current, userMessage]);
     setInput("");
     setAttachments([]);
-    setBusy(true);
-    setError("");
 
-    try {
-      const response = await fetch("/api/story", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chatId: selectedChatId,
-          userMessageId: userMessage.id,
-          input: trimmed,
-          messages: conversationBeforeTurn,
-          attachments: turnAttachments,
-          settings,
-        }),
-      });
-      const payload = await readApi<{
-        id?: string;
-        content: string;
-        imageRequest?: StoryMessage["imageRequest"];
-      }>(response);
-
-      const assistantMessage: StoryMessage = {
-        id: payload.id || makeId(),
-        role: "assistant",
-        content: payload.content,
-        createdAt: new Date().toISOString(),
-        imageRequest: payload.imageRequest,
-      };
-
-      setMessages((current) => [...current, assistantMessage]);
-      void refreshChats();
-
-      if (payload.imageRequest?.needed && payload.imageRequest.prompt) {
-        void requestGeneratedImage(
-          assistantMessage.id,
-          payload.imageRequest.prompt,
-          referencesForImage(payload.imageRequest.characterIds, turnAttachments),
-          payload.imageRequest,
-        );
-      }
-    } catch (storyError) {
-      setError(storyError instanceof Error ? storyError.message : "Story request failed.");
-      void refreshChats();
-    } finally {
-      setBusy(false);
-    }
+    await runTurn({
+      chatId: selectedChatId,
+      mode: "turn",
+      userMessageId: userMessage.id,
+      input: formatted,
+      history: conversationBeforeTurn,
+      attachments: turnAttachments,
+      settings,
+    });
   }
 
   return (
@@ -897,12 +1037,27 @@ export default function Home() {
                 ) : (
                   messages.map((message) => (
                     <article key={message.id} className="group">
-                      {message.role === "user" ? (
-                        <div className="ml-auto max-w-[92%] rounded-2xl rounded-br-md border border-stone-800/70 bg-stone-900/60 px-4 py-3 text-sm leading-6 text-stone-300 sm:max-w-2xl">
-                          <p className="text-pretty whitespace-pre-wrap">{message.content}</p>
-                          {!!message.attachments?.length && (
-                            <AttachmentStrip attachments={message.attachments} className="mt-3" />
-                          )}
+                      {editingId === message.id ? (
+                        <MessageEditor
+                          message={message}
+                          value={editDraft}
+                          onChange={setEditDraft}
+                          onSave={() => void saveEdit()}
+                          onCancel={() => setEditingId("")}
+                        />
+                      ) : message.role === "user" ? (
+                        <div className="ml-auto max-w-[92%] sm:max-w-2xl">
+                          <div className="rounded-2xl rounded-br-md border border-stone-800/70 bg-stone-900/60 px-4 py-3 text-sm leading-6 text-stone-300">
+                            <p className="text-pretty whitespace-pre-wrap">{message.content}</p>
+                            {!!message.attachments?.length && (
+                              <AttachmentStrip attachments={message.attachments} className="mt-3" />
+                            )}
+                          </div>
+                          <MessageActions
+                            align="end"
+                            disabled={busy}
+                            onEdit={() => startEditing(message)}
+                          />
                         </div>
                       ) : (
                         <div className="font-serif text-[1.13rem] leading-8 text-stone-100 sm:text-[1.3rem] sm:leading-9 md:text-[1.48rem] md:leading-10">
@@ -927,6 +1082,11 @@ export default function Home() {
                               }
                             />
                           )}
+                          <MessageActions
+                            align="start"
+                            disabled={busy}
+                            onEdit={() => startEditing(message)}
+                          />
                         </div>
                       )}
                     </article>
@@ -962,6 +1122,32 @@ export default function Home() {
                   />
                 )}
 
+                {messages.length > 0 && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <StoryActionButton
+                      icon={ChevronRight}
+                      label="Continue"
+                      title="Let the narrator continue without you"
+                      disabled={busy || !selectedChatId}
+                      onClick={() => void continueStory()}
+                    />
+                    <StoryActionButton
+                      icon={RotateCcw}
+                      label="Retry"
+                      title="Regenerate the last passage"
+                      disabled={busy || !selectedChatId}
+                      onClick={() => void retryLastTurn()}
+                    />
+                    <StoryActionButton
+                      icon={Eraser}
+                      label="Erase"
+                      title="Remove the last exchange"
+                      disabled={busy || !selectedChatId}
+                      onClick={() => void eraseLastTurn()}
+                    />
+                  </div>
+                )}
+
                 <div className="rounded-2xl border border-stone-700/80 bg-stone-950 focus-within:border-amber-300/60">
                   <input
                     id="reference-images"
@@ -984,24 +1170,44 @@ export default function Home() {
                       }
                     }}
                     rows={2}
-                    placeholder="What do you do?"
+                    placeholder={
+                      INPUT_MODES.find((m) => m.value === inputMode)?.placeholder ?? "What do you do?"
+                    }
                     className="max-h-40 min-h-16 w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base text-stone-100 outline-none placeholder:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-600 sm:min-h-20"
                     disabled={libraryLoading || loadingChat}
                   />
                   <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">
-                    <button
-                      type="button"
-                      aria-label="Attach image references"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
-                      disabled={uploading || libraryLoading}
-                    >
-                      {uploading ? (
-                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Paperclip className="size-4" aria-hidden="true" />
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <div className="flex rounded-lg border border-stone-800 bg-stone-950 p-0.5">
+                        {INPUT_MODES.map((m) => (
+                          <button
+                            key={m.value}
+                            type="button"
+                            aria-pressed={inputMode === m.value}
+                            onClick={() => setInputMode(m.value)}
+                            className={cn(
+                              "rounded-md px-2.5 py-1 text-xs font-medium text-stone-400 hover:text-stone-200",
+                              inputMode === m.value && "bg-stone-800 text-stone-100",
+                            )}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Attach image references"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
+                        disabled={uploading || libraryLoading}
+                      >
+                        {uploading ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Paperclip className="size-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
                     <div className="flex items-center gap-3">
                       <span className="hidden text-xs text-stone-600 sm:inline">⌘↵ to send</span>
                       <button
@@ -2123,6 +2329,115 @@ function DeleteChatDialog({
         </AlertDialog.Content>
       </AlertDialog.Portal>
     </AlertDialog.Root>
+  );
+}
+
+function StoryActionButton({
+  icon: Icon,
+  label,
+  title,
+  disabled,
+  onClick,
+}: {
+  icon: typeof RotateCcw;
+  label: string;
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-stone-800 bg-stone-950 px-3 py-1.5 text-xs font-medium text-stone-300 hover:bg-stone-900 hover:text-stone-100 disabled:cursor-not-allowed disabled:text-stone-600"
+    >
+      <Icon className="size-3.5" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+function MessageActions({
+  align,
+  disabled,
+  onEdit,
+}: {
+  align: "start" | "end";
+  disabled?: boolean;
+  onEdit: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+        align === "end" ? "justify-end" : "justify-start",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={disabled}
+        aria-label="Edit"
+        title="Edit"
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed"
+      >
+        <Pencil className="size-3.5" aria-hidden="true" />
+        Edit
+      </button>
+    </div>
+  );
+}
+
+function MessageEditor({
+  message,
+  value,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  message: StoryMessage;
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className={cn("flex flex-col gap-2", message.role === "user" && "items-end")}>
+      <textarea
+        autoFocus
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            onSave();
+          }
+          if (event.key === "Escape") {
+            onCancel();
+          }
+        }}
+        rows={Math.min(12, Math.max(3, value.split("\n").length + 1))}
+        className="w-full resize-none rounded-xl border border-amber-300/50 bg-stone-950 px-4 py-3 text-base text-stone-100 outline-none"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-300 hover:bg-stone-900"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-200 px-3 py-1.5 text-xs font-medium text-stone-950 hover:bg-amber-100"
+        >
+          <Check className="size-3.5" aria-hidden="true" />
+          Save
+        </button>
+      </div>
+    </div>
   );
 }
 

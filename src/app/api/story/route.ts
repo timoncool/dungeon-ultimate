@@ -69,9 +69,12 @@ const messageSchema = z.object({
 const requestSchema = z.object({
   chatId: z.string().optional(),
   userMessageId: z.string().optional(),
-  // A kickoff turn asks the narrator to write the opening passage; the
-  // directive input is not persisted or shown as a player message.
-  kickoff: z.boolean().default(false),
+  // turn     — a normal player action; the input is persisted as a user message.
+  // kickoff  — write the opening passage from a directive (not persisted).
+  // continue — advance the story with no player action (not persisted).
+  // retry    — regenerate the latest passage; input is the prior player action,
+  //            already saved, so it is not persisted again.
+  mode: z.enum(["turn", "kickoff", "continue", "retry"]).default("turn"),
   input: z.string().min(1),
   messages: z.array(messageSchema).default([]),
   attachments: z.array(attachmentSchema).default([]),
@@ -526,7 +529,7 @@ export async function POST(request: Request) {
     attachments: body.attachments,
   };
 
-  if (body.chatId && !body.kickoff) {
+  if (body.chatId && body.mode === "turn") {
     addMessage(body.chatId, userMessage);
     updateChatTitleFromInput(body.chatId, body.input);
   }

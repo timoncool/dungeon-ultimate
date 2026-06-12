@@ -442,6 +442,56 @@ export function updateMessageGeneratedImage(messageId: string, generatedImage: G
   return true;
 }
 
+export function updateMessageContent(messageId: string, content: string): boolean {
+  const db = getDatabase();
+  const row = db
+    .prepare("SELECT chat_id FROM messages WHERE id = ?")
+    .get(messageId) as { chat_id: string } | undefined;
+
+  if (!row) {
+    return false;
+  }
+
+  db.transaction(() => {
+    db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(content, messageId);
+    db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      row.chat_id,
+    );
+  })();
+
+  return true;
+}
+
+// Delete a message and, optionally, every message after it in the same chat
+// (used by retry/erase, which discard the tail of the story).
+export function deleteMessageAndAfter(messageId: string, includeAfter = true): boolean {
+  const db = getDatabase();
+  const row = db
+    .prepare("SELECT chat_id, created_at FROM messages WHERE id = ?")
+    .get(messageId) as { chat_id: string; created_at: string } | undefined;
+
+  if (!row) {
+    return false;
+  }
+
+  db.transaction(() => {
+    if (includeAfter) {
+      db.prepare(
+        "DELETE FROM messages WHERE chat_id = ? AND (created_at > ? OR (created_at = ? AND id = ?))",
+      ).run(row.chat_id, row.created_at, row.created_at, messageId);
+    } else {
+      db.prepare("DELETE FROM messages WHERE id = ?").run(messageId);
+    }
+    db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      row.chat_id,
+    );
+  })();
+
+  return true;
+}
+
 export function listCharacters(chatId: string): StoryCharacter[] {
   const rows = getDatabase()
     .prepare(

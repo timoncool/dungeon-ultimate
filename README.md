@@ -13,6 +13,8 @@ no API keys, no cloud, no GPU rig. Your stories never leave your computer.
   scenes are rendered inline by FLUX.2-klein on Apple Silicon (optional).
 - **Quick starts**: pick a setting, say who you are, and the narrator writes
   a custom opening scene.
+- **Full play controls**: Do / Say / Story input modes, plus Continue, Retry,
+  Erase, and inline Edit on any passage.
 - **Long-story memory**: history fills the model's full context window
   (128K–256K tokens), and passages that eventually scroll out are compacted
   into a rolling "story so far" summary instead of being forgotten.
@@ -90,6 +92,24 @@ stream per-layer embeddings, so they sit below their download size):
 The app runs each model at its full native context window by default. Gemma 4
 uses sliding-window attention for most layers, so the KV cache stays small —
 the 12B measured ~7.6 GB of RAM even with 50K+ tokens of story in context.
+
+## Playing
+
+The composer has three input modes:
+
+- **Do** — a player action (`> ...`); the narrator responds in second person.
+- **Say** — dialogue; your text is wrapped as `> You say "..."`.
+- **Story** — write narration directly into the story yourself.
+
+Above the composer:
+
+- **Continue** — let the narrator advance the scene with no action from you.
+- **Retry** — discard the latest passage and regenerate it.
+- **Erase** — remove the most recent exchange (your action and its response).
+
+Hover any message and hit **Edit** to rewrite it in place — useful for fixing a
+detail so the narrator stops repeating it. Edits and erasures are saved to the
+local database.
 
 ## Long-story memory
 
