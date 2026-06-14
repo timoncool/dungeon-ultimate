@@ -7,4 +7,9 @@ if errorlevel 1 (
   echo.
   echo Open Dungeon image smoke failed. See the PowerShell output above.
   pause
+  exit /b 1
 )
+
+echo.
+echo Open Dungeon image smoke completed.
+pause
