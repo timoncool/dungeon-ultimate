@@ -57,6 +57,7 @@ import type {
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
+const STORY_REQUEST_TIMEOUT_MS = 7 * 60 * 1000;
 
 const KICKOFF_DIRECTIVE =
   "Begin the story now. Write the opening passage: establish the scene, the player character, and the immediate situation in second person, ending on a beat that invites the player's first action. Do not ask the player any setup questions; the story has already started.";
@@ -212,6 +213,10 @@ function makeId() {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function readApi<T>(response: Response): Promise<T> {
@@ -766,10 +771,14 @@ export default function Home() {
     setBusy(true);
     setError("");
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), STORY_REQUEST_TIMEOUT_MS);
+
     try {
       const response = await fetch("/api/story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           chatId: opts.chatId,
           mode: opts.mode,
@@ -810,9 +819,16 @@ export default function Home() {
         );
       }
     } catch (storyError) {
-      setError(storyError instanceof Error ? storyError.message : "Story request failed.");
+      setError(
+        isAbortError(storyError)
+          ? "The narrator took too long to answer. The model may still be busy in the background; wait a moment, then retry or restart the local model if your system stays under load."
+          : storyError instanceof Error
+            ? storyError.message
+            : "Story request failed.",
+      );
       void refreshChats();
     } finally {
+      window.clearTimeout(timeoutId);
       setBusy(false);
     }
   }

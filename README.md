@@ -64,8 +64,12 @@ instead. The launcher also fast-forwards an existing clean
 `ultra-fast-image-gen` checkout, keeps the selected CUDA/CPU PyTorch wheel in
 place while installing the rest of that repo's requirements, verifies the
 expected `flux2-4b-sdnq` CLI route is still present, and reinstalls image
-dependencies when `requirements.txt` changes. To force CPU from
-PowerShell, run:
+dependencies when `requirements.txt` changes. On Windows, local text
+generation defaults to a safer 65K context window and a 6 minute upstream
+timeout so a slow or wedged Ollama request returns control to the app instead
+of leaving the UI spinning forever. Set `LOCAL_TEXT_CONTEXT` or
+`LOCAL_TEXT_TIMEOUT_MS` in `.env.server` if you want to tune those limits. To
+force CPU from PowerShell, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1 -CpuOnly
@@ -170,6 +174,9 @@ secrets even after the raw text has scrolled out of context.
 Deep prefill is the one real cost of huge contexts (~160 tok/s at 50K depth on
 the 12B), and it only bites when the cache goes cold on a very long story; set
 `LOCAL_TEXT_CONTEXT` to cap the window if you'd rather bound that.
+Windows caps the default local context at 65K tokens for smoother first-run
+behavior, but you can still set `LOCAL_TEXT_CONTEXT` higher if your machine has
+the headroom.
 
 The 26B MoE is both the strongest writer and nearly the fastest (only ~4B
 params active per token), but wants headroom: prefer 24 GB+ RAM, more if you

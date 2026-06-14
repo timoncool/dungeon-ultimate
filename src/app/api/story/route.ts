@@ -24,6 +24,11 @@ const MAX_IMAGE_REFERENCES = 2;
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const MAX_CONFIGURABLE_OUTPUT_TOKENS = 65_536;
 const DEFAULT_LOCAL_MAX_OUTPUT_TOKENS = 4_096;
+const DEFAULT_CUSTOM_TEXT_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_LOCAL_TEXT_TIMEOUT_MS = 6 * 60 * 1000;
+const MIN_TEXT_TIMEOUT_MS = 30 * 1000;
+const MAX_TEXT_TIMEOUT_MS = 30 * 60 * 1000;
+const WINDOWS_DEFAULT_LOCAL_CONTEXT_TOKENS = 65_536;
 // Rough chars-per-token for English prose, used to budget story history.
 const HISTORY_CHARS_PER_TOKEN = 3.6;
 // Tokens held back for the system prompt, character portraits, and the reply.
@@ -293,13 +298,51 @@ function localMaxOutputTokens() {
 // prefill time on very long stories.
 function localContextTokens(model: string) {
   const native = localModelContextWindow(model);
-  const parsed = Number.parseInt(serverEnv("LOCAL_TEXT_CONTEXT"), 10);
+  const raw = serverEnv("LOCAL_TEXT_CONTEXT");
+  const parsed = Number.parseInt(raw, 10);
 
   if (!Number.isFinite(parsed)) {
-    return native;
+    return process.platform === "win32"
+      ? Math.min(native, WINDOWS_DEFAULT_LOCAL_CONTEXT_TOKENS)
+      : native;
   }
 
   return Math.max(2_048, Math.min(parsed, native));
+}
+
+function configuredTextTimeoutMs(envKey: string, fallback: number) {
+  const parsed = Number.parseInt(serverEnv(envKey), 10);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(MIN_TEXT_TIMEOUT_MS, Math.min(parsed, MAX_TEXT_TIMEOUT_MS));
+}
+
+function formatTimeout(ms: number) {
+  const seconds = Math.round(ms / 1000);
+  if (seconds >= 60) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  }
+
+  return `${seconds} seconds`;
+}
+
+function createRequestTimeout(ms: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ms);
+
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timeoutId),
+    timedOut: () => timedOut,
+  };
 }
 
 type UpstreamChatMessage = {
@@ -418,6 +461,11 @@ async function requestCustomMessage(
     requestPayload.tool_choice = "auto";
   }
 
+  const timeoutMs = configuredTextTimeoutMs(
+    "CUSTOM_TEXT_TIMEOUT_MS",
+    DEFAULT_CUSTOM_TEXT_TIMEOUT_MS,
+  );
+  const requestTimeout = createRequestTimeout(timeoutMs);
   let upstream: Response;
   try {
     upstream = await fetch(endpoint, {
@@ -433,8 +481,20 @@ async function requestCustomMessage(
           : {}),
       },
       body: JSON.stringify(requestPayload),
+      signal: requestTimeout.signal,
     });
   } catch {
+    if (requestTimeout.timedOut()) {
+      return {
+        error: Response.json(
+          {
+            error: `${isOpenRouter ? "OpenRouter" : "Backend"} request timed out after ${formatTimeout(timeoutMs)}. The server may still be generating in the background; wait a moment, then retry or lower that backend's context/output settings.`,
+          },
+          { status: 504 },
+        ),
+      };
+    }
+
     return {
       error: Response.json(
         {
@@ -443,6 +503,8 @@ async function requestCustomMessage(
         { status: 502 },
       ),
     };
+  } finally {
+    requestTimeout.clear();
   }
 
   if (!upstream.ok) {
@@ -501,14 +563,28 @@ async function requestLocalMessage(
     requestPayload.tools = [generateImageTool];
   }
 
+  const timeoutMs = configuredTextTimeoutMs("LOCAL_TEXT_TIMEOUT_MS", DEFAULT_LOCAL_TEXT_TIMEOUT_MS);
+  const requestTimeout = createRequestTimeout(timeoutMs);
   let upstream: Response;
   try {
     upstream = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestPayload),
+      signal: requestTimeout.signal,
     });
   } catch {
+    if (requestTimeout.timedOut()) {
+      return {
+        error: Response.json(
+          {
+            error: `The local model took longer than ${formatTimeout(timeoutMs)} to answer. Ollama may still be working in the background; wait a moment, then retry, restart Ollama if your fans stay high, or lower LOCAL_TEXT_CONTEXT / LOCAL_TEXT_MAX_TOKENS.`,
+          },
+          { status: 504 },
+        ),
+      };
+    }
+
     return {
       error: Response.json(
         {
@@ -517,6 +593,8 @@ async function requestLocalMessage(
         { status: 502 },
       ),
     };
+  } finally {
+    requestTimeout.clear();
   }
 
   if (!upstream.ok) {
