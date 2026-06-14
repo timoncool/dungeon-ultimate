@@ -53,8 +53,9 @@ npm run image:server
 ```
 
 On Windows, use the repo-level `Launch-Windows.bat`; it creates the backend
-venv, installs CUDA or CPU PyTorch wheels, and starts this worker in a second
-PowerShell window.
+venv, installs CUDA or CPU PyTorch wheels, updates a clean
+`ultra-fast-image-gen` checkout, and starts this worker in a second PowerShell
+window. Use `Launch-Windows-CPU.bat` to force the CPU wheel path.
 
 Check backend routing without loading any model:
 

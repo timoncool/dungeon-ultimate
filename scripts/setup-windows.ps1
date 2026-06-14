@@ -93,6 +93,35 @@ function Install-WithWinget($Id, $Name) {
   return $true
 }
 
+function Update-GitRepoIfClean($Path, $Name) {
+  if (-not (Test-Path (Join-Path $Path ".git"))) {
+    Write-Host "$Name already exists at $Path, but it is not a git checkout. Skipping update." -ForegroundColor Yellow
+    return
+  }
+
+  Push-Location $Path
+  try {
+    $dirty = git status --porcelain
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "Could not inspect $Name git status. Continuing with the existing checkout." -ForegroundColor Yellow
+      return
+    }
+
+    if ($dirty) {
+      Write-Host "$Name has local changes. Skipping automatic update so your files are left alone." -ForegroundColor Yellow
+      return
+    }
+
+    Write-Step "Updating $Name"
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "Could not fast-forward $Name. Continuing with the existing checkout." -ForegroundColor Yellow
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
 function Wait-Http($Url, $Seconds) {
   $deadline = (Get-Date).AddSeconds($Seconds)
   while ((Get-Date) -lt $deadline) {
@@ -141,13 +170,14 @@ if ($ValidateOnly) {
   Invoke-Checked "start-image-server syntax check failed." "node" @("--check", "scripts/start-image-server.mjs")
   Invoke-Checked "run-python syntax check failed." "node" @("--check", "scripts/run-python.mjs")
   Invoke-Checked "image routing check failed." "npm" @("run", "check:image-routing")
+  Invoke-Checked "image server HTTP smoke failed." "npm" @("run", "check:image-server-http")
   Write-Host "Windows launcher validation passed." -ForegroundColor Green
   exit 0
 }
 
 if (-not (Test-Command "node")) {
   if (-not (Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS")) {
-    Stop-WithHelp "Node.js 20+ is required." "https://nodejs.org"
+    Stop-WithHelp "Node.js 22+ is required." "https://nodejs.org"
   }
 }
 
@@ -225,6 +255,8 @@ if (-not $SkipImageSetup) {
     if ($LASTEXITCODE -ne 0) {
       Stop-WithHelp "Could not clone ultra-fast-image-gen."
     }
+  } else {
+    Update-GitRepoIfClean $UltraDir "ultra-fast-image-gen"
   }
 
   $VenvDir = Join-Path $UltraDir ".venv"
@@ -264,8 +296,15 @@ if (-not $SkipImageSetup) {
   }
 
   $Requirements = Join-Path $UltraDir "requirements.txt"
+  if (-not (Test-Path $Requirements)) {
+    Stop-WithHelp "Missing ultra-fast-image-gen requirements.txt at $Requirements."
+  }
+
   $Stamp = Join-Path $VenvDir ".open-dungeon-windows-$ImageDevice.stamp"
-  if (-not (Test-Path $Stamp)) {
+  $NeedsImageDeps = -not (Test-Path $Stamp) -or
+    ((Get-Item $Requirements).LastWriteTimeUtc -gt (Get-Item $Stamp).LastWriteTimeUtc)
+
+  if ($NeedsImageDeps) {
     Write-Step "Installing image dependencies ($ImageDevice)"
     Invoke-Checked "pip upgrade failed." $VenvPython @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
     Invoke-Checked "PyTorch install failed. Try relaunching with: powershell -File scripts\setup-windows.ps1 -CpuOnly" $VenvPython @("-m", "pip", "install", "torch", "torchvision", "--index-url", $TorchIndex)

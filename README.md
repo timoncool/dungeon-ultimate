@@ -58,7 +58,11 @@ model, and the optional image worker. If `winget` is available it can install
 missing Node/Ollama/Python/Git pieces for you. For local image generation it
 clones `ultra-fast-image-gen` into `%USERPROFILE%\ultra-fast-image-gen`,
 creates `.venv`, installs PyTorch CUDA wheels when `nvidia-smi` is present, and
-falls back to CPU wheels otherwise. To force CPU, run:
+falls back to CPU wheels otherwise. If CUDA gives you trouble or you want the
+most compatible path, double-click `Launch-Windows-CPU.bat` instead. The
+launcher also fast-forwards an existing clean `ultra-fast-image-gen` checkout
+and reinstalls image dependencies when that repo's `requirements.txt` changes.
+To force CPU from PowerShell, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1 -CpuOnly
