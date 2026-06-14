@@ -98,12 +98,16 @@ To prove the real Windows image path, double-click
 FLUX generation, will download model weights the first time, and writes a
 transcript to `logs/windows-image-smoke-*.log`. The image server itself tees
 backend output to `logs/windows-image-server-*.log`, with the latest path saved
-in `logs/windows-image-server-latest.txt`. If something hangs or CUDA/CPU image
-generation fails, double-click `Diagnose-Windows.bat` to write a machine,
-Ollama, PyTorch, image-worker, and recent-log snapshot to
+in `logs/windows-image-server-latest.txt`. For the full proof loop, double-click
+`Launch-Windows-Image-Loop.bat`; it runs a fresh CPU smoke and, when NVIDIA is
+detected, a fresh CUDA smoke, switching the shared PyTorch venv wheel as needed
+and collecting diagnostics after each success or failure. If something hangs or
+CUDA/CPU image generation fails, double-click `Diagnose-Windows.bat` to write a
+machine, Ollama, PyTorch, image-worker, and recent-log snapshot to
 `logs/windows-diagnostics-*.txt`. From PowerShell, the same checks are:
 
 ```powershell
+npm run image:loop:windows
 npm run image:smoke:windows
 npm run image:smoke:windows:cuda
 npm run image:smoke:windows:cpu

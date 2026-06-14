@@ -259,6 +259,7 @@ if ($ValidateOnly) {
   Test-PowerShellFile "scripts/smoke-windows-image.ps1" "image smoke script"
   Test-PowerShellFile "scripts/stop-windows.ps1" "Windows stop script"
   Test-PowerShellFile "scripts/diagnose-windows.ps1" "Windows diagnostics script"
+  Test-PowerShellFile "scripts/run-windows-image-loop.ps1" "Windows image loop script"
   & (Join-Path $Repo "scripts\check-windows-launchers.ps1")
   Invoke-Checked "image routing check failed." "npm" @("run", "check:image-routing")
   Invoke-Checked "image server HTTP smoke failed." "npm" @("run", "check:image-server-http")
@@ -395,7 +396,14 @@ if (-not $SkipImageSetup) {
   }
 
   $Stamp = Join-Path $VenvDir ".open-dungeon-windows-$ImageDevice.stamp"
+  $ActiveDeviceStamp = Join-Path $VenvDir ".open-dungeon-windows-active-device"
+  $ActiveImageDevice = if (Test-Path $ActiveDeviceStamp) {
+    (Get-Content -Path $ActiveDeviceStamp -TotalCount 1).Trim()
+  } else {
+    ""
+  }
   $NeedsImageDeps = -not (Test-Path $Stamp) -or
+    ($ActiveImageDevice -ne $ImageDevice) -or
     ((Get-Item $Requirements).LastWriteTimeUtc -gt (Get-Item $Stamp).LastWriteTimeUtc)
 
   if ($NeedsImageDeps) {
@@ -408,6 +416,7 @@ if (-not $SkipImageSetup) {
     Invoke-Checked "PyTorch install failed. Try relaunching with: powershell -File scripts\setup-windows.ps1 -CpuOnly" $VenvPython @("-m", "pip", "install", "torch", "torchvision", "--index-url", $TorchIndex)
     Invoke-Checked "ultra-fast-image-gen dependency install failed." $VenvPython @("-m", "pip", "install", "-r", $FilteredRequirements)
     Set-Content -Path $Stamp -Value "device=$ImageDevice`ninstalled=$(Get-Date -Format o)`n" -Encoding UTF8
+    Set-Content -Path $ActiveDeviceStamp -Value $ImageDevice -Encoding UTF8
   }
 
   Write-Step "Checking ultra-fast-image-gen CLI contract"

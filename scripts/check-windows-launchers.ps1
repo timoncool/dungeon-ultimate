@@ -21,6 +21,10 @@ $Launchers = @(
     Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\smoke-windows-image.ps1" -CpuOnly'
   },
   @{
+    Path = "Launch-Windows-Image-Loop.bat"
+    Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\run-windows-image-loop.ps1" -Device both -Count 1 -DiagnoseOnSuccess'
+  },
+  @{
     Path = "Stop-Windows.bat"
     Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop-windows.ps1"'
   },

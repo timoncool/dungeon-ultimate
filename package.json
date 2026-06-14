@@ -19,6 +19,7 @@
     "check:image-server-http": "node scripts/run-python.mjs scripts/check-image-server-http.py",
     "windows:diagnose": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\diagnose-windows.ps1 -IncludeLogTails",
     "windows:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\stop-windows.ps1",
+    "image:loop:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\run-windows-image-loop.ps1 -Device both -Count 1 -DiagnoseOnSuccess",
     "image:smoke:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\smoke-windows-image.ps1",
     "image:smoke:windows:cuda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\smoke-windows-image.ps1 -Device cuda",
     "image:smoke:windows:cpu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\smoke-windows-image.ps1 -CpuOnly",
