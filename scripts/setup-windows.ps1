@@ -1,6 +1,8 @@
 param(
   [switch]$CpuOnly,
   [switch]$SkipImageSetup,
+  [switch]$SetupImages,
+  [switch]$SetupOllama,
   [switch]$ImageOnly,
   [switch]$ValidateOnly
 )
@@ -32,6 +34,16 @@ function Stop-WithHelp($Message, $Url = $null) {
 
 function Test-Command($Name) {
   return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Confirm-Yes($Message) {
+  if ($NonInteractive) {
+    return $false
+  }
+  Write-Host ""
+  Write-Host $Message -ForegroundColor Yellow
+  $answer = Read-Host "Type Y to continue, or press Enter to skip"
+  return $answer.Trim().ToUpperInvariant() -eq "Y"
 }
 
 function Refresh-Path {
@@ -191,8 +203,13 @@ function Get-PythonCommand {
       continue
     }
     $probeArgs = @($candidate.Args) + @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)")
-    & $candidate.Exe @probeArgs *> $null
-    if ($LASTEXITCODE -eq 0) {
+    try {
+      & $candidate.Exe @probeArgs *> $null
+      $exitCode = $LASTEXITCODE
+    } catch {
+      $exitCode = 1
+    }
+    if ($exitCode -eq 0) {
       return $candidate
     }
   }
@@ -243,6 +260,9 @@ Write-Step "Open Dungeon Windows launcher"
 if ($ImageOnly -and $SkipImageSetup) {
   Stop-WithHelp "-ImageOnly cannot be combined with -SkipImageSetup."
 }
+if ($SetupImages -and $SkipImageSetup) {
+  Stop-WithHelp "-SetupImages cannot be combined with -SkipImageSetup."
+}
 
 if ($ValidateOnly) {
   Write-Step "Validating Windows launcher and image routing"
@@ -255,6 +275,7 @@ if ($ValidateOnly) {
   }
   Invoke-Checked "start-image-server syntax check failed." "node" @("--check", "scripts/start-image-server.mjs")
   Invoke-Checked "run-python syntax check failed." "node" @("--check", "scripts/run-python.mjs")
+  Test-PowerShellFile "scripts/launch-windows.ps1" "Windows launch script"
   Test-PowerShellFile "scripts/check-windows-launchers.ps1" "Windows launcher check script"
   Test-PowerShellFile "scripts/smoke-windows-image.ps1" "image smoke script"
   Test-PowerShellFile "scripts/stop-windows.ps1" "Windows stop script"
@@ -279,25 +300,46 @@ if ($nodeMajor -lt 22) {
 }
 
 if (-not $ImageOnly) {
+  $UseOllama = $SetupOllama
   if (-not (Test-Command "ollama")) {
-    if (-not (Install-WithWinget "Ollama.Ollama" "Ollama")) {
-      Stop-WithHelp "Ollama is required for the local narrator." "https://ollama.com/download"
+    if ($SetupOllama -or (Confirm-Yes "Ollama is optional. Install it only if you want Open Dungeon to manage the default local narrator model on this machine.")) {
+      if (-not (Install-WithWinget "Ollama.Ollama" "Ollama")) {
+        Stop-WithHelp "Ollama install failed or winget is unavailable. Install Ollama manually or use Connect a server in Text Model settings." "https://ollama.com/download"
+      }
+      $UseOllama = $true
+    } else {
+      Write-Host "Skipping Ollama install. In the app, choose Text Model -> Connect a server to use LM Studio, llama.cpp, OpenRouter, or another OpenAI-compatible backend." -ForegroundColor Yellow
     }
   }
 
-  if (-not (Wait-Http "http://127.0.0.1:11434/api/version" 2)) {
-    Write-Step "Starting Ollama"
-    Start-Process -WindowStyle Minimized -FilePath "ollama" -ArgumentList "serve"
-    if (-not (Wait-Http "http://127.0.0.1:11434/api/version" 30)) {
-      Stop-WithHelp "Ollama did not start. Open Ollama manually, then relaunch."
+  if (Test-Command "ollama") {
+    if (-not $UseOllama) {
+      $UseOllama = Wait-Http "http://127.0.0.1:11434/api/version" 2
+    }
+    if (-not $UseOllama -and (Confirm-Yes "Ollama is installed but not required. Start/check Ollama and the default local narrator model now?")) {
+      $UseOllama = $true
     }
   }
 
-  if (-not ((ollama list 2>$null) -match "gemma4:12b-it-qat")) {
-    Write-Step "Downloading the default narrator model (gemma4:12b-it-qat, one time)"
-    ollama pull gemma4:12b-it-qat
-    if ($LASTEXITCODE -ne 0) {
-      Stop-WithHelp "Model download failed. Check your connection and relaunch."
+  if ($UseOllama) {
+    if (-not (Wait-Http "http://127.0.0.1:11434/api/version" 2)) {
+      Write-Step "Starting Ollama"
+      Start-Process -WindowStyle Minimized -FilePath "ollama" -ArgumentList "serve"
+      if (-not (Wait-Http "http://127.0.0.1:11434/api/version" 30)) {
+        Stop-WithHelp "Ollama did not start. Open Ollama manually, then relaunch."
+      }
+    }
+
+    if (-not ((ollama list 2>$null) -match "gemma4:12b-it-qat")) {
+      if ($SetupOllama -or (Confirm-Yes "Download the default local narrator model gemma4:12b-it-qat now? This is optional if you use Connect a server.")) {
+        Write-Step "Downloading the default narrator model (gemma4:12b-it-qat, one time)"
+        ollama pull gemma4:12b-it-qat
+        if ($LASTEXITCODE -ne 0) {
+          Stop-WithHelp "Model download failed. Check your connection and relaunch."
+        }
+      } else {
+        Write-Host "Skipping default Ollama model download. Use Text Model -> Connect a server, or pull a local model later." -ForegroundColor Yellow
+      }
     }
   }
 
@@ -330,7 +372,17 @@ if (-not $ImageOnly) {
   }
 }
 
-if (-not $SkipImageSetup) {
+if ($ImageOnly) {
+  $ShouldSetupImages = $true
+} elseif ($SkipImageSetup) {
+  $ShouldSetupImages = $false
+} elseif ($SetupImages) {
+  $ShouldSetupImages = $true
+} else {
+  $ShouldSetupImages = Confirm-Yes "Local image generation is optional and needs Git, Python, and ultra-fast-image-gen. Set it up now?"
+}
+
+if ($ShouldSetupImages) {
   if (-not (Test-Command "git")) {
     if (-not (Install-WithWinget "Git.Git" "Git")) {
       Stop-WithHelp "Git is required to fetch ultra-fast-image-gen." "https://git-scm.com/download/win"
@@ -413,7 +465,7 @@ if (-not $SkipImageSetup) {
       Where-Object { $_ -notmatch '^\s*(torch|torchvision)(\s|[<>=~!;\[]|$)' } |
       Set-Content -Path $FilteredRequirements -Encoding UTF8
     Invoke-Checked "pip upgrade failed." $VenvPython @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
-    Invoke-Checked "PyTorch install failed. Try relaunching with: powershell -File scripts\setup-windows.ps1 -CpuOnly" $VenvPython @("-m", "pip", "install", "torch", "torchvision", "--index-url", $TorchIndex)
+    Invoke-Checked "PyTorch install failed. Try relaunching with: powershell -File scripts\setup-windows.ps1 -SetupImages -CpuOnly" $VenvPython @("-m", "pip", "install", "torch", "torchvision", "--index-url", $TorchIndex)
     Invoke-Checked "ultra-fast-image-gen dependency install failed." $VenvPython @("-m", "pip", "install", "-r", $FilteredRequirements)
     Set-Content -Path $Stamp -Value "device=$ImageDevice`ninstalled=$(Get-Date -Format o)`n" -Encoding UTF8
     Set-Content -Path $ActiveDeviceStamp -Value $ImageDevice -Encoding UTF8
@@ -426,7 +478,7 @@ if (-not $SkipImageSetup) {
     Write-Step "Checking PyTorch CUDA availability"
     if (-not (Test-CudaAvailable $VenvPython)) {
       Write-Host "PyTorch CUDA is not available even though an NVIDIA tool was detected. Starting the image worker in CPU mode." -ForegroundColor Yellow
-      Write-Host "After updating NVIDIA drivers/CUDA support, relaunch Launch-Windows.bat to try CUDA again." -ForegroundColor Yellow
+      Write-Host "After updating NVIDIA drivers/CUDA support, run Launch-Windows-Image-Smoke.bat to try CUDA again." -ForegroundColor Yellow
       $ImageDevice = "cpu"
     }
   }
@@ -484,6 +536,9 @@ npm run image:server *>&1 | Tee-Object -FilePath $ImageServerLogLiteral -Append
       }
     }
   }
+} elseif (-not $ImageOnly) {
+  Write-Host "Skipping optional local image generation setup. The app can still launch for text play." -ForegroundColor Yellow
+  Write-Host "Run Launch-Windows-Image-Smoke.bat or Launch-Windows-Image-Loop.bat later to install and test the image worker." -ForegroundColor Yellow
 }
 
 if ($ImageOnly) {

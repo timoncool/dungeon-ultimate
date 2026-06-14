@@ -6,11 +6,11 @@ $Repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Launchers = @(
   @{
     Path = "Launch-Windows.bat"
-    Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup-windows.ps1"'
+    Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-windows.ps1"'
   },
   @{
     Path = "Launch-Windows-CPU.bat"
-    Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup-windows.ps1" -CpuOnly'
+    Command = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-windows.ps1" -CpuOnly'
   },
   @{
     Path = "Launch-Windows-Image-Smoke.bat"

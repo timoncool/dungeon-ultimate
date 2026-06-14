@@ -37,10 +37,11 @@ no API keys, no cloud, no GPU rig. Your stories never leave your computer.
 ## Requirements
 
 - Node.js 22+
-- [Ollama](https://ollama.com) for local text generation
-- Text-only works on any platform Ollama supports. Inline image generation is
-  optional: Apple Silicon can use MFLUX/MLX, and Windows/Linux can use the
-  PyTorch SDNQ backend on CUDA or CPU (see
+- Optional [Ollama](https://ollama.com) for the bundled local text path, or any
+  OpenAI-compatible backend through **Connect a server**.
+- Text play works without the image worker. Inline image generation is optional:
+  Apple Silicon can use MFLUX/MLX, and Windows/Linux can use the PyTorch SDNQ
+  backend on CUDA or CPU (see
   [Image generation](#image-generation-optional)).
 
 ## Quick start
@@ -53,28 +54,37 @@ runtime, the narrator model download, and first build. You just need
 [Ollama](https://ollama.com/download) installed.
 
 **Easiest (Windows):** clone or download the repo, then double-click
-`Launch-Windows.bat`. The launcher checks Node.js, Ollama, Python, the narrator
-model, and the optional image worker. If `winget` is available it can install
-missing Node/Ollama/Python/Git pieces for you. For local image generation it
-clones `ultra-fast-image-gen` into `%USERPROFILE%\ultra-fast-image-gen`,
-creates `.venv`, installs PyTorch CUDA wheels when `nvidia-smi` is present, and
-falls back to CPU mode when CUDA is not usable. If CUDA gives you trouble or
-you want the most compatible path, double-click `Launch-Windows-CPU.bat`
-instead. The launcher also fast-forwards an existing clean
-`ultra-fast-image-gen` checkout, keeps the selected CUDA/CPU PyTorch wheel in
-place while installing the rest of that repo's requirements, verifies the
-expected `flux2-4b-sdnq` CLI route is still present, and reinstalls image
-dependencies when `requirements.txt` changes. On Windows, local text
-generation defaults to a safer 65K context window and a 6 minute upstream
-timeout so a slow or wedged Ollama request returns control to the app instead
-of leaving the UI spinning forever. Set `LOCAL_TEXT_CONTEXT` or
+`Launch-Windows.bat`. The launcher checks Node.js, installs app dependencies,
+builds Open Dungeon when needed, and starts http://localhost:3000. If the app
+is already running, the same launcher lets you open it, stop it, or restart it.
+Ollama is optional: the launcher only installs, starts, or pulls the default
+model if you type `Y` at the prompt. If you skip it, open **Text Model** in the
+app and choose **Connect a server** for LM Studio, llama.cpp, OpenRouter, a
+remote Ollama, or another OpenAI-compatible backend.
+
+Local image generation is optional too. The normal launcher only sets up Git,
+Python, and `ultra-fast-image-gen` if you type `Y` at the image prompt, so a
+missing Python runtime will not block text play. When enabled, it clones
+`ultra-fast-image-gen` into `%USERPROFILE%\ultra-fast-image-gen`, creates
+`.venv`, installs PyTorch CUDA wheels when `nvidia-smi` is present, and falls
+back to CPU mode when CUDA is not usable. If CUDA gives you trouble or you want
+the most compatible optional image path, double-click `Launch-Windows-CPU.bat`
+instead and opt into image setup there. The image setup also fast-forwards an
+existing clean `ultra-fast-image-gen` checkout, keeps the selected CUDA/CPU
+PyTorch wheel in place while installing the rest of that repo's requirements,
+verifies the expected `flux2-4b-sdnq` CLI route is still present, and reinstalls
+image dependencies when `requirements.txt` changes.
+
+On Windows, local text generation defaults to a safer 65K context window and a
+6 minute upstream timeout so a slow or wedged Ollama request returns control to
+the app instead of leaving the UI spinning forever. Set `LOCAL_TEXT_CONTEXT` or
 `LOCAL_TEXT_TIMEOUT_MS` in `.env.server` if you want to tune those limits. To
 stop the web app and image worker, double-click `Stop-Windows.bat`; it leaves
 Ollama running by default because you may use it for other apps. To force CPU
-from PowerShell, run:
+for an explicit image setup from PowerShell, run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1 -CpuOnly
+powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1 -SetupImages -CpuOnly
 ```
 
 To stop from PowerShell:
@@ -121,7 +131,7 @@ and setup on macOS. Or by hand:
 git clone https://github.com/newideas99/open-dungeon && cd open-dungeon
 npm install
 
-# pull a local model (7.2 GB — see the table below for other sizes)
+# optional, only if you want the bundled Ollama provider
 ollama pull gemma4:12b-it-qat
 
 npm run dev
