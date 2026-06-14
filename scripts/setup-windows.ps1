@@ -153,6 +153,31 @@ function Wait-Http($Url, $Seconds) {
   return $false
 }
 
+function Get-JsonHealth($Url, $Seconds = 0) {
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  while ($true) {
+    try {
+      return Invoke-RestMethod -UseBasicParsing -TimeoutSec 2 -Uri $Url
+    } catch {
+      if ((Get-Date) -ge $deadline) {
+        return $null
+      }
+      Start-Sleep -Seconds 1
+    }
+  }
+}
+
+function Get-HealthValue($Health, $Name) {
+  if (-not $Health) {
+    return $null
+  }
+  $property = $Health.PSObject.Properties[$Name]
+  if (-not $property) {
+    return $null
+  }
+  return $property.Value
+}
+
 function Get-PythonCommand {
   $candidates = @(
     @{ Exe = "py"; Args = @("-3.11") },
@@ -395,7 +420,9 @@ if (-not $SkipImageSetup) {
     }
   }
 
-  if (-not (Wait-Http "http://127.0.0.1:7869/health" 2)) {
+  $ImageServerHealthUrl = "http://127.0.0.1:7869/health"
+  $ExistingImageServerHealth = Get-JsonHealth $ImageServerHealthUrl 2
+  if (-not $ExistingImageServerHealth) {
     Write-Step "Starting local image server ($ImageDevice)"
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     $ImageServerLog = Join-Path $LogDir ("windows-image-server-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -418,10 +445,32 @@ npm run image:server *>&1 | Tee-Object -FilePath $ImageServerLogLiteral -Append
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($imageCommand))
     Start-Process powershell -ArgumentList @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded)
-  } elseif (Test-Path $LatestImageServerLog) {
-    $ImageServerLog = Get-Content -Path $LatestImageServerLog -TotalCount 1
-    if ($ImageServerLog) {
-      Write-Host "Existing image server log: $ImageServerLog"
+  } else {
+    $ExistingDevice = Get-HealthValue $ExistingImageServerHealth "device"
+    $ExistingBackend = Get-HealthValue $ExistingImageServerHealth "defaultBackend"
+    $ExistingSdnqModel = Get-HealthValue $ExistingImageServerHealth "sdnqModel"
+
+    Write-Host "Existing image server: device=$ExistingDevice, backend=$ExistingBackend, model=$ExistingSdnqModel"
+
+    if ($ExistingDevice -and ($ExistingDevice -ne $ImageDevice)) {
+      Write-Host "Existing image server is running with device '$ExistingDevice', but this launcher selected '$ImageDevice'." -ForegroundColor Yellow
+      Write-Host "Close the existing image server PowerShell window and relaunch if you want to switch devices." -ForegroundColor Yellow
+    }
+    if ($ExistingBackend -and ($ExistingBackend -ne "sdnq-hs")) {
+      Write-Host "Existing image server default backend is '$ExistingBackend'. Windows launchers expect 'sdnq-hs'." -ForegroundColor Yellow
+    }
+    if ($ExistingSdnqModel -and ($ExistingSdnqModel -ne "flux2-4b-sdnq")) {
+      Write-Host "Existing image server SDNQ model is '$ExistingSdnqModel'. Windows launchers expect 'flux2-4b-sdnq'." -ForegroundColor Yellow
+    }
+    if (-not $ExistingDevice -or -not $ExistingBackend -or -not $ExistingSdnqModel) {
+      Write-Host "Existing image server did not report the full Windows health contract. Close it and relaunch if image generation fails." -ForegroundColor Yellow
+    }
+
+    if (Test-Path $LatestImageServerLog) {
+      $ImageServerLog = Get-Content -Path $LatestImageServerLog -TotalCount 1
+      if ($ImageServerLog) {
+        Write-Host "Existing image server log: $ImageServerLog"
+      }
     }
   }
 }
