@@ -4,6 +4,9 @@
   "private": true,
   "description": "Fully on-device AI roleplay app with local text and inline image generation",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:tailscale": "next dev -H 0.0.0.0 -p 3002",

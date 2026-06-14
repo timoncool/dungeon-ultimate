@@ -152,8 +152,8 @@ if (-not (Test-Command "node")) {
 }
 
 $nodeMajor = [int](& node -p "process.versions.node.split('.')[0]")
-if ($nodeMajor -lt 20) {
-  Stop-WithHelp "Node.js 20+ is required; found $(node -v)." "https://nodejs.org"
+if ($nodeMajor -lt 22) {
+  Stop-WithHelp "Node.js 22+ is required; found $(node -v). Node 20 does not have Windows prebuilt binaries for this app's SQLite dependency." "https://nodejs.org"
 }
 
 if (-not (Test-Command "ollama")) {

@@ -36,7 +36,7 @@ no API keys, no cloud, no GPU rig. Your stories never leave your computer.
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22+
 - [Ollama](https://ollama.com) for local text generation
 - Text-only works on any platform Ollama supports. Inline image generation is
   optional: Apple Silicon can use MFLUX/MLX, and Windows/Linux can use the

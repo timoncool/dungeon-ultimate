@@ -22,8 +22,8 @@ if ! command -v node >/dev/null 2>&1; then
   fail "Node.js is required but not installed. Opening nodejs.org — install the LTS version." "https://nodejs.org"
 fi
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  fail "Node.js 20+ is required (you have $(node -v)). Opening nodejs.org." "https://nodejs.org"
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  fail "Node.js 22+ is required (you have $(node -v)). Opening nodejs.org." "https://nodejs.org"
 fi
 
 # --- Ollama ---
