@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createChat, listChats } from "@/lib/db";
 import { LOCAL_TEXT_MODEL_IDS } from "@/lib/text-models";
+import { PROSE_SIZE_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,9 @@ const settingsSchema = z.object({
   imageMode: z.enum(["fast", "slow"]).optional(),
   imageBackend: z.enum(["mflux-hs", "sdnq-hs"]).optional(),
   aspect: z.enum(["square", "portrait", "landscape"]).optional(),
+  imageGenerationEnabled: z.boolean().optional(),
   autoImages: z.boolean().optional(),
+  proseSize: z.enum(PROSE_SIZE_VALUES).optional(),
 });
 
 const createChatSchema = z.object({

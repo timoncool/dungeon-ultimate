@@ -1,0 +1,8 @@
+{
+  "source": "codex exec image_generation",
+  "codexBin": "/Users/jacobferrari/.local/bin/codex",
+  "rolloutPath": "/Users/jacobferrari/.codex/sessions/2026/06/13/rollout-2026-06-13T20-23-34-019ec383-2b68-7570-bce6-572f56ed68e7.jsonl",
+  "imageId": "ig_08d4b2649c0a12ff016a2df48da7948193877a8a811b0db2c4",
+  "revisedPrompt": "Generate one raster PNG image for a logo-brand asset: Open Dungeon right sidebar category icon. Support category icon: a warm tavern heart token made of hammered brass resting against a small healing potion, dungeon-era fantasy tabletop feel, warm torchlit highlights, chunky hand-painted RPG app icon style, matching a dark stone dungeon door icon vibe. Painterly game UI icon, crisp silhouette, readable at small size, no text. Centered single emblem-like object group, square icon, generous padding, simple dark stone vignette. Amber torch glow, charcoal stone shadows, generous and cozy. Constraints: no letters, no words, no watermark, no modern payment symbols, no modern objects.",
+  "prompt": "Use case: logo-brand\nAsset type: Open Dungeon right sidebar category icon\nPrimary request: Support category icon: a warm tavern heart token made of hammered brass resting against a small healing potion, dungeon-era fantasy tabletop feel, warm torchlit highlights, chunky hand-painted RPG app icon style, matching a dark stone dungeon door icon vibe.\nStyle/medium: painterly game UI icon, crisp silhouette, readable at small size, no text.\nComposition/framing: centered single emblem-like object group, square icon, generous padding, simple dark stone vignette.\nLighting/mood: amber torch glow, charcoal stone shadows, generous and cozy.\nConstraints: no letters, no words, no watermark, no modern payment symbols, no modern objects."
+}

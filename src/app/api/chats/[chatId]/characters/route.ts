@@ -19,6 +19,9 @@ const attachmentSchema = z.object({
 const createCharacterSchema = z.object({
   name: z.string().trim().min(1),
   details: z.string().optional(),
+  inventory: z.string().optional(),
+  skills: z.string().optional(),
+  spells: z.string().optional(),
   portrait: attachmentSchema.optional(),
 });
 

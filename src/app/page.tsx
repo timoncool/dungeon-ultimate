@@ -4,6 +4,7 @@ import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Aperture,
+  Backpack,
   BookOpen,
   Check,
   ChevronRight,
@@ -21,7 +22,9 @@ import {
   Settings2,
   Sparkles,
   Trash2,
+  Type,
   UserRound,
+  WandSparkles,
   X,
 } from "lucide-react";
 import {
@@ -44,6 +47,7 @@ import type {
   GeneratedImage,
   ImageBackend,
   ImageMode,
+  ProseSize,
   StoryChat,
   StoryCharacter,
   StoryChatSummary,
@@ -60,12 +64,34 @@ const KICKOFF_DIRECTIVE =
 const CONTINUE_DIRECTIVE =
   "Continue the story from exactly where it left off. The player is not taking an action this turn — advance the scene naturally with narration, dialogue, or events, then pause on a beat that invites their next action.";
 
+const SIDEBAR_ICONS = {
+  chats: "/sidebar-icons/chats.png",
+  characters: "/sidebar-icons/characters.png",
+  textModel: "/sidebar-icons/text-model.png",
+  story: "/sidebar-icons/story.png",
+  images: "/sidebar-icons/images.png",
+  localData: "/sidebar-icons/local-data.png",
+  support: "/sidebar-icons/support.png",
+} as const;
+
 type InputMode = "do" | "say" | "story";
 
 const INPUT_MODES: Array<{ value: InputMode; label: string; placeholder: string }> = [
   { value: "do", label: "Do", placeholder: "What do you do?" },
   { value: "say", label: "Say", placeholder: "What do you say?" },
   { value: "story", label: "Story", placeholder: "Write the next part of the story…" },
+];
+
+const PROSE_SIZE_OPTIONS: Array<{ value: ProseSize; label: string; className: string }> = [
+  { value: "tiny", label: "12px", className: "text-xs leading-5" },
+  { value: "xsmall", label: "14px", className: "text-sm leading-6" },
+  { value: "small", label: "16px", className: "text-base leading-7" },
+  { value: "medium", label: "18px", className: "text-lg leading-8" },
+  { value: "large", label: "20px", className: "text-xl leading-9" },
+  { value: "xlarge", label: "22px", className: "text-[1.375rem] leading-10" },
+  { value: "xxlarge", label: "24px", className: "text-2xl leading-10" },
+  { value: "huge", label: "28px", className: "text-[1.75rem] leading-[2.75rem]" },
+  { value: "giant", label: "32px", className: "text-[2rem] leading-[3rem]" },
 ];
 
 function formatPlayerInput(mode: InputMode, text: string): string {
@@ -134,10 +160,39 @@ type CharacterResponse = { character: StoryCharacter };
 type CharacterDraft = {
   name: string;
   details: string;
+  inventory: string;
+  skills: string;
+  spells: string;
   portrait?: Attachment;
 };
 type MobileTool = "characters" | "story" | "images" | "data";
+type DesktopPanel = "chats" | "characters" | "textModel" | "story" | "images" | "localData" | "support";
 type LocalTextStatus = { ok: boolean; installedModels: string[] };
+type PanelControlProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  divided?: boolean;
+};
+
+const DESKTOP_PANEL_ORDER: DesktopPanel[] = [
+  "chats",
+  "characters",
+  "textModel",
+  "story",
+  "images",
+  "localData",
+  "support",
+];
+
+function emptyCharacterDraft(): CharacterDraft {
+  return {
+    name: "",
+    details: "",
+    inventory: "",
+    skills: "",
+    spells: "",
+  };
+}
 
 function makeId() {
   if (typeof crypto?.randomUUID === "function") {
@@ -219,6 +274,20 @@ function formatChatDate(value: string) {
   }).format(date);
 }
 
+function storyProseClassName(size: ProseSize) {
+  return (
+    PROSE_SIZE_OPTIONS.find((option) => option.value === size)?.className ??
+    "text-lg leading-8"
+  );
+}
+
+function proseSizeSliderValue(size: ProseSize) {
+  return Math.max(
+    0,
+    PROSE_SIZE_OPTIONS.findIndex((option) => option.value === size),
+  );
+}
+
 function chatToSummary(chat: StoryChat): StoryChatSummary {
   return {
     id: chat.id,
@@ -236,10 +305,7 @@ export default function Home() {
   const [selectedChatId, setSelectedChatId] = useState("");
   const [messages, setMessages] = useState<StoryMessage[]>([]);
   const [characters, setCharacters] = useState<StoryCharacter[]>([]);
-  const [characterDraft, setCharacterDraft] = useState<CharacterDraft>({
-    name: "",
-    details: "",
-  });
+  const [characterDraft, setCharacterDraft] = useState<CharacterDraft>(emptyCharacterDraft);
   const [settings, setSettings] = useState<StorySettings>(DEFAULT_STORY_SETTINGS);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -254,6 +320,7 @@ export default function Home() {
   const [imageStatus, setImageStatus] = useState<ImageStatus>({});
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [mobileTool, setMobileTool] = useState<MobileTool>("characters");
+  const [activeDesktopPanel, setActiveDesktopPanel] = useState<DesktopPanel | null>(null);
   const [localTextStatus, setLocalTextStatus] = useState<LocalTextStatus | null>(null);
   const [newStoryOpen, setNewStoryOpen] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>("do");
@@ -272,12 +339,16 @@ export default function Home() {
     return [...messages].reverse().find((message) => message.role === "user")?.attachments || [];
   }, [messages]);
 
+  const orderedDesktopPanels = useMemo(() => {
+    return activeDesktopPanel ? [activeDesktopPanel] : DESKTOP_PANEL_ORDER;
+  }, [activeDesktopPanel]);
+
   const applyChat = useCallback((chat: StoryChat) => {
     setSelectedChatId(chat.id);
     window.localStorage.setItem(SELECTED_CHAT_KEY, chat.id);
     setMessages(chat.messages);
     setCharacters(chat.characters || []);
-    setCharacterDraft({ name: "", details: "" });
+    setCharacterDraft(emptyCharacterDraft());
     setSettings(chat.settings);
     setAttachments([]);
     setImageStatus({});
@@ -314,7 +385,7 @@ export default function Home() {
     setSelectedChatId("");
     setMessages([]);
     setCharacters([]);
-    setCharacterDraft({ name: "", details: "" });
+    setCharacterDraft(emptyCharacterDraft());
     setSettings(DEFAULT_STORY_SETTINGS);
     setAttachments([]);
     setImageStatus({});
@@ -473,6 +544,14 @@ export default function Home() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages, busy, imageStatus]);
 
+  const setImageGenerationEnabled = useCallback((imageGenerationEnabled: boolean) => {
+    setSettings((current) => ({ ...current, imageGenerationEnabled }));
+    if (!imageGenerationEnabled) {
+      setImageStatus({});
+      setError("");
+    }
+  }, []);
+
   async function handleFiles(files: FileList | null) {
     if (!files?.length) {
       return;
@@ -535,6 +614,9 @@ export default function Home() {
         body: JSON.stringify({
           name,
           details: characterDraft.details,
+          inventory: characterDraft.inventory,
+          skills: characterDraft.skills,
+          spells: characterDraft.spells,
           portrait: characterDraft.portrait,
         }),
       });
@@ -543,7 +625,7 @@ export default function Home() {
         payload.character,
         ...current.filter((character) => character.id !== payload.character.id),
       ]);
-      setCharacterDraft({ name: "", details: "" });
+      setCharacterDraft(emptyCharacterDraft());
       void refreshChats();
     } catch (characterError) {
       setError(characterError instanceof Error ? characterError.message : "Character failed to save.");
@@ -554,7 +636,14 @@ export default function Home() {
 
   async function updateCharacterById(
     characterId: string,
-    updates: { name?: string; details?: string; portrait?: Attachment | null },
+    updates: {
+      name?: string;
+      details?: string;
+      inventory?: string;
+      skills?: string;
+      spells?: string;
+      portrait?: Attachment | null;
+    },
   ) {
     if (!selectedChatId) {
       return;
@@ -626,6 +715,10 @@ export default function Home() {
     refs: Attachment[],
     imageRequest?: StoryMessage["imageRequest"],
   ) {
+    if (!settings.imageGenerationEnabled) {
+      return;
+    }
+
     setImageStatus((current) => ({ ...current, [messageId]: "loading" }));
 
     try {
@@ -704,7 +797,11 @@ export default function Home() {
       setMessages((current) => [...current, assistantMessage]);
       void refreshChats();
 
-      if (payload.imageRequest?.needed && payload.imageRequest.prompt) {
+      if (
+        opts.settings.imageGenerationEnabled &&
+        payload.imageRequest?.needed &&
+        payload.imageRequest.prompt
+      ) {
         void requestGeneratedImage(
           assistantMessage.id,
           payload.imageRequest.prompt,
@@ -933,14 +1030,120 @@ export default function Home() {
     });
   }
 
+  function desktopPanelControls(panel: DesktopPanel) {
+    return {
+      open: activeDesktopPanel === panel,
+      onOpenChange: (open: boolean) => setActiveDesktopPanel(open ? panel : null),
+      divided: orderedDesktopPanels[0] !== panel,
+    };
+  }
+
+  function renderDesktopPanel(panel: DesktopPanel) {
+    if (panel === "chats") {
+      return (
+        <ChatLibrary
+          key={panel}
+          chats={chats}
+          selectedChatId={selectedChatId}
+          loading={libraryLoading}
+          onCreate={() => setNewStoryOpen(true)}
+          onSelect={(chatId) => void loadChat(chatId)}
+          onDelete={(chatId) => void deleteChatById(chatId)}
+          fillAvailable={activeDesktopPanel === "chats"}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    if (panel === "characters") {
+      return (
+        <CharacterPanel
+          key={panel}
+          characters={characters}
+          draft={characterDraft}
+          creating={characterSaving}
+          uploadingId={characterUploadingId}
+          onDraftChange={setCharacterDraft}
+          onDraftPortrait={(file) => void uploadCharacterPortrait(file)}
+          onCreate={() => void createCharacterFromDraft()}
+          onLocalChange={(characterId, updates) =>
+            setCharacters((current) =>
+              current.map((character) =>
+                character.id === characterId ? { ...character, ...updates } : character,
+              ),
+            )
+          }
+          onSave={(character) =>
+            void updateCharacterById(character.id, {
+              name: character.name,
+              details: character.details,
+              inventory: character.inventory,
+              skills: character.skills,
+              spells: character.spells,
+            })
+          }
+          onPortraitFile={(characterId, file) => void uploadCharacterPortrait(file, characterId)}
+          onClearPortrait={(characterId) => void updateCharacterById(characterId, { portrait: null })}
+          onDelete={(characterId) => void deleteCharacterById(characterId)}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    if (panel === "textModel") {
+      return (
+        <TextModelPanel
+          key={panel}
+          settings={settings}
+          setSettings={setSettings}
+          localTextStatus={localTextStatus}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    if (panel === "story") {
+      return (
+        <StorySettingsPanel
+          key={panel}
+          settings={settings}
+          setSettings={setSettings}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    if (panel === "images") {
+      return (
+        <ImageSettingsPanel
+          key={panel}
+          settings={settings}
+          setSettings={setSettings}
+          onImageGenerationEnabledChange={setImageGenerationEnabled}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    if (panel === "localData") {
+      return (
+        <LocalDataPanel
+          key={panel}
+          clearing={clearingLocalData}
+          onClear={() => void clearAllLocalData()}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    return <SupportPanel key={panel} {...desktopPanelControls(panel)} />;
+  }
+
   return (
     <main className="flex h-dvh min-h-dvh flex-1 overflow-hidden bg-[#130d09] text-stone-100">
       <section className="mx-auto flex h-dvh min-h-0 w-full max-w-7xl flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-amber-200/20 bg-amber-200/10">
-              <BookOpen className="size-4 text-amber-200" aria-hidden="true" />
-            </div>
             <div className="min-w-0">
               <h1 className="truncate text-balance text-base font-semibold text-stone-100">
                 {activeChat?.title || "Open Dungeon"}
@@ -1007,6 +1210,9 @@ export default function Home() {
             void updateCharacterById(character.id, {
               name: character.name,
               details: character.details,
+              inventory: character.inventory,
+              skills: character.skills,
+              spells: character.spells,
             })
           }
           onPortraitFile={(characterId, file) => void uploadCharacterPortrait(file, characterId)}
@@ -1014,6 +1220,7 @@ export default function Home() {
           onDeleteCharacter={(characterId) => void deleteCharacterById(characterId)}
           settings={settings}
           setSettings={setSettings}
+          onImageGenerationEnabledChange={setImageGenerationEnabled}
           localTextStatus={localTextStatus}
           clearingLocalData={clearingLocalData}
           onClearLocalData={() => void clearAllLocalData()}
@@ -1081,11 +1288,17 @@ export default function Home() {
                           />
                         </div>
                       ) : (
-                        <div className="font-serif text-[1.13rem] leading-8 text-stone-100 sm:text-[1.3rem] sm:leading-9 md:text-[1.48rem] md:leading-10">
+                        <div
+                          className={cn(
+                            "font-serif text-stone-100",
+                            storyProseClassName(settings.proseSize),
+                          )}
+                        >
                           <p className="text-pretty whitespace-pre-wrap">
                             {renderStoryEmphasis(message.content)}
                           </p>
-                          {(message.generatedImage || message.imageRequest?.needed) && (
+                          {(message.generatedImage ||
+                            (settings.imageGenerationEnabled && message.imageRequest?.needed)) && (
                             <ImageBeat
                               message={message}
                               status={imageStatus[message.id]}
@@ -1248,58 +1461,22 @@ export default function Home() {
           </section>
 
           <aside className="hidden min-h-0 border-l border-stone-800 pl-6 lg:block">
-            <div className="sticky top-6 max-h-[calc(100dvh-3rem)] space-y-6 overflow-y-auto pr-1">
-              <ChatLibrary
-                chats={chats}
-                selectedChatId={selectedChatId}
-                loading={libraryLoading}
-                onCreate={() => setNewStoryOpen(true)}
-                onSelect={(chatId) => void loadChat(chatId)}
-                onDelete={(chatId) => void deleteChatById(chatId)}
-              />
-
-              <CharacterPanel
-                characters={characters}
-                draft={characterDraft}
-                creating={characterSaving}
-                uploadingId={characterUploadingId}
-                onDraftChange={setCharacterDraft}
-                onDraftPortrait={(file) => void uploadCharacterPortrait(file)}
-                onCreate={() => void createCharacterFromDraft()}
-                onLocalChange={(characterId, updates) =>
-                  setCharacters((current) =>
-                    current.map((character) =>
-                      character.id === characterId ? { ...character, ...updates } : character,
-                    ),
-                  )
-                }
-                onSave={(character) =>
-                  void updateCharacterById(character.id, {
-                    name: character.name,
-                    details: character.details,
-                  })
-                }
-                onPortraitFile={(characterId, file) => void uploadCharacterPortrait(file, characterId)}
-                onClearPortrait={(characterId) => void updateCharacterById(characterId, { portrait: null })}
-                onDelete={(characterId) => void deleteCharacterById(characterId)}
-              />
-
-              <TextModelPanel
-                settings={settings}
-                setSettings={setSettings}
-                localTextStatus={localTextStatus}
-              />
-
-              <StorySettingsPanel settings={settings} setSettings={setSettings} />
-
-              <ImageSettingsPanel settings={settings} setSettings={setSettings} />
-
-              <LocalDataPanel
-                clearing={clearingLocalData}
-                onClear={() => void clearAllLocalData()}
-              />
-
-              <SupportPanel />
+            <div
+              className={cn(
+                "sticky top-4 overflow-y-auto pr-1 pb-4",
+                activeDesktopPanel
+                  ? "flex h-[calc(100dvh-2rem)] min-h-0 flex-col"
+                  : "max-h-[calc(100dvh-2rem)] space-y-2",
+              )}
+            >
+              {orderedDesktopPanels.map((panel) => renderDesktopPanel(panel))}
+              {!activeDesktopPanel && (
+                <FontSizeSlider
+                  settings={settings}
+                  setSettings={setSettings}
+                  idPrefix="desktop-rail"
+                />
+              )}
             </div>
           </aside>
         </div>
@@ -1568,6 +1745,7 @@ function MobileToolsSheet({
   onDeleteCharacter,
   settings,
   setSettings,
+  onImageGenerationEnabledChange,
   localTextStatus,
   clearingLocalData,
   onClearLocalData,
@@ -1585,7 +1763,7 @@ function MobileToolsSheet({
   onCreateCharacter: () => void;
   onLocalCharacterChange: (
     characterId: string,
-    updates: Partial<Pick<StoryCharacter, "name" | "details">>,
+    updates: Partial<Pick<StoryCharacter, "name" | "details" | "inventory" | "skills" | "spells">>,
   ) => void;
   onSaveCharacter: (character: StoryCharacter) => void;
   onPortraitFile: (characterId: string, file: File) => void;
@@ -1593,6 +1771,7 @@ function MobileToolsSheet({
   onDeleteCharacter: (characterId: string) => void;
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
+  onImageGenerationEnabledChange: (enabled: boolean) => void;
   localTextStatus: LocalTextStatus | null;
   clearingLocalData: boolean;
   onClearLocalData: () => void;
@@ -1686,7 +1865,12 @@ function MobileToolsSheet({
           )}
 
           {activeTool === "images" && (
-            <ImageSettingsPanel settings={settings} setSettings={setSettings} compact />
+            <ImageSettingsPanel
+              settings={settings}
+              setSettings={setSettings}
+              onImageGenerationEnabledChange={onImageGenerationEnabledChange}
+              compact
+            />
           )}
 
           {activeTool === "data" && (
@@ -1755,6 +1939,10 @@ function ChatLibrary({
   onCreate,
   onSelect,
   onDelete,
+  open,
+  onOpenChange,
+  divided,
+  fillAvailable = false,
 }: {
   chats: StoryChatSummary[];
   selectedChatId: string;
@@ -1762,28 +1950,43 @@ function ChatLibrary({
   onCreate: () => void;
   onSelect: (chatId: string) => void;
   onDelete: (chatId: string) => void;
-}) {
+  fillAvailable?: boolean;
+} & PanelControlProps) {
+  const chatListClassName = cn(
+    "space-y-2 overflow-y-auto pr-1",
+    fillAvailable && "min-h-0 flex-1",
+  );
+  const chatListStyle = fillAvailable ? undefined : { maxHeight: "clamp(4rem, 10dvh, 9rem)" };
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <PanelTitle icon={Library} title="Chats" />
+    <PanelSection
+      icon={Library}
+      iconSrc={SIDEBAR_ICONS.chats}
+      title="Chats"
+      defaultOpen
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided ?? false}
+      fill={fillAvailable}
+      action={
         <button
           type="button"
           aria-label="Create new story"
           onClick={onCreate}
-          className="flex size-8 items-center justify-center rounded border border-stone-800 text-stone-300 hover:bg-stone-900"
+          className="flex size-10 shrink-0 items-center justify-center rounded border border-stone-800 text-stone-300 hover:bg-stone-900"
         >
           <Plus className="size-4" aria-hidden="true" />
         </button>
-      </div>
+      }
+    >
 
       {loading ? (
-        <div className="space-y-2">
+        <div className={chatListClassName} style={chatListStyle}>
           <div className="h-16 rounded border border-stone-800 bg-stone-950" />
           <div className="h-16 rounded border border-stone-800 bg-stone-950" />
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className={chatListClassName} style={chatListStyle}>
           {chats.map((chat) => {
             const selected = chat.id === selectedChatId;
             return (
@@ -1836,7 +2039,7 @@ function ChatLibrary({
           )}
         </div>
       )}
-    </div>
+    </PanelSection>
   );
 }
 
@@ -1854,6 +2057,9 @@ function CharacterPanel({
   onClearPortrait,
   onDelete,
   compact = false,
+  open,
+  onOpenChange,
+  divided,
 }: {
   characters: StoryCharacter[];
   draft: CharacterDraft;
@@ -1864,18 +2070,25 @@ function CharacterPanel({
   onCreate: () => void;
   onLocalChange: (
     characterId: string,
-    updates: Partial<Pick<StoryCharacter, "name" | "details">>,
+    updates: Partial<Pick<StoryCharacter, "name" | "details" | "inventory" | "skills" | "spells">>,
   ) => void;
   onSave: (character: StoryCharacter) => void;
   onPortraitFile: (characterId: string, file: File) => void;
   onClearPortrait: (characterId: string) => void;
   onDelete: (characterId: string) => void;
   compact?: boolean;
-}) {
+} & PanelControlProps) {
   return (
-    <div className={cn("space-y-3", compact ? "" : "border-t border-stone-800 pt-6")}>
-      <PanelTitle icon={UserRound} title="Characters" />
-
+    <PanelSection
+      icon={UserRound}
+      iconSrc={SIDEBAR_ICONS.characters}
+      title="Characters"
+      compact={compact}
+      defaultOpen={compact}
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
       <div className="space-y-3 rounded border border-stone-800 bg-stone-950/70 p-3">
         <label className="block">
           <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Name</span>
@@ -1905,6 +2118,62 @@ function CharacterPanel({
             placeholder="Short black hair, tomboy, dry humor..."
           />
         </label>
+
+        <div className="grid gap-2">
+          <label className="block">
+            <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+              <Backpack className="size-3.5" aria-hidden="true" />
+              Inventory
+            </span>
+            <textarea
+              id="new-character-inventory"
+              name="new-character-inventory"
+              value={draft.inventory}
+              onChange={(event) =>
+                onDraftChange((current) => ({ ...current, inventory: event.target.value }))
+              }
+              rows={2}
+              className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
+              placeholder="Iron dagger, lantern, 12 silver..."
+            />
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+                <Sparkles className="size-3.5" aria-hidden="true" />
+                Skills
+              </span>
+              <textarea
+                id="new-character-skills"
+                name="new-character-skills"
+                value={draft.skills}
+                onChange={(event) =>
+                  onDraftChange((current) => ({ ...current, skills: event.target.value }))
+                }
+                rows={2}
+                className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
+                placeholder="Lockpicking, herbalism..."
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+                <WandSparkles className="size-3.5" aria-hidden="true" />
+                Spells
+              </span>
+              <textarea
+                id="new-character-spells"
+                name="new-character-spells"
+                value={draft.spells}
+                onChange={(event) =>
+                  onDraftChange((current) => ({ ...current, spells: event.target.value }))
+                }
+                rows={2}
+                className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
+                placeholder="Mending, mage hand..."
+              />
+            </label>
+          </div>
+        </div>
 
         {draft.portrait && (
           <div className="flex items-center gap-2 rounded border border-stone-800 bg-stone-950 p-2">
@@ -2022,6 +2291,59 @@ function CharacterPanel({
                 </DeleteCharacterDialog>
               </div>
 
+              <div className="grid gap-2">
+                <label className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+                    <Backpack className="size-3.5" aria-hidden="true" />
+                    Inventory
+                  </span>
+                  <textarea
+                    value={character.inventory || ""}
+                    onChange={(event) =>
+                      onLocalChange(character.id, { inventory: event.target.value })
+                    }
+                    onBlur={() => onSave(character)}
+                    rows={2}
+                    className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
+                    placeholder="Items, gear, money, quest objects..."
+                  />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+                      <Sparkles className="size-3.5" aria-hidden="true" />
+                      Skills
+                    </span>
+                    <textarea
+                      value={character.skills || ""}
+                      onChange={(event) =>
+                        onLocalChange(character.id, { skills: event.target.value })
+                      }
+                      onBlur={() => onSave(character)}
+                      rows={2}
+                      className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
+                      placeholder="Talents, proficiencies, class features..."
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+                      <WandSparkles className="size-3.5" aria-hidden="true" />
+                      Spells
+                    </span>
+                    <textarea
+                      value={character.spells || ""}
+                      onChange={(event) =>
+                        onLocalChange(character.id, { spells: event.target.value })
+                      }
+                      onBlur={() => onSave(character)}
+                      rows={2}
+                      className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
+                      placeholder="Prepared spells, powers, cooldown notes..."
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
                 <input
                   id={pictureInputId}
@@ -2068,7 +2390,7 @@ function CharacterPanel({
           </p>
         )}
       </div>
-    </div>
+    </PanelSection>
   );
 }
 
@@ -2131,19 +2453,30 @@ function TextModelPanel({
   setSettings,
   localTextStatus,
   compact = false,
+  open,
+  onOpenChange,
+  divided,
 }: {
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   localTextStatus: LocalTextStatus | null;
   compact?: boolean;
-}) {
+} & PanelControlProps) {
   const idPrefix = compact ? "mobile" : "desktop";
   const selectedMissing =
     localTextStatus?.ok && !localTextStatus.installedModels.includes(settings.localTextModel);
 
   return (
-    <div className={cn("space-y-3", compact ? "" : "border-t border-stone-800 pt-6")}>
-      <PanelTitle icon={Cpu} title="Text Model" />
+    <PanelSection
+      icon={Cpu}
+      iconSrc={SIDEBAR_ICONS.textModel}
+      title="Text Model"
+      compact={compact}
+      defaultOpen={compact}
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
       <div className="space-y-2">
         <span className="block text-xs font-medium uppercase text-stone-500">Provider</span>
         <Segmented<TextProvider>
@@ -2305,6 +2638,59 @@ function TextModelPanel({
           </p>
         </div>
       )}
+    </PanelSection>
+  );
+}
+
+function FontSizeSlider({
+  settings,
+  setSettings,
+  idPrefix,
+  className,
+}: {
+  settings: StorySettings;
+  setSettings: Dispatch<SetStateAction<StorySettings>>;
+  idPrefix: string;
+  className?: string;
+}) {
+  const proseSizeValue = proseSizeSliderValue(settings.proseSize);
+  const proseSizeLabel = PROSE_SIZE_OPTIONS[proseSizeValue]?.label ?? "18px";
+
+  return (
+    <div
+      className={cn(
+        "space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-2",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+          <Type className="size-3.5" aria-hidden="true" />
+          Font size
+        </span>
+        <span className="text-xs font-medium text-amber-100">{proseSizeLabel}</span>
+      </div>
+      <input
+        id={`${idPrefix}-font-size`}
+        name={`${idPrefix}-font-size`}
+        type="range"
+        min={0}
+        max={PROSE_SIZE_OPTIONS.length - 1}
+        step={1}
+        value={proseSizeValue}
+        aria-label="Font size"
+        onChange={(event) => {
+          const option =
+            PROSE_SIZE_OPTIONS[Number(event.target.value)] ?? PROSE_SIZE_OPTIONS[3];
+          setSettings((current) => ({ ...current, proseSize: option.value }));
+        }}
+        className="w-full accent-amber-200"
+      />
+      <div className="flex justify-between text-[0.65rem] font-medium uppercase text-stone-600">
+        {PROSE_SIZE_OPTIONS.map((option) => (
+          <span key={option.value}>{option.label}</span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2313,16 +2699,30 @@ function StorySettingsPanel({
   settings,
   setSettings,
   compact = false,
+  open,
+  onOpenChange,
+  divided,
 }: {
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   compact?: boolean;
-}) {
+} & PanelControlProps) {
   const idPrefix = compact ? "mobile" : "desktop";
 
   return (
-    <div className={cn("space-y-4", compact ? "" : "border-t border-stone-800 pt-6")}>
-      <PanelTitle icon={Settings2} title="Story" />
+    <PanelSection
+      icon={Settings2}
+      iconSrc={SIDEBAR_ICONS.story}
+      title="Story"
+      compact={compact}
+      defaultOpen={compact}
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
+      {compact && (
+        <FontSizeSlider settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
+      )}
       <label className="block">
         <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
           World
@@ -2353,24 +2753,49 @@ function StorySettingsPanel({
           className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
         />
       </label>
-    </div>
+    </PanelSection>
   );
 }
 
 function ImageSettingsPanel({
   settings,
   setSettings,
+  onImageGenerationEnabledChange,
   compact = false,
+  open,
+  onOpenChange,
+  divided,
 }: {
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
+  onImageGenerationEnabledChange: (enabled: boolean) => void;
   compact?: boolean;
-}) {
+} & PanelControlProps) {
   const idPrefix = compact ? "mobile" : "desktop";
+  const imageControlsDisabled = !settings.imageGenerationEnabled;
 
   return (
-    <div className={cn("space-y-3", compact ? "" : "border-t border-stone-800 pt-6")}>
-      <PanelTitle icon={Aperture} title="Images" />
+    <PanelSection
+      icon={Aperture}
+      iconSrc={SIDEBAR_ICONS.images}
+      title="Images"
+      compact={compact}
+      defaultOpen={compact}
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
+      <label className="flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300">
+        Image generation
+        <input
+          id={`${idPrefix}-image-generation-enabled`}
+          name={`${idPrefix}-image-generation-enabled`}
+          type="checkbox"
+          checked={settings.imageGenerationEnabled}
+          onChange={(event) => onImageGenerationEnabledChange(event.target.checked)}
+          className="size-4 accent-amber-200"
+        />
+      </label>
       <div className="space-y-2">
         <span className="block text-xs font-medium uppercase text-stone-500">Backend</span>
         <Segmented<ImageBackend>
@@ -2379,6 +2804,7 @@ function ImageSettingsPanel({
             { value: "mflux-hs", label: "MFLUX 4B" },
             { value: "sdnq-hs", label: "SDNQ HS" },
           ]}
+          disabled={imageControlsDisabled}
           onChange={(imageBackend) =>
             setSettings((current) => ({
               ...current,
@@ -2395,6 +2821,7 @@ function ImageSettingsPanel({
             { value: "fast", label: "1024" },
             { value: "slow", label: "2048" },
           ]}
+          disabled={imageControlsDisabled}
           onChange={(imageMode) => setSettings((current) => ({ ...current, imageMode }))}
         />
       </div>
@@ -2407,23 +2834,30 @@ function ImageSettingsPanel({
             { value: "portrait", label: "Portrait" },
             { value: "landscape", label: "Landscape" },
           ]}
+          disabled={imageControlsDisabled}
           onChange={(aspect) => setSettings((current) => ({ ...current, aspect }))}
         />
       </div>
-      <label className="flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300">
+      <label
+        className={cn(
+          "flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300",
+          imageControlsDisabled && "text-stone-600",
+        )}
+      >
         Auto images
         <input
           id={`${idPrefix}-auto-images`}
           name={`${idPrefix}-auto-images`}
           type="checkbox"
           checked={settings.autoImages}
+          disabled={imageControlsDisabled}
           onChange={(event) =>
             setSettings((current) => ({ ...current, autoImages: event.target.checked }))
           }
-          className="size-4 accent-amber-200"
+          className="size-4 accent-amber-200 disabled:accent-stone-700"
         />
       </label>
-    </div>
+    </PanelSection>
   );
 }
 
@@ -2431,14 +2865,25 @@ function LocalDataPanel({
   clearing,
   onClear,
   compact = false,
+  open,
+  onOpenChange,
+  divided,
 }: {
   clearing: boolean;
   onClear: () => void;
   compact?: boolean;
-}) {
+} & PanelControlProps) {
   return (
-    <div className={cn("space-y-3", compact ? "" : "border-t border-stone-800 pt-6")}>
-      <PanelTitle icon={Trash2} title="Local Data" />
+    <PanelSection
+      icon={Trash2}
+      iconSrc={SIDEBAR_ICONS.localData}
+      title="Local Data"
+      compact={compact}
+      defaultOpen={compact}
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
       <ClearLocalDataDialog onConfirm={onClear}>
         <button
           type="button"
@@ -2453,14 +2898,20 @@ function LocalDataPanel({
           Clear all local data
         </button>
       </ClearLocalDataDialog>
-    </div>
+    </PanelSection>
   );
 }
 
-function SupportPanel() {
+function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
   return (
-    <div className="space-y-3 border-t border-stone-800 pt-6">
-      <PanelTitle icon={Heart} title="Support" />
+    <PanelSection
+      icon={Heart}
+      iconSrc={SIDEBAR_ICONS.support}
+      title="Support"
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
       <p className="text-pretty text-xs leading-relaxed text-stone-500">
         Open Dungeon is free and open source. If it earns a spot on your machine, a tip
         keeps development going.
@@ -2484,7 +2935,7 @@ function SupportPanel() {
           Buy me a coffee on Ko-fi
         </a>
       </div>
-    </div>
+    </PanelSection>
   );
 }
 
@@ -2831,17 +3282,103 @@ function ImageBeat({
   );
 }
 
+function PanelSection({
+  icon,
+  iconSrc,
+  title,
+  children,
+  action,
+  compact = false,
+  defaultOpen = false,
+  open: controlledOpen,
+  onOpenChange,
+  divided = true,
+  fill = false,
+}: {
+  icon: typeof Sparkles;
+  iconSrc?: string;
+  title: string;
+  children: ReactNode;
+  action?: ReactNode;
+  compact?: boolean;
+  defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  divided?: boolean;
+  fill?: boolean;
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? uncontrolledOpen;
+
+  function toggleOpen() {
+    const nextOpen = !open;
+    if (onOpenChange) {
+      onOpenChange(nextOpen);
+      return;
+    }
+    setUncontrolledOpen(nextOpen);
+  }
+
+  return (
+    <section
+      className={cn(
+        "space-y-2.5",
+        fill && "flex min-h-0 flex-1 flex-col",
+        divided && !compact && "border-t border-stone-800 pt-2.5",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggleOpen}
+          className={cn(
+            "group flex min-w-0 flex-1 items-center gap-3 rounded border border-stone-800 bg-stone-950/70 p-2 text-left transition hover:border-amber-800/60 hover:bg-stone-900/70",
+            open && "border-amber-900/70 bg-stone-900/60",
+          )}
+        >
+          <PanelTitle icon={icon} iconSrc={iconSrc} title={title} />
+          <ChevronRight
+            className={cn(
+              "ml-auto size-4 shrink-0 text-stone-500 transition group-hover:text-amber-200/80",
+              open && "rotate-90 text-amber-200",
+            )}
+            aria-hidden="true"
+          />
+        </button>
+        {action}
+      </div>
+      {open && (
+        <div className={cn("space-y-3", fill && "flex min-h-0 flex-1 flex-col")}>
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PanelTitle({
   icon: Icon,
+  iconSrc,
   title,
 }: {
   icon: typeof Sparkles;
+  iconSrc?: string;
   title: string;
 }) {
   return (
-    <div className="flex items-center gap-2 text-sm font-medium text-stone-300">
-      <Icon className="size-4 text-amber-200" aria-hidden="true" />
-      {title}
+    <div className="flex min-w-0 items-center gap-3 text-sm font-medium text-stone-300">
+      {iconSrc ? (
+        <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-amber-200/15 bg-stone-950 shadow-[0_0_16px_rgba(251,191,36,0.1)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={iconSrc} alt="" className="size-full object-cover" />
+        </span>
+      ) : (
+        <span className="flex size-7 shrink-0 items-center justify-center rounded border border-amber-200/15 bg-amber-200/10">
+          <Icon className="size-4 text-amber-200" aria-hidden="true" />
+        </span>
+      )}
+      <span className="truncate">{title}</span>
     </div>
   );
 }
@@ -2850,10 +3387,12 @@ function Segmented<T extends string>({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange: (value: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -2868,10 +3407,12 @@ function Segmented<T extends string>({
           <button
             key={option.value}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
               "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-xs text-stone-400 hover:bg-stone-900",
               selected && "bg-stone-800 text-stone-100",
+              disabled && "cursor-not-allowed text-stone-700 hover:bg-transparent",
             )}
           >
             {selected && <Check className="size-3" aria-hidden="true" />}

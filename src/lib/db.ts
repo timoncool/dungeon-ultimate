@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_CHAT_TITLE, DEFAULT_STORY_SETTINGS, titleFromInput } from "@/lib/defaults";
 import { isLocalTextModelId, isTextProvider } from "@/lib/text-models";
+import { isProseSize } from "@/lib/types";
 import type {
   Attachment,
   GeneratedImage,
@@ -43,6 +44,9 @@ type CharacterRow = {
   chat_id: string;
   name: string;
   details: string;
+  inventory: string;
+  skills: string;
+  spells: string;
   portrait_json: string | null;
   created_at: string;
   updated_at: string;
@@ -81,6 +85,9 @@ function ensureSchema(db: Database.Database) {
       chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       details TEXT NOT NULL DEFAULT '',
+      inventory TEXT NOT NULL DEFAULT '',
+      skills TEXT NOT NULL DEFAULT '',
+      spells TEXT NOT NULL DEFAULT '',
       portrait_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -98,6 +105,17 @@ function ensureSchema(db: Database.Database) {
   }
   if (!chatColumns.some((column) => column.name === "story_summary_count")) {
     db.exec(`ALTER TABLE chats ADD COLUMN story_summary_count INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const characterColumns = db.prepare(`PRAGMA table_info(characters)`).all() as Array<{ name: string }>;
+  if (!characterColumns.some((column) => column.name === "inventory")) {
+    db.exec(`ALTER TABLE characters ADD COLUMN inventory TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!characterColumns.some((column) => column.name === "skills")) {
+    db.exec(`ALTER TABLE characters ADD COLUMN skills TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!characterColumns.some((column) => column.name === "spells")) {
+    db.exec(`ALTER TABLE characters ADD COLUMN spells TEXT NOT NULL DEFAULT ''`);
   }
 }
 
@@ -164,6 +182,22 @@ function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
     merged.imageBackend = DEFAULT_STORY_SETTINGS.imageBackend;
   }
 
+  if (merged.imageMode !== "fast" && merged.imageMode !== "slow") {
+    merged.imageMode = DEFAULT_STORY_SETTINGS.imageMode;
+  }
+
+  if (typeof merged.imageGenerationEnabled !== "boolean") {
+    merged.imageGenerationEnabled = DEFAULT_STORY_SETTINGS.imageGenerationEnabled;
+  }
+
+  if (typeof merged.autoImages !== "boolean") {
+    merged.autoImages = DEFAULT_STORY_SETTINGS.autoImages;
+  }
+
+  if (!isProseSize(merged.proseSize)) {
+    merged.proseSize = DEFAULT_STORY_SETTINGS.proseSize;
+  }
+
   if (!isTextProvider(merged.textProvider)) {
     merged.textProvider = DEFAULT_STORY_SETTINGS.textProvider;
   }
@@ -212,6 +246,9 @@ function mapCharacter(row: CharacterRow): StoryCharacter {
     chatId: row.chat_id,
     name: row.name,
     details: row.details,
+    inventory: row.inventory,
+    skills: row.skills,
+    spells: row.spells,
     portrait: parseJson<Attachment | undefined>(row.portrait_json, undefined),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -517,7 +554,7 @@ export function listCharacters(chatId: string): StoryCharacter[] {
   const rows = getDatabase()
     .prepare(
       `
-        SELECT id, chat_id, name, details, portrait_json, created_at, updated_at
+        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, created_at, updated_at
         FROM characters
         WHERE chat_id = ?
         ORDER BY updated_at DESC, created_at DESC
@@ -537,7 +574,7 @@ export function getCharactersByIds(chatId: string, characterIds: string[]) {
   const rows = getDatabase()
     .prepare(
       `
-        SELECT id, chat_id, name, details, portrait_json, created_at, updated_at
+        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, created_at, updated_at
         FROM characters
         WHERE chat_id = ? AND id IN (${placeholders})
       `,
@@ -553,7 +590,14 @@ export function getCharactersByIds(chatId: string, characterIds: string[]) {
 
 export function createCharacter(
   chatId: string,
-  input: { name: string; details?: string; portrait?: Attachment },
+  input: {
+    name: string;
+    details?: string;
+    inventory?: string;
+    skills?: string;
+    spells?: string;
+    portrait?: Attachment;
+  },
 ): StoryCharacter | null {
   const db = getDatabase();
   const now = new Date().toISOString();
@@ -567,14 +611,39 @@ export function createCharacter(
   const insert = db.transaction(() => {
     db.prepare(
       `
-        INSERT INTO characters (id, chat_id, name, details, portrait_json, created_at, updated_at)
-        VALUES (@id, @chatId, @name, @details, @portraitJson, @createdAt, @updatedAt)
+        INSERT INTO characters (
+          id,
+          chat_id,
+          name,
+          details,
+          inventory,
+          skills,
+          spells,
+          portrait_json,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          @id,
+          @chatId,
+          @name,
+          @details,
+          @inventory,
+          @skills,
+          @spells,
+          @portraitJson,
+          @createdAt,
+          @updatedAt
+        )
       `,
     ).run({
       id,
       chatId,
       name,
       details: input.details?.trim() || "",
+      inventory: input.inventory?.trim() || "",
+      skills: input.skills?.trim() || "",
+      spells: input.spells?.trim() || "",
       portraitJson: input.portrait ? JSON.stringify(input.portrait) : null,
       createdAt: now,
       updatedAt: now,
@@ -590,7 +659,14 @@ export function createCharacter(
 export function updateCharacter(
   chatId: string,
   characterId: string,
-  updates: { name?: string; details?: string; portrait?: Attachment | null },
+  updates: {
+    name?: string;
+    details?: string;
+    inventory?: string;
+    skills?: string;
+    spells?: string;
+    portrait?: Attachment | null;
+  },
 ): StoryCharacter | null {
   const existing = getCharactersByIds(chatId, [characterId])[0];
   if (!existing) {
@@ -603,6 +679,10 @@ export function updateCharacter(
   }
 
   const nextDetails = updates.details !== undefined ? updates.details.trim() : existing.details;
+  const nextInventory =
+    updates.inventory !== undefined ? updates.inventory.trim() : existing.inventory;
+  const nextSkills = updates.skills !== undefined ? updates.skills.trim() : existing.skills;
+  const nextSpells = updates.spells !== undefined ? updates.spells.trim() : existing.spells;
   const nextPortrait =
     updates.portrait !== undefined ? updates.portrait || undefined : existing.portrait;
   const now = new Date().toISOString();
@@ -613,7 +693,14 @@ export function updateCharacter(
       .prepare(
         `
           UPDATE characters
-          SET name = @name, details = @details, portrait_json = @portraitJson, updated_at = @updatedAt
+          SET
+            name = @name,
+            details = @details,
+            inventory = @inventory,
+            skills = @skills,
+            spells = @spells,
+            portrait_json = @portraitJson,
+            updated_at = @updatedAt
           WHERE id = @id AND chat_id = @chatId
         `,
       )
@@ -622,6 +709,9 @@ export function updateCharacter(
         chatId,
         name: nextName,
         details: nextDetails,
+        inventory: nextInventory,
+        skills: nextSkills,
+        spells: nextSpells,
         portraitJson: nextPortrait ? JSON.stringify(nextPortrait) : null,
         updatedAt: now,
       });

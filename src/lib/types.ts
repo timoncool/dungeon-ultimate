@@ -8,6 +8,24 @@ export type ImageMode = "fast" | "slow";
 
 export type ImageBackend = "mflux-hs" | "sdnq-hs";
 
+export const PROSE_SIZE_VALUES = [
+  "tiny",
+  "xsmall",
+  "small",
+  "medium",
+  "large",
+  "xlarge",
+  "xxlarge",
+  "huge",
+  "giant",
+] as const;
+
+export type ProseSize = (typeof PROSE_SIZE_VALUES)[number];
+
+export function isProseSize(value: unknown): value is ProseSize {
+  return typeof value === "string" && PROSE_SIZE_VALUES.includes(value as ProseSize);
+}
+
 export type Attachment = {
   id: string;
   name: string;
@@ -64,7 +82,9 @@ export type StorySettings = {
   imageMode: ImageMode;
   imageBackend: ImageBackend;
   aspect: AspectPreset;
+  imageGenerationEnabled: boolean;
   autoImages: boolean;
+  proseSize: ProseSize;
 };
 
 export type StoryChatSummary = {
@@ -87,6 +107,9 @@ export type StoryCharacter = {
   chatId: string;
   name: string;
   details: string;
+  inventory: string;
+  skills: string;
+  spells: string;
   portrait?: Attachment;
   createdAt: string;
   updatedAt: string;

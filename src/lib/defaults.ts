@@ -16,7 +16,9 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   imageMode: "fast",
   imageBackend: "mflux-hs",
   aspect: "square",
+  imageGenerationEnabled: true,
   autoImages: true,
+  proseSize: "medium",
 };
 
 export function titleFromInput(input: string) {

@@ -15,6 +15,7 @@ import {
   LOCAL_TEXT_MODEL_IDS,
   localModelContextWindow,
 } from "@/lib/text-models";
+import { PROSE_SIZE_VALUES } from "@/lib/types";
 import type { Attachment, StoryCharacter, StoryMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -93,7 +94,9 @@ const requestSchema = z.object({
     imageMode: z.enum(["fast", "slow"]).default("slow"),
     imageBackend: z.enum(["mflux-hs", "sdnq-hs"]).default("mflux-hs"),
     aspect: z.enum(["square", "portrait", "landscape"]).default("square"),
+    imageGenerationEnabled: z.boolean().default(true),
     autoImages: z.boolean().default(true),
+    proseSize: z.enum(PROSE_SIZE_VALUES).default("medium"),
   }),
 });
 
@@ -694,7 +697,7 @@ export async function POST(request: Request) {
   const { message, error } = await requestStoryMessage(
     body.settings,
     messages,
-    body.settings.autoImages,
+    body.settings.imageGenerationEnabled && body.settings.autoImages,
   );
 
   if (error) {
@@ -724,7 +727,7 @@ export async function POST(request: Request) {
     content: storyText || "The moment hangs there, waiting for what you do next.",
     createdAt: new Date().toISOString(),
     imageRequest:
-      body.settings.autoImages && imageToolArgs?.prompt
+      body.settings.imageGenerationEnabled && body.settings.autoImages && imageToolArgs?.prompt
         ? {
             needed: true,
             prompt: imageToolArgs.prompt,

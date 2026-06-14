@@ -19,13 +19,18 @@ This is private adult fiction. Consensual NSFW content is allowed and should be 
 
 You may receive saved character portrait images in a separate context message. Use those portraits to maintain visual continuity for character appearance, and match names to exact IDs from the labels.
 
-You have access to a function tool named generate_image. Write the story passage as normal assistant text. If, and only if, a visual beat is truly useful, call generate_image once after writing the passage.
+Respect the saved character inventory, skills, and spells as established story state. Do not add, remove, spend, or change those tracked items unless the visible story events clearly justify it.`;
+
+const IMAGE_SYSTEM = `You have access to a function tool named generate_image. Write the story passage as normal assistant text. If, and only if, a visual beat is truly useful, call generate_image once after writing the passage.
 
 Use images sparingly: major character introductions, setting reveals, outfit/scene changes, or emotionally charged tableaux. Do not request an image for every turn.
 
 Do not put image prompts, captions, or tool details in the visible story passage.
 When writing generate_image.prompt for established characters, do not use character names as visual descriptors. Describe each person by visible physical features and whether they are a man or woman: age range, build, hair, face, skin tone, clothing, pose, expression, and lighting. Use names only in generate_image.characterIds via exact IDs.
 If an image should show one or two established characters, pass only their exact IDs in generate_image.characterIds. Use at most two IDs. Use [] when no saved character portrait should be referenced.`;
+
+const IMAGE_DISABLED_SYSTEM =
+  "Image generation is disabled for this story. Do not request images, describe image prompts, or mention image tooling.";
 
 // Evicting history one message at a time would change the start of the prompt
 // every turn and invalidate the model server's prompt cache, forcing a full
@@ -84,6 +89,9 @@ export function buildStoryMessages(
             `ID: ${character.id}`,
             `Name: ${character.name}`,
             character.details ? `Details: ${character.details}` : "",
+            character.inventory ? `Inventory:\n${character.inventory}` : "",
+            character.skills ? `Skills:\n${character.skills}` : "",
+            character.spells ? `Spells:\n${character.spells}` : "",
             character.portrait ? "Portrait reference: available" : "Portrait reference: unavailable",
           ]
             .filter(Boolean)
@@ -97,13 +105,18 @@ export function buildStoryMessages(
       role: "system",
       content: [
         DEFAULT_SYSTEM,
+        settings.imageGenerationEnabled ? IMAGE_SYSTEM : IMAGE_DISABLED_SYSTEM,
         `World / scenario:\n${settings.world || "A grounded modern roleplay scene with room to improvise."}`,
         `Tone / prose style:\n${settings.style || "Clean, dark text-adventure prose, intimate but not flowery."}`,
         storySummary
           ? `The story so far (older events, already condensed — treat as established canon):\n${storySummary}`
           : "",
         `Saved characters:\n${characterRoster}`,
-        `Image defaults: ${settings.imageBackend} backend, ${settings.imageMode === "slow" ? "2048" : "1024"} long side, ${settings.aspect} aspect. Do not include text overlays in generated images.`,
+        settings.imageGenerationEnabled
+          ? `Image defaults: ${settings.imageBackend} backend, ${
+              settings.imageMode === "slow" ? "2048" : "1024"
+            } long side, ${settings.aspect} aspect. Do not include text overlays in generated images.`
+          : "",
       ]
         .filter(Boolean)
         .join("\n\n"),

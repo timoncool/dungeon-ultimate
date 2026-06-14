@@ -1,0 +1,8 @@
+{
+  "source": "codex exec image_generation",
+  "codexBin": "/Users/jacobferrari/.local/bin/codex",
+  "rolloutPath": "/Users/jacobferrari/.codex/sessions/2026/06/13/rollout-2026-06-13T20-22-28-019ec382-2b17-7c22-9d81-b100cb7fbb7c.jsonl",
+  "imageId": "ig_00f5f206fb7029e4016a2df44ab060819596eb3e9823d4144b",
+  "revisedPrompt": "Create a single raster PNG square game UI icon for a logo-brand/sidebar category: a small iron-banded archive chest with a glowing rune lock and tiny parchment edges visible inside/around the lid, dungeon-era fantasy tabletop feel. Chunky hand-painted RPG app icon style, crisp readable silhouette at small size, centered single object with generous padding. Simple dark stone vignette background matching a dark stone dungeon door icon vibe. Warm amber torchlit highlights, charcoal stone shadows, mood sturdy and secure. No text, no letters, no words, no watermark, no trash can, no modern database cylinder, no modern objects.",
+  "prompt": "Use case: logo-brand\nAsset type: Open Dungeon right sidebar category icon\nPrimary request: Local Data category icon: a small iron-banded archive chest with a glowing rune lock and tiny parchment edges, dungeon-era fantasy tabletop feel, warm torchlit highlights, chunky hand-painted RPG app icon style, matching a dark stone dungeon door icon vibe.\nStyle/medium: painterly game UI icon, crisp silhouette, readable at small size, no text.\nComposition/framing: centered single object, square icon, generous padding, simple dark stone vignette.\nLighting/mood: amber torch glow, charcoal stone shadows, sturdy and secure.\nConstraints: no letters, no words, no watermark, no trash can, no modern database cylinder, no modern objects."
+}

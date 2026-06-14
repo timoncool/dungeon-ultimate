@@ -14,6 +14,7 @@
     "image:server": "\"${ULTRA_FAST_IMAGE_GEN_PYTHON:-$HOME/ultra-fast-image-gen/.venv/bin/python}\" image_server/optimized_image_server.py",
     "image:warm:mflux": "curl -sS -X POST http://127.0.0.1:7869/warm -H 'Content-Type: application/json' -d '{\"backend\":\"mflux-hs\"}'",
     "image:warm:sdnq": "curl -sS -X POST http://127.0.0.1:7869/warm -H 'Content-Type: application/json' -d '{\"backend\":\"sdnq-hs\"}'",
+    "image:codex": "node scripts/codex-imagegen.mjs",
     "flux:worker": "npm run image:server"
   },
   "dependencies": {

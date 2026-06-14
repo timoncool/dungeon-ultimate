@@ -1,0 +1,8 @@
+{
+  "source": "codex exec image_generation",
+  "codexBin": "/Users/jacobferrari/.local/bin/codex",
+  "rolloutPath": "/Users/jacobferrari/.codex/sessions/2026/06/13/rollout-2026-06-13T20-16-26-019ec37c-a68d-7362-88ae-eb3f550b6562.jsonl",
+  "imageId": "ig_01a7dfffcfae6021016a2df2e648188196b89d62646e7f7041",
+  "revisedPrompt": "Create a single raster PNG logo-brand game UI icon for an \"Open Dungeon\" right sidebar Chats category. Centered aged parchment scroll with a small ink quill, dungeon-era fantasy tabletop feel. Chunky hand-painted RPG app icon style, crisp readable silhouette at small sizes, no text or symbols. Square icon composition with generous padding and a simple dark stone vignette background. Amber torchlit highlights, charcoal stone shadows, premium polished game UI finish, matching the vibe of a dark stone dungeon door icon. Constraints: no letters, no words, no watermark, no full scene, no modern objects.",
+  "prompt": "Use case: logo-brand\nAsset type: Open Dungeon right sidebar category icon\nPrimary request: Chats category icon: an aged parchment scroll with a small ink quill, dungeon-era fantasy tabletop feel, warm torchlit highlights, chunky hand-painted RPG app icon style, matching a dark stone dungeon door icon vibe.\nStyle/medium: painterly game UI icon, crisp silhouette, readable at small size, no text.\nComposition/framing: centered single object, square icon, generous padding, simple dark stone vignette.\nLighting/mood: amber torch glow, charcoal stone shadows, premium game UI polish.\nConstraints: no letters, no words, no watermark, no full scene, no modern objects."
+}
