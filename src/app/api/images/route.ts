@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       {
         error: "Flux worker is not running.",
         detail: error instanceof Error ? error.message : String(error),
-        expected: "Start it with: npm run flux:worker",
+        expected: "Open Images and click Start, or run npm run image:server from the Open Dungeon folder.",
       },
       { status: 503 },
     );

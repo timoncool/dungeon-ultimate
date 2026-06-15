@@ -50,8 +50,9 @@ no API keys, no cloud, no GPU rig. Your stories never leave your computer.
 [Releases](https://github.com/newideas99/open-dungeon/releases), drag
 **Open Dungeon** to Applications, and open it (right-click → Open the first
 time — it's unsigned). It walks you through everything: a bundled Node
-runtime, the narrator model download, and first build. You just need
-[Ollama](https://ollama.com/download) installed.
+runtime, narrator setup, and first build. Choose either the bundled
+[Ollama](https://ollama.com/download) path or paste an OpenAI-compatible server
+URL for LM Studio, llama.cpp, OpenRouter, a remote Ollama, or another backend.
 
 **Easiest (Windows):** clone or download the repo, then double-click
 `Launch-Windows.bat`. The launcher checks Node.js, installs app dependencies,
@@ -233,12 +234,15 @@ llama.cpp, LM Studio, vLLM, TabbyAPI, KoboldCpp, a remote Ollama, or
 - **API key** — optional, right in the panel. Most local servers need none;
   OpenRouter does.
 
-No config files: everything is entered in-app and stored locally with the chat.
-If you'd rather keep keys out of the UI, leave the field blank and set an env
-var instead — `OPENROUTER_API_KEY` (and optional `OPENROUTER_MODEL`) for
-OpenRouter, or `OPENAI_COMPAT_API_KEY` for any other server. The narrator's
-`generate_image` tool is sent when your server advertises tool support; if it
-doesn't, the turn is retried without it so the story still flows.
+You can enter everything in-app and store it locally with the chat. The Mac
+DMG and `Launch.command` can also save first-run defaults to `.env.server`:
+`DEFAULT_TEXT_PROVIDER=custom`, `OPENAI_COMPAT_BASE_URL`, and
+`OPENAI_COMPAT_MODEL`. If you'd rather keep keys out of the UI, leave the field
+blank and set an env var instead — `OPENROUTER_API_KEY` (and optional
+`OPENROUTER_MODEL`) for OpenRouter, or `OPENAI_COMPAT_API_KEY` for any other
+server. The narrator's `generate_image` tool is sent when your server
+advertises tool support; if it doesn't, the turn is retried without it so the
+story still flows.
 
 ## Image generation (optional)
 
@@ -256,7 +260,8 @@ accept the terms on the model page, then set your token in
 Windows/Linux use the standard `flux2-4b-sdnq` route by default, so the gated
 token is not required for the normal CUDA/CPU path.
 
-Start the worker in a second terminal:
+Start the worker from the **Images** panel with **Start**, or from a second
+terminal while your shell is in the Open Dungeon repo:
 
 ```bash
 npm run image:server
@@ -264,6 +269,8 @@ npm run image:server
 
 Without the worker running, everything else still works — image requests show
 a Generate button that succeeds once the worker is up.
+The **Models** button in the Images panel opens the local model/cache folder in
+Finder so you can inspect the patched MFLUX checkout.
 
 Backends exposed in the app:
 
@@ -309,6 +316,9 @@ defaults run fully local. Highlights:
 | Variable | Default | Purpose |
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Local text server |
+| `DEFAULT_TEXT_PROVIDER` | `local` | New-chat default: `local` or `custom` |
+| `OPENAI_COMPAT_BASE_URL` | — | New-chat default URL for Connect a server |
+| `OPENAI_COMPAT_MODEL` | — | New-chat default model for Connect a server |
 | `LOCAL_TEXT_MAX_TOKENS` | `4096` | Max tokens generated per local turn |
 | `LOCAL_TEXT_CONTEXT` | model max | Cap on the local context window |
 | `OPENROUTER_API_KEY` | — | Fallback key for OpenRouter URLs (else set in-app) |

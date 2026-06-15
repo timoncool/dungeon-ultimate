@@ -429,6 +429,7 @@ async function requestCustomMessage(
   const isOpenRouter = /(^|\.)openrouter\.ai/i.test(trimmedBase);
   const resolvedModel =
     (model || "").trim() ||
+    serverEnv("OPENAI_COMPAT_MODEL") ||
     (isOpenRouter ? serverEnv("OPENROUTER_MODEL", "google/gemini-3.5-flash") : "");
 
   if (!resolvedModel) {

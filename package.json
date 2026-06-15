@@ -1,6 +1,6 @@
 {
   "name": "open-dungeon",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Fully on-device AI roleplay app with local text and inline image generation",
   "license": "MIT",

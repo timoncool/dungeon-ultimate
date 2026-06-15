@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { DEFAULT_CHAT_TITLE, DEFAULT_STORY_SETTINGS, titleFromInput } from "@/lib/defaults";
+import { DEFAULT_CHAT_TITLE, titleFromInput } from "@/lib/defaults";
+import { configuredDefaultStorySettings } from "@/lib/runtime-defaults";
 import { isLocalTextModelId, isTextProvider } from "@/lib/text-models";
 import { isProseSize } from "@/lib/types";
 import type {
@@ -148,8 +149,9 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
 }
 
 function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
+  const defaultSettings = configuredDefaultStorySettings();
   const merged = {
-    ...DEFAULT_STORY_SETTINGS,
+    ...defaultSettings,
     ...settings,
   };
 
@@ -172,38 +174,38 @@ function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
     merged.aspect !== "portrait" &&
     merged.aspect !== "landscape"
   ) {
-    merged.aspect = DEFAULT_STORY_SETTINGS.aspect;
+    merged.aspect = defaultSettings.aspect;
   }
 
   if (
     merged.imageBackend !== "mflux-hs" &&
     merged.imageBackend !== "sdnq-hs"
   ) {
-    merged.imageBackend = DEFAULT_STORY_SETTINGS.imageBackend;
+    merged.imageBackend = defaultSettings.imageBackend;
   }
 
   if (merged.imageMode !== "fast" && merged.imageMode !== "slow") {
-    merged.imageMode = DEFAULT_STORY_SETTINGS.imageMode;
+    merged.imageMode = defaultSettings.imageMode;
   }
 
   if (typeof merged.imageGenerationEnabled !== "boolean") {
-    merged.imageGenerationEnabled = DEFAULT_STORY_SETTINGS.imageGenerationEnabled;
+    merged.imageGenerationEnabled = defaultSettings.imageGenerationEnabled;
   }
 
   if (typeof merged.autoImages !== "boolean") {
-    merged.autoImages = DEFAULT_STORY_SETTINGS.autoImages;
+    merged.autoImages = defaultSettings.autoImages;
   }
 
   if (!isProseSize(merged.proseSize)) {
-    merged.proseSize = DEFAULT_STORY_SETTINGS.proseSize;
+    merged.proseSize = defaultSettings.proseSize;
   }
 
   if (!isTextProvider(merged.textProvider)) {
-    merged.textProvider = DEFAULT_STORY_SETTINGS.textProvider;
+    merged.textProvider = defaultSettings.textProvider;
   }
 
   if (!isLocalTextModelId(merged.localTextModel)) {
-    merged.localTextModel = DEFAULT_STORY_SETTINGS.localTextModel;
+    merged.localTextModel = defaultSettings.localTextModel;
   }
 
   merged.customBaseUrl =

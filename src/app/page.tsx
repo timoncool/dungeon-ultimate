@@ -10,12 +10,14 @@ import {
   ChevronRight,
   Cpu,
   Eraser,
+  FolderOpen,
   Heart,
   ImagePlus,
   Library,
   Loader2,
   Paperclip,
   Pencil,
+  Play,
   Plus,
   RotateCcw,
   Send,
@@ -169,6 +171,27 @@ type CharacterDraft = {
 type MobileTool = "characters" | "story" | "images" | "data";
 type DesktopPanel = "chats" | "characters" | "textModel" | "story" | "images" | "localData" | "support";
 type LocalTextStatus = { ok: boolean; installedModels: string[] };
+type ImageWorkerStatus = {
+  ok: boolean;
+  loaded?: boolean;
+  defaultBackend?: string;
+  mfluxDir?: string;
+  ultraRepo?: string;
+};
+type RuntimeDefaultsResponse = { settings?: StorySettings };
+type RuntimeHealthResponse = {
+  localText?: LocalTextStatus;
+  flux?: ImageWorkerStatus;
+};
+type ImageWorkerActionResponse = {
+  ok: boolean;
+  status?: "running" | "starting";
+  message?: string;
+  error?: string;
+  path?: string;
+  logPath?: string;
+  health?: ImageWorkerStatus;
+};
 type PanelControlProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -231,6 +254,15 @@ async function readApi<T>(response: Response): Promise<T> {
   }
 
   return payload as T;
+}
+
+async function fetchRuntimeHealth(): Promise<RuntimeHealthResponse> {
+  try {
+    const response = await fetch("/api/health", { cache: "no-store" });
+    return (await response.json().catch(() => ({}))) as RuntimeHealthResponse;
+  } catch {
+    return {};
+  }
 }
 
 function fileToDataUrl(file: File) {
@@ -327,11 +359,15 @@ export default function Home() {
   const [mobileTool, setMobileTool] = useState<MobileTool>("characters");
   const [activeDesktopPanel, setActiveDesktopPanel] = useState<DesktopPanel | null>(null);
   const [localTextStatus, setLocalTextStatus] = useState<LocalTextStatus | null>(null);
+  const [imageWorkerStatus, setImageWorkerStatus] = useState<ImageWorkerStatus | null>(null);
+  const [imageWorkerBusy, setImageWorkerBusy] = useState(false);
+  const [imageWorkerMessage, setImageWorkerMessage] = useState("");
   const [newStoryOpen, setNewStoryOpen] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>("do");
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState("");
   const lastSavedSettingsRef = useRef(JSON.stringify(DEFAULT_STORY_SETTINGS));
+  const defaultSettingsRef = useRef(DEFAULT_STORY_SETTINGS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -358,6 +394,12 @@ export default function Home() {
     setAttachments([]);
     setImageStatus({});
     lastSavedSettingsRef.current = JSON.stringify(chat.settings);
+  }, []);
+
+  const applyDefaultSettings = useCallback(() => {
+    const defaults = defaultSettingsRef.current;
+    setSettings(defaults);
+    lastSavedSettingsRef.current = JSON.stringify(defaults);
   }, []);
 
   const refreshChats = useCallback(async () => {
@@ -391,11 +433,10 @@ export default function Home() {
     setMessages([]);
     setCharacters([]);
     setCharacterDraft(emptyCharacterDraft());
-    setSettings(DEFAULT_STORY_SETTINGS);
+    applyDefaultSettings();
     setAttachments([]);
     setImageStatus({});
-    lastSavedSettingsRef.current = JSON.stringify(DEFAULT_STORY_SETTINGS);
-  }, []);
+  }, [applyDefaultSettings]);
 
   const deleteChatById = useCallback(
     async (chatId: string) => {
@@ -448,6 +489,16 @@ export default function Home() {
       setError("");
 
       try {
+        try {
+          const defaultsResponse = await fetch("/api/settings/defaults", { cache: "no-store" });
+          const defaultsPayload = (await defaultsResponse.json().catch(() => ({}))) as RuntimeDefaultsResponse;
+          if (defaultsPayload.settings) {
+            defaultSettingsRef.current = defaultsPayload.settings;
+          }
+        } catch {
+          // Static defaults are fine if runtime defaults are unavailable.
+        }
+
         const nextChats = await refreshChats();
         let nextChatId = window.localStorage.getItem(SELECTED_CHAT_KEY) || "";
 
@@ -461,6 +512,8 @@ export default function Home() {
           if (!cancelled) {
             applyChat(payload.chat);
           }
+        } else if (!cancelled) {
+          applyDefaultSettings();
         }
       } catch (bootError) {
         if (!cancelled) {
@@ -478,33 +531,33 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [applyChat, refreshChats]);
+  }, [applyChat, applyDefaultSettings, refreshChats]);
+
+  const applyRuntimeHealth = useCallback((payload: RuntimeHealthResponse) => {
+    setLocalTextStatus(payload.localText ?? { ok: false, installedModels: [] });
+    setImageWorkerStatus(payload.flux ?? { ok: false, loaded: false });
+  }, []);
+
+  const refreshRuntimeHealth = useCallback(async () => {
+    applyRuntimeHealth(await fetchRuntimeHealth());
+  }, [applyRuntimeHealth]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function checkLocalText() {
-      try {
-        const response = await fetch("/api/health", { cache: "no-store" });
-        const payload = (await response.json().catch(() => ({}))) as {
-          localText?: LocalTextStatus;
-        };
-        if (!cancelled) {
-          setLocalTextStatus(payload.localText ?? { ok: false, installedModels: [] });
-        }
-      } catch {
-        if (!cancelled) {
-          setLocalTextStatus({ ok: false, installedModels: [] });
-        }
+    async function checkRuntimeHealth() {
+      const payload = await fetchRuntimeHealth();
+      if (!cancelled) {
+        applyRuntimeHealth(payload);
       }
     }
 
-    void checkLocalText();
+    void checkRuntimeHealth();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyRuntimeHealth]);
 
   useEffect(() => {
     if (!selectedChatId || libraryLoading || loadingChat) {
@@ -556,6 +609,58 @@ export default function Home() {
       setError("");
     }
   }, []);
+
+  async function startImageWorker() {
+    setImageWorkerBusy(true);
+    setImageWorkerMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/image-worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start" }),
+      });
+      const payload = await readApi<ImageWorkerActionResponse>(response);
+      setImageWorkerMessage(payload.message || "Image worker start requested.");
+      if (payload.health) {
+        setImageWorkerStatus(payload.health);
+      }
+      await refreshRuntimeHealth();
+    } catch (workerError) {
+      const message =
+        workerError instanceof Error ? workerError.message : "Image worker failed to start.";
+      setImageWorkerMessage(message);
+      setError(message);
+    } finally {
+      setImageWorkerBusy(false);
+    }
+  }
+
+  async function openImageModelFolder() {
+    setImageWorkerBusy(true);
+    setImageWorkerMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/image-worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "open-model-folder" }),
+      });
+      const payload = await readApi<ImageWorkerActionResponse>(response);
+      setImageWorkerMessage(
+        payload.path ? `Opened model folder: ${payload.path}` : "Opened model folder.",
+      );
+    } catch (workerError) {
+      const message =
+        workerError instanceof Error ? workerError.message : "Could not open the model folder.";
+      setImageWorkerMessage(message);
+      setError(message);
+    } finally {
+      setImageWorkerBusy(false);
+    }
+  }
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) {
@@ -1136,6 +1241,11 @@ export default function Home() {
           settings={settings}
           setSettings={setSettings}
           onImageGenerationEnabledChange={setImageGenerationEnabled}
+          imageWorkerStatus={imageWorkerStatus}
+          imageWorkerBusy={imageWorkerBusy}
+          imageWorkerMessage={imageWorkerMessage}
+          onStartImageWorker={() => void startImageWorker()}
+          onOpenImageModelFolder={() => void openImageModelFolder()}
           {...desktopPanelControls(panel)}
         />
       );
@@ -1237,6 +1347,11 @@ export default function Home() {
           settings={settings}
           setSettings={setSettings}
           onImageGenerationEnabledChange={setImageGenerationEnabled}
+          imageWorkerStatus={imageWorkerStatus}
+          imageWorkerBusy={imageWorkerBusy}
+          imageWorkerMessage={imageWorkerMessage}
+          onStartImageWorker={() => void startImageWorker()}
+          onOpenImageModelFolder={() => void openImageModelFolder()}
           localTextStatus={localTextStatus}
           clearingLocalData={clearingLocalData}
           onClearLocalData={() => void clearAllLocalData()}
@@ -1762,6 +1877,11 @@ function MobileToolsSheet({
   settings,
   setSettings,
   onImageGenerationEnabledChange,
+  imageWorkerStatus,
+  imageWorkerBusy,
+  imageWorkerMessage,
+  onStartImageWorker,
+  onOpenImageModelFolder,
   localTextStatus,
   clearingLocalData,
   onClearLocalData,
@@ -1788,6 +1908,11 @@ function MobileToolsSheet({
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   onImageGenerationEnabledChange: (enabled: boolean) => void;
+  imageWorkerStatus: ImageWorkerStatus | null;
+  imageWorkerBusy: boolean;
+  imageWorkerMessage: string;
+  onStartImageWorker: () => void;
+  onOpenImageModelFolder: () => void;
   localTextStatus: LocalTextStatus | null;
   clearingLocalData: boolean;
   onClearLocalData: () => void;
@@ -1885,6 +2010,11 @@ function MobileToolsSheet({
               settings={settings}
               setSettings={setSettings}
               onImageGenerationEnabledChange={onImageGenerationEnabledChange}
+              imageWorkerStatus={imageWorkerStatus}
+              imageWorkerBusy={imageWorkerBusy}
+              imageWorkerMessage={imageWorkerMessage}
+              onStartImageWorker={onStartImageWorker}
+              onOpenImageModelFolder={onOpenImageModelFolder}
               compact
             />
           )}
@@ -2777,6 +2907,11 @@ function ImageSettingsPanel({
   settings,
   setSettings,
   onImageGenerationEnabledChange,
+  imageWorkerStatus,
+  imageWorkerBusy,
+  imageWorkerMessage,
+  onStartImageWorker,
+  onOpenImageModelFolder,
   compact = false,
   open,
   onOpenChange,
@@ -2785,10 +2920,22 @@ function ImageSettingsPanel({
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   onImageGenerationEnabledChange: (enabled: boolean) => void;
+  imageWorkerStatus: ImageWorkerStatus | null;
+  imageWorkerBusy: boolean;
+  imageWorkerMessage: string;
+  onStartImageWorker: () => void;
+  onOpenImageModelFolder: () => void;
   compact?: boolean;
 } & PanelControlProps) {
   const idPrefix = compact ? "mobile" : "desktop";
   const imageControlsDisabled = !settings.imageGenerationEnabled;
+  const workerRunning = Boolean(imageWorkerStatus?.ok);
+  const workerStatusLabel = workerRunning ? "Worker running" : "Worker stopped";
+  const workerDetail = workerRunning
+    ? imageWorkerStatus?.defaultBackend
+      ? `Default backend: ${imageWorkerStatus.defaultBackend}`
+      : "Ready for local generations"
+    : "Start it from here if images fail to generate.";
 
   return (
     <PanelSection
@@ -2812,6 +2959,39 @@ function ImageSettingsPanel({
           className="size-4 accent-amber-200"
         />
       </label>
+      <div className="space-y-3 rounded border border-stone-800 bg-stone-950 px-3 py-3">
+        <div>
+          <p className="text-sm font-medium text-stone-200">{workerStatusLabel}</p>
+          <p className="mt-1 text-xs leading-relaxed text-stone-500">{workerDetail}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={imageControlsDisabled || imageWorkerBusy}
+            onClick={onStartImageWorker}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/50 px-2 text-sm text-stone-200 hover:border-amber-700/60 hover:bg-stone-900 disabled:cursor-not-allowed disabled:border-stone-800 disabled:text-stone-600"
+          >
+            {imageWorkerBusy ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Play className="size-4" aria-hidden="true" />
+            )}
+            Start
+          </button>
+          <button
+            type="button"
+            disabled={imageWorkerBusy}
+            onClick={onOpenImageModelFolder}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/50 px-2 text-sm text-stone-200 hover:border-amber-700/60 hover:bg-stone-900 disabled:cursor-not-allowed disabled:border-stone-800 disabled:text-stone-600"
+          >
+            <FolderOpen className="size-4" aria-hidden="true" />
+            Models
+          </button>
+        </div>
+        {imageWorkerMessage && (
+          <p className="text-xs leading-relaxed text-stone-500">{imageWorkerMessage}</p>
+        )}
+      </div>
       <div className="space-y-2">
         <span className="block text-xs font-medium uppercase text-stone-500">Backend</span>
         <Segmented<ImageBackend>
