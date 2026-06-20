@@ -15,6 +15,8 @@ import type {
   StoryMessage,
   StorySettings,
 } from "@/lib/types";
+import { coerceCharacterRpg, DEFAULT_RPG_STATE } from "@/lib/rpg/types";
+import type { CharacterRpg, GameEvent, RpgState } from "@/lib/rpg/types";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(process.cwd(), "data", "local-roleplay.sqlite");
@@ -118,6 +120,26 @@ function ensureSchema(db: Database.Database) {
   if (!characterColumns.some((column) => column.name === "spells")) {
     db.exec(`ALTER TABLE characters ADD COLUMN spells TEXT NOT NULL DEFAULT ''`);
   }
+
+  // RPG layer (additive): per-character stats/HP and chat-level game state as
+  // JSON, plus an adventure-log events table for the journal + dice/HP audit.
+  if (!characterColumns.some((column) => column.name === "rpg_json")) {
+    db.exec(`ALTER TABLE characters ADD COLUMN rpg_json TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!chatColumns.some((column) => column.name === "rpg_state_json")) {
+    db.exec(`ALTER TABLE chats ADD COLUMN rpg_state_json TEXT NOT NULL DEFAULT ''`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      data_json TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_chat_created ON events(chat_id, created_at);
+  `);
 }
 
 function getDatabase() {
@@ -768,4 +790,116 @@ export function deleteCharacter(chatId: string, characterId: string) {
   });
 
   return remove();
+}
+
+// ---------------------------------------------------------------------------
+// RPG layer: per-character stats/HP, chat game state, and the adventure log.
+// ---------------------------------------------------------------------------
+
+export function getRpgState(chatId: string): RpgState {
+  const db = getDatabase();
+  const row = db.prepare("SELECT rpg_state_json FROM chats WHERE id = ?").get(chatId) as
+    | { rpg_state_json?: string }
+    | undefined;
+  if (row?.rpg_state_json) {
+    try {
+      return { ...DEFAULT_RPG_STATE, ...(JSON.parse(row.rpg_state_json) as Partial<RpgState>) };
+    } catch {
+      // fall through to default
+    }
+  }
+  return { ...DEFAULT_RPG_STATE };
+}
+
+export function setRpgState(chatId: string, state: RpgState) {
+  const db = getDatabase();
+  db.prepare("UPDATE chats SET rpg_state_json = ?, updated_at = ? WHERE id = ?").run(
+    JSON.stringify(state),
+    new Date().toISOString(),
+    chatId,
+  );
+}
+
+// Map of characterId -> { name, rpg } for the resolver. Characters with no
+// stored RPG blob get defaults via coerceCharacterRpg.
+export function getCharacterRpgMap(
+  chatId: string,
+): Map<string, { name: string; rpg: CharacterRpg }> {
+  const db = getDatabase();
+  const rows = db
+    .prepare("SELECT id, name, rpg_json FROM characters WHERE chat_id = ?")
+    .all(chatId) as Array<{ id: string; name: string; rpg_json?: string }>;
+  const map = new Map<string, { name: string; rpg: CharacterRpg }>();
+  for (const row of rows) {
+    let parsed: unknown;
+    if (row.rpg_json) {
+      try {
+        parsed = JSON.parse(row.rpg_json);
+      } catch {
+        parsed = undefined;
+      }
+    }
+    map.set(row.id, { name: row.name, rpg: coerceCharacterRpg(parsed) });
+  }
+  return map;
+}
+
+export function saveCharacterRpg(characterId: string, rpg: CharacterRpg) {
+  const db = getDatabase();
+  db.prepare("UPDATE characters SET rpg_json = ?, updated_at = ? WHERE id = ?").run(
+    JSON.stringify(rpg),
+    new Date().toISOString(),
+    characterId,
+  );
+}
+
+export function addEvents(chatId: string, events: GameEvent[]) {
+  if (!events.length) return;
+  const db = getDatabase();
+  const insert = db.prepare(
+    "INSERT INTO events (id, chat_id, kind, text, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+  const run = db.transaction(() => {
+    for (const event of events) {
+      insert.run(
+        event.id,
+        chatId,
+        event.kind,
+        event.text,
+        event.data === undefined ? null : JSON.stringify(event.data),
+        event.createdAt,
+      );
+    }
+  });
+  run();
+}
+
+export function listEvents(chatId: string, limit = 200): GameEvent[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      "SELECT id, kind, text, data_json, created_at FROM events WHERE chat_id = ? ORDER BY created_at ASC LIMIT ?",
+    )
+    .all(chatId, limit) as Array<{
+    id: string;
+    kind: string;
+    text: string;
+    data_json?: string;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind as GameEvent["kind"],
+    text: row.text,
+    data: row.data_json ? safeJsonParse(row.data_json) : undefined,
+    createdAt: row.created_at,
+  }));
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
 }
