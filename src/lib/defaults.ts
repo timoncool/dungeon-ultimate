@@ -2,7 +2,7 @@ import { DEFAULT_LOCAL_TEXT_MODEL } from "@/lib/text-models";
 import { DEFAULT_SYSTEM, IMAGE_SYSTEM } from "@/lib/story-prompt";
 import type { StorySettings } from "@/lib/types";
 
-export const DEFAULT_CHAT_TITLE = "Untitled story";
+export const DEFAULT_CHAT_TITLE = "Безымянная история";
 
 export const DEFAULT_STORY_SETTINGS: StorySettings = {
   world:

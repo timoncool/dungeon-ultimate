@@ -451,6 +451,8 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const storyAbortRef = useRef<AbortController | null>(null);
+  const stoppedByUserRef = useRef(false);
   const [speakingId, setSpeakingId] = useState("");
   const audioCacheRef = useRef<Map<string, string>>(new Map());
   const speakSeqRef = useRef(0);
@@ -567,6 +569,13 @@ export default function Home() {
     } catch {
       // best-effort HUD refresh
     }
+  }, []);
+
+  // Abort the in-flight turn when the player presses Stop (a turn can run for
+  // minutes on a loaded GPU); flagged so the catch treats it as a stop, not an error.
+  const stopTurn = useCallback(() => {
+    stoppedByUserRef.current = true;
+    storyAbortRef.current?.abort();
   }, []);
 
   // DEV-only mock loot for verifying the character sheet without an LLM turn:
@@ -1132,6 +1141,8 @@ export default function Home() {
     setError("");
 
     const controller = new AbortController();
+    storyAbortRef.current = controller;
+    stoppedByUserRef.current = false;
     const timeoutId = window.setTimeout(() => controller.abort(), STORY_REQUEST_TIMEOUT_MS);
 
     try {
@@ -1365,8 +1376,10 @@ export default function Home() {
         }
       }
     } catch (storyError) {
-      setError(
-        isAbortError(storyError)
+      if (stoppedByUserRef.current) stoppedByUserRef.current = false;
+      else
+        setError(
+          isAbortError(storyError)
           ? "Рассказчик слишком долго отвечал. Модель ещё может работать в фоне; подожди немного, затем повтори или перезапусти локальную модель, если система под нагрузкой."
           : storyError instanceof Error
             ? storyError.message
@@ -1770,7 +1783,7 @@ export default function Home() {
                   ? `${
                       LOCAL_TEXT_MODELS.find((model) => model.id === settings.localTextModel)
                         ?.label ?? "Локальная модель"
-                    } · on-device`
+                    } · на устройстве`
                   : `${settings.customModel || "Подключённый сервер"} · ваш сервер`}
               </p>
             </div>
@@ -1993,6 +2006,14 @@ export default function Home() {
                   <div className="flex items-center gap-3 font-serif text-base italic text-stone-500">
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                     Формируется следующий отрывок…
+                    <button
+                      type="button"
+                      onClick={stopTurn}
+                      className="ml-1 inline-flex items-center gap-1 rounded border border-stone-700 px-2 py-0.5 text-xs not-italic text-stone-300 transition hover:border-red-500/70 hover:text-red-300"
+                    >
+                      <X className="size-3.5" aria-hidden="true" />
+                      Прервать
+                    </button>
                   </div>
                 )}
                 <div ref={endRef} />
@@ -2282,7 +2303,7 @@ function NewStoryDialog({
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[
               ...STORY_PRESETS,
-              { id: "custom" as const, label: "Custom", flavor: "Опиши своё начало" },
+              { id: "custom" as const, label: "Свой мир", flavor: "Опиши своё начало" },
             ].map((item) => {
               const selected = item.id === presetId;
               return (
@@ -2337,7 +2358,7 @@ function NewStoryDialog({
               </label>
               <label className="block">
                 <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                  Имя <span className="normal-case text-stone-600">(optional)</span>
+                  Имя <span className="normal-case text-stone-600">(необязательно)</span>
                 </span>
                 <input
                   id="new-story-name"
@@ -2385,7 +2406,7 @@ function NewStoryDialog({
             {openingMode === "narrator" ? (
               <label className="mt-3 block">
                 <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">
-                  Подсказка начала <span className="normal-case text-stone-600">(optional)</span>
+                  Подсказка начала <span className="normal-case text-stone-600">(необязательно)</span>
                 </span>
                 <textarea
                   id="new-story-opening-hint"
@@ -3466,7 +3487,7 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-api-key`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              API-ключ <span className="normal-case text-stone-600">(optional)</span>
+              API-ключ <span className="normal-case text-stone-600">(необязательно)</span>
             </label>
             <input
               id={`${idPrefix}-custom-api-key`}
@@ -4688,6 +4709,56 @@ function StorySettingsPanel({
           </label>
         </div>
       )}
+      <div className="mb-1 space-y-2 rounded border border-stone-800 bg-stone-950/60 px-3 py-2">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">
+          ✨ Повествование
+        </div>
+        <label className="flex cursor-pointer items-center justify-between gap-3">
+          <span className="text-xs text-stone-300">Избегать повторов сцен</span>
+          <input
+            type="checkbox"
+            checked={settings.antiRepetition}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, antiRepetition: event.target.checked }))
+            }
+            className="size-4 accent-amber-300"
+          />
+        </label>
+        <label className="flex cursor-pointer items-center justify-between gap-3">
+          <span className="text-xs text-stone-300">Осмысленная концовка</span>
+          <input
+            type="checkbox"
+            checked={settings.causeAwareEnding}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, causeAwareEnding: event.target.checked }))
+            }
+            className="size-4 accent-amber-300"
+          />
+        </label>
+        <label className="flex cursor-pointer items-center justify-between gap-3">
+          <span className="text-xs text-stone-300">Разные голоса персонажей</span>
+          <input
+            type="checkbox"
+            checked={settings.multiVoice}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, multiVoice: event.target.checked }))
+            }
+            className="size-4 accent-amber-300"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-stone-300">Стиль картинок (префикс)</span>
+          <input
+            type="text"
+            value={settings.imageStylePrefix}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, imageStylePrefix: event.target.value }))
+            }
+            placeholder="напр. dark fantasy, масло, приглушённая палитра"
+            className="w-full rounded border border-stone-700 bg-stone-950 px-2 py-1 text-xs text-stone-200 placeholder:text-stone-600"
+          />
+        </label>
+      </div>
       <label className="block">
         <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
           Мир
@@ -4764,7 +4835,7 @@ function ImageSettingsPanel({
   const workerStatusLabel = workerRunning ? "Сервер работает" : "Сервер остановлен";
   const workerDetail = workerRunning
     ? imageWorkerStatus?.defaultBackend
-      ? `Default backend: ${imageWorkerStatus.defaultBackend}`
+      ? `Бэкенд по умолчанию: ${imageWorkerStatus.defaultBackend}`
       : "Готов к локальной генерации"
     : "Запусти отсюда, если картинки не сгенерировались.";
 
@@ -4942,7 +5013,7 @@ function LocalDataPanel({
           ) : (
             <Trash2 className="size-4" aria-hidden="true" />
           )}
-          Clear all local data
+          Удалить все локальные данные
         </button>
       </ClearLocalDataDialog>
     </PanelSection>
@@ -5003,8 +5074,8 @@ function ClearLocalDataDialog({
             Полностью очистить приложение?
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            This deletes all local stories, messages, characters, uploaded photos, generated images,
-            and temporary reference files from this Mac.
+            Удалит все локальные истории, сообщения, персонажей, загруженные фото, сгенерированные
+            картинки и временные файлы-референсы с этого компьютера.
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
