@@ -20,7 +20,12 @@ import { extractGameUpdate } from "@/lib/rpg/parse";
 import { buildRpgSection } from "@/lib/rpg/prompt";
 import type { Enemy, GameEvent } from "@/lib/rpg/types";
 import { serverEnv } from "@/lib/server-env";
-import { buildStoryMessages, extractStoryText, packStoryHistory } from "@/lib/story-prompt";
+import {
+  applyImageStylePrefix,
+  buildStoryMessages,
+  extractStoryText,
+  packStoryHistory,
+} from "@/lib/story-prompt";
 import {
   DEFAULT_LOCAL_TEXT_MODEL,
   LOCAL_TEXT_MODEL_IDS,
@@ -104,6 +109,10 @@ const requestSchema = z.object({
     style: z.string().default(""),
     narratorPrompt: z.string().default(""),
     imagePrompt: z.string().default(""),
+    imageStylePrefix: z.string().default(""),
+    antiRepetition: z.boolean().default(true),
+    causeAwareEnding: z.boolean().default(true),
+    multiVoice: z.boolean().default(false),
     textProvider: z.enum(["local", "custom"]).default("custom"),
     localTextModel: z.enum(LOCAL_TEXT_MODEL_IDS).default(DEFAULT_LOCAL_TEXT_MODEL),
     customBaseUrl: z.string().trim().max(500).default(""),
@@ -1169,7 +1178,10 @@ export async function POST(request: Request) {
             includeImageTool && imageToolArgs?.prompt
               ? {
                   needed: true,
-                  prompt: imageToolArgs.prompt,
+                  prompt: applyImageStylePrefix(
+                    imageToolArgs.prompt,
+                    body.settings.imageStylePrefix,
+                  ),
                   mode: body.settings.imageMode,
                   backend: body.settings.imageBackend,
                   aspect: body.settings.aspect,
@@ -1243,7 +1255,7 @@ export async function POST(request: Request) {
       body.settings.imageGenerationEnabled && body.settings.autoImages && imageToolArgs?.prompt
         ? {
             needed: true,
-            prompt: imageToolArgs.prompt,
+            prompt: applyImageStylePrefix(imageToolArgs.prompt, body.settings.imageStylePrefix),
             mode: body.settings.imageMode,
             backend: body.settings.imageBackend,
             aspect: body.settings.aspect,

@@ -569,6 +569,48 @@ export default function Home() {
     }
   }, []);
 
+  // DEV-only mock loot for verifying the character sheet without an LLM turn:
+  //   window.__odMockLoot()  -> drops gear (some equipped, with stat modifiers)
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __odMockLoot?: () => void }).__odMockLoot = () => {
+      const now = new Date().toISOString();
+      setItems([
+        {
+          id: makeId(),
+          name: "Клинок ярости",
+          slot: "weapon",
+          rarity: "rare",
+          damage: "1d8+2",
+          modifiers: { str: 2, ac: 1 },
+          equipped: true,
+          qty: 1,
+          createdAt: now,
+        },
+        {
+          id: makeId(),
+          name: "Кольцо стража",
+          slot: "trinket",
+          rarity: "epic",
+          modifiers: { maxHp: 6, con: 1 },
+          equipped: true,
+          qty: 1,
+          createdAt: now,
+        },
+        {
+          id: makeId(),
+          name: "Зелье лечения",
+          slot: "consumable",
+          rarity: "common",
+          modifiers: {},
+          equipped: false,
+          qty: 3,
+          createdAt: now,
+        },
+      ]);
+    };
+  }, []);
+
   const deleteChatById = useCallback(
     async (chatId: string) => {
       setError("");
@@ -1823,10 +1865,14 @@ export default function Home() {
         >
           {settings.rpgEnabled && heroRpg && (
             <aside className="hidden min-h-0 flex-col gap-2 overflow-y-auto pr-1 lg:flex">
-              <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} />
-              {items.length > 0 && (
-                <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
-              )}
+              <CharacterSheet
+                hero={heroRpg}
+                name={characters[0]?.name || "Герой"}
+                portrait={characters[0]?.portrait}
+                items={items}
+                onToggle={equipItem}
+                busy={busy}
+              />
               {journal.length > 0 && (
                 <div className="space-y-1 rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
                   <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
@@ -4073,6 +4119,204 @@ function InventoryPanel({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Full character sheet for the left column: hero portrait, HP/AC, ability stones,
+// worn equipment, and an inventory satchel grid (click a slot to equip/unequip).
+function CharacterSheet({
+  hero,
+  name,
+  portrait,
+  items,
+  onToggle,
+  busy,
+}: {
+  hero: CharacterRpg;
+  name: string;
+  portrait?: Attachment | null;
+  items: Item[];
+  onToggle: (itemId: string, equipped: boolean) => void;
+  busy?: boolean;
+}) {
+  const equipped = items.filter((item) => item.equipped);
+  // Fold equipped-gear modifiers into the displayed stats / AC / max-HP, so loot
+  // visibly changes the hero (a +2 STR blade reads as a higher, amber-tinted STR).
+  const bonus: Record<string, number> = {};
+  for (const item of equipped) {
+    for (const [key, value] of Object.entries(item.modifiers ?? {})) {
+      if (typeof value === "number") bonus[key] = (bonus[key] ?? 0) + value;
+    }
+  }
+  const maxHp = Math.max(1, hero.hp.max + (bonus.maxHp ?? 0));
+  const cur = Math.max(0, Math.min(hero.hp.current, maxHp));
+  const pct = Math.round((cur / maxHp) * 100);
+  const tone = hpTone(pct);
+  const effAc = hero.ac + (bonus.ac ?? 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="relative overflow-hidden rounded-lg border border-amber-900/40 bg-amber-950/10">
+        <div className="aspect-[4/5] w-full bg-stone-950">
+          {portrait?.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={portrait.url} alt={name} className="size-full object-cover" />
+          ) : (
+            <div className="flex size-full items-center justify-center">
+              <UserRound className="size-14 text-stone-700" aria-hidden="true" />
+            </div>
+          )}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950/95 to-transparent px-3 pb-2 pt-8">
+            <div className="flex items-end justify-between gap-2">
+              <span className="truncate font-serif text-base text-stone-50">{name}</span>
+              <span className="shrink-0 text-[10px] uppercase tracking-wide text-amber-300/80">
+                ур. {hero.level}
+              </span>
+            </div>
+          </div>
+          {hero.dead && (
+            <div className="absolute inset-0 flex items-center justify-center bg-red-950/55 text-sm font-semibold uppercase tracking-wider text-red-200">
+              ☠️ погиб
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Heart className={cn("size-4 shrink-0", tone.text)} aria-hidden="true" />
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-stone-800">
+            <div
+              className={cn("h-full rounded-full transition-all", tone.bar)}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className={cn("shrink-0 text-xs tabular-nums", tone.text)}>
+            {cur}/{maxHp}
+          </span>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-stone-300">
+          <span className="inline-flex items-center gap-1">
+            <Shield className="size-3.5 text-amber-300" aria-hidden="true" />
+            Класс защиты{" "}
+            <span className={cn("tabular-nums", bonus.ac ? "text-amber-300" : undefined)}>{effAc}</span>
+          </span>
+          {hero.conditions.length > 0 && (
+            <span className="truncate text-amber-200/80">{hero.conditions.join(", ")}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-amber-900/40 bg-amber-950/10 p-2">
+        {ABILITIES.map((ability) => {
+          const score = hero.stats[ability] + (bonus[ability] ?? 0);
+          const mod = abilityMod(score);
+          const buffed = Boolean(bonus[ability]);
+          return (
+            <div
+              key={ability}
+              className="flex flex-col items-center rounded border border-stone-800 bg-stone-950/60 py-1.5"
+              title={ABILITY_LABELS_RU[ability]}
+            >
+              <span className="text-[9px] uppercase tracking-wide text-stone-500">
+                {ABILITY_LABELS_RU[ability].slice(0, 3)}
+              </span>
+              <span
+                className={cn(
+                  "text-base font-semibold tabular-nums",
+                  buffed ? "text-amber-300" : "text-stone-100",
+                )}
+              >
+                {score}
+              </span>
+              <span className="text-[10px] tabular-nums text-amber-300/80">
+                {mod >= 0 ? `+${mod}` : mod}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {equipped.length > 0 && (
+        <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 px-3 py-2">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
+            Снаряжение
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {equipped.map((item) => {
+              const Icon = SLOT_ICON[item.slot];
+              return (
+                <span
+                  key={item.id}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded border border-amber-300/40 bg-amber-300/5 px-2 py-1 text-[11px]",
+                    RARITY_TONE[item.rarity],
+                  )}
+                >
+                  <Icon className="size-3" aria-hidden="true" />
+                  {item.name}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 px-3 py-2">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
+          <Backpack className="size-3.5" aria-hidden="true" />
+          Инвентарь
+        </div>
+        {items.length === 0 ? (
+          <p className="py-2 text-center text-[11px] text-stone-600">Пусто — добыча появится в бою</p>
+        ) : (
+          <div className="grid grid-cols-4 gap-1.5">
+            {items.map((item) => {
+              const Icon = SLOT_ICON[item.slot];
+              const equippable = item.slot !== "consumable" && item.slot !== "misc";
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={busy || !equippable}
+                  onClick={() => equippable && onToggle(item.id, !item.equipped)}
+                  title={`${item.name}${item.damage ? ` · ${item.damage}` : ""}${
+                    equippable ? (item.equipped ? " · надето (снять)" : " · надеть") : ""
+                  }`}
+                  className={cn(
+                    "relative flex aspect-square items-center justify-center rounded border bg-stone-950/60 transition disabled:cursor-default",
+                    item.equipped
+                      ? "border-amber-300/70 shadow-[0_0_10px_rgba(251,191,36,0.2)]"
+                      : "border-stone-800 hover:border-amber-300/40",
+                  )}
+                >
+                  {item.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.imageUrl}
+                      alt=""
+                      className="size-full rounded object-cover"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <Icon className={cn("size-5", RARITY_TONE[item.rarity])} aria-hidden="true" />
+                  )}
+                  {item.qty > 1 && (
+                    <span className="absolute bottom-0 right-0.5 text-[9px] tabular-nums text-stone-300">
+                      ×{item.qty}
+                    </span>
+                  )}
+                  {item.equipped && (
+                    <span className="absolute left-0.5 top-0.5 size-1.5 rounded-full bg-amber-300" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

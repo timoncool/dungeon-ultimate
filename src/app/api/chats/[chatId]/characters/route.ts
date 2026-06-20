@@ -23,6 +23,8 @@ const createCharacterSchema = z.object({
   skills: z.string().optional(),
   spells: z.string().optional(),
   portrait: attachmentSchema.optional(),
+  // Optional per-character TTS voice id (same id space as POST /api/tts.voice).
+  voice: z.string().trim().max(200).optional(),
 });
 
 export async function GET(_request: Request, context: CharactersRouteContext) {

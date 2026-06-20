@@ -51,6 +51,7 @@ type CharacterRow = {
   skills: string;
   spells: string;
   portrait_json: string | null;
+  voice: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -119,6 +120,12 @@ function ensureSchema(db: Database.Database) {
   }
   if (!characterColumns.some((column) => column.name === "spells")) {
     db.exec(`ALTER TABLE characters ADD COLUMN spells TEXT NOT NULL DEFAULT ''`);
+  }
+
+  // Optional per-character TTS voice id (multi-voice narration). Nullable: blank
+  // means "use the chat's single narrator voice", so existing rows need no value.
+  if (!characterColumns.some((column) => column.name === "voice")) {
+    db.exec(`ALTER TABLE characters ADD COLUMN voice TEXT`);
   }
 
   // RPG layer (additive): per-character stats/HP and chat-level game state as
@@ -257,6 +264,22 @@ function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
     typeof merged.imagePrompt === "string"
       ? merged.imagePrompt.slice(0, 20_000)
       : defaultSettings.imagePrompt;
+  merged.imageStylePrefix =
+    typeof merged.imageStylePrefix === "string"
+      ? merged.imageStylePrefix.slice(0, 2_000)
+      : defaultSettings.imageStylePrefix;
+
+  if (typeof merged.antiRepetition !== "boolean") {
+    merged.antiRepetition = defaultSettings.antiRepetition;
+  }
+
+  if (typeof merged.causeAwareEnding !== "boolean") {
+    merged.causeAwareEnding = defaultSettings.causeAwareEnding;
+  }
+
+  if (typeof merged.multiVoice !== "boolean") {
+    merged.multiVoice = defaultSettings.multiVoice;
+  }
 
   if (typeof merged.autoplay !== "boolean") {
     merged.autoplay = defaultSettings.autoplay;
@@ -322,6 +345,7 @@ function mapCharacter(row: CharacterRow): StoryCharacter {
     skills: row.skills,
     spells: row.spells,
     portrait: parseJson<Attachment | undefined>(row.portrait_json, undefined),
+    voice: row.voice || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -644,7 +668,7 @@ export function listCharacters(chatId: string): StoryCharacter[] {
   const rows = getDatabase()
     .prepare(
       `
-        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, created_at, updated_at
+        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, voice, created_at, updated_at
         FROM characters
         WHERE chat_id = ?
         ORDER BY updated_at DESC, created_at DESC
@@ -664,7 +688,7 @@ export function getCharactersByIds(chatId: string, characterIds: string[]) {
   const rows = getDatabase()
     .prepare(
       `
-        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, created_at, updated_at
+        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, voice, created_at, updated_at
         FROM characters
         WHERE chat_id = ? AND id IN (${placeholders})
       `,
@@ -687,6 +711,7 @@ export function createCharacter(
     skills?: string;
     spells?: string;
     portrait?: Attachment;
+    voice?: string;
   },
 ): StoryCharacter | null {
   const db = getDatabase();
@@ -710,6 +735,7 @@ export function createCharacter(
           skills,
           spells,
           portrait_json,
+          voice,
           created_at,
           updated_at
         )
@@ -722,6 +748,7 @@ export function createCharacter(
           @skills,
           @spells,
           @portraitJson,
+          @voice,
           @createdAt,
           @updatedAt
         )
@@ -735,6 +762,7 @@ export function createCharacter(
       skills: input.skills?.trim() || "",
       spells: input.spells?.trim() || "",
       portraitJson: input.portrait ? JSON.stringify(input.portrait) : null,
+      voice: input.voice?.trim() || null,
       createdAt: now,
       updatedAt: now,
     });
@@ -756,6 +784,7 @@ export function updateCharacter(
     skills?: string;
     spells?: string;
     portrait?: Attachment | null;
+    voice?: string | null;
   },
 ): StoryCharacter | null {
   const existing = getCharactersByIds(chatId, [characterId])[0];
@@ -775,6 +804,9 @@ export function updateCharacter(
   const nextSpells = updates.spells !== undefined ? updates.spells.trim() : existing.spells;
   const nextPortrait =
     updates.portrait !== undefined ? updates.portrait || undefined : existing.portrait;
+  // undefined = leave unchanged; "" or null = clear back to the single voice.
+  const nextVoice =
+    updates.voice !== undefined ? updates.voice?.trim() || undefined : existing.voice;
   const now = new Date().toISOString();
   const db = getDatabase();
 
@@ -790,6 +822,7 @@ export function updateCharacter(
             skills = @skills,
             spells = @spells,
             portrait_json = @portraitJson,
+            voice = @voice,
             updated_at = @updatedAt
           WHERE id = @id AND chat_id = @chatId
         `,
@@ -803,6 +836,7 @@ export function updateCharacter(
         skills: nextSkills,
         spells: nextSpells,
         portraitJson: nextPortrait ? JSON.stringify(nextPortrait) : null,
+        voice: nextVoice ?? null,
         updatedAt: now,
       });
     db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(now, chatId);
@@ -840,7 +874,7 @@ export function getHeroCharacter(chatId: string): StoryCharacter | null {
   const row = getDatabase()
     .prepare(
       `
-        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, created_at, updated_at
+        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, voice, created_at, updated_at
         FROM characters
         WHERE chat_id = ?
         ORDER BY created_at ASC, rowid ASC

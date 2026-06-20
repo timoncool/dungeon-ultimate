@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { getCharactersByIds } from "@/lib/db";
 import { serverEnv } from "@/lib/server-env";
 
 export const runtime = "nodejs";
@@ -19,13 +20,29 @@ export async function POST(request: Request) {
     voice?: unknown;
     messageId?: unknown;
     chunkIndex?: unknown;
+    // Optional multi-voice hook: when given, the speaking character's saved
+    // voice (if any) overrides `voice`. Lets the caller ask for a character's
+    // line without knowing the voice id. Bare { text, voice } is unaffected.
+    chatId?: unknown;
+    characterId?: unknown;
   };
   const text = typeof body.text === "string" ? body.text : "";
   if (!text.trim()) {
     return Response.json({ error: "Пустой текст для озвучки." }, { status: 400 });
   }
-  const voice =
+  const requestedVoice =
     typeof body.voice === "string" && body.voice ? body.voice : "RU_Male_Gabidullin_ruslan";
+  // Resolve an explicit speaker to their per-character voice, falling back to the
+  // requested/default voice when the character is unknown or has none set.
+  const chatId = typeof body.chatId === "string" ? body.chatId : "";
+  const characterId = typeof body.characterId === "string" ? body.characterId : "";
+  let voice = requestedVoice;
+  if (chatId && characterId) {
+    const character = getCharactersByIds(chatId, [characterId])[0];
+    if (character?.voice?.trim()) {
+      voice = character.voice.trim();
+    }
+  }
   const messageId = typeof body.messageId === "string" ? body.messageId : "";
   const chunkIndex = typeof body.chunkIndex === "number" ? body.chunkIndex : null;
   const base = serverEnv("TTS_WORKER_URL", "http://127.0.0.1:8081").replace(/\/$/, "");

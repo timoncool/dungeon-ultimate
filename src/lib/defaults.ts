@@ -11,6 +11,10 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
     "Классическая текстовая авантюрная нарратология: прямое второе лицо, яркая, но сдержанная проза, естественный диалог и без витиеватого описания.",
   narratorPrompt: DEFAULT_SYSTEM,
   imagePrompt: IMAGE_SYSTEM,
+  imageStylePrefix: "",
+  antiRepetition: true,
+  causeAwareEnding: true,
+  multiVoice: false,
   // Custom (OpenAI-compatible) is the primary text path; the bundled local
   // OpenAI-compatible Gemma server makes Ollama unnecessary. The env-driven
   // configuredDefaultStorySettings() still overrides these at boot, but this

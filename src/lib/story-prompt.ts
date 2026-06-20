@@ -83,6 +83,145 @@ Do not write the image prompt, a caption, the reason, or any tool detail into th
 const IMAGE_DISABLED_SYSTEM =
   "Генерация изображений для этой истории отключена. Не запрашивай изображения, не описывай промпты изображений и не упоминай инструменты генерации.";
 
+// Folded in only when the story should genuinely conclude. It never forces an
+// ending — it tells the narrator HOW to end when an ending is already due, so
+// the epilogue pays off the actual run instead of a stock "the end".
+const ENDING_SYSTEM = `ЗАВЕРШЕНИЕ ИСТОРИИ
+— Не обрывай историю произвольно и не подталкивай к финалу искусственно: большинство ходов заканчиваются зацепкой, а не точкой.
+— Но когда финал действительно назрел — смерть героя, достигнутая цель, или игрок прямо просит закончить/подвести итог — доведи историю до настоящего эпилога, а не до дежурного «конец».
+— Эпилог должен опираться на то, что реально произошло в ЭТОЙ истории: назови ключевые поступки игрока, исход его выборов, судьбу введённых персонажей, оплату долгов и обещаний, цену победы или смысл поражения. Сверяйся с «Историей до сих пор» и «Сохранёнными персонажами» как с фактами.
+— Подбери тон под причину финала: триумф, горькая победа, тихая смерть, открытый уход. Заверши образ, а не лозунг. После эпилога не приглашай к новому действию.`;
+
+// Light, derived anti-repetition: pull a short "beat" from each of the last few
+// narrator passages and tell the model to vary the next one. No new state — the
+// recent passages are already in the prompt; this just surfaces the pattern so
+// the local model stops re-opening every scene the same way.
+const ANTI_REPETITION_BEATS = 4;
+
+const BEAT_STOPWORDS = new Set([
+  "этот",
+  "эта",
+  "это",
+  "эти",
+  "тебе",
+  "тебя",
+  "твой",
+  "твоя",
+  "твоё",
+  "твои",
+  "перед",
+  "после",
+  "когда",
+  "затем",
+  "потом",
+  "снова",
+  "очень",
+  "будто",
+  "словно",
+  "здесь",
+  "сейчас",
+  "также",
+  "ещё",
+  "если",
+  "чтобы",
+  "пока",
+]);
+
+// First meaningful sentence of a passage, capped — enough to recognise a
+// repeated opening image without dumping the whole paragraph back in.
+function beatFromPassage(content: string): string {
+  const firstLine = content
+    .replace(/\s+/g, " ")
+    .replace(/[*_`#>]+/g, "")
+    .trim();
+  if (!firstLine) {
+    return "";
+  }
+  const sentenceEnd = firstLine.search(/[.!?…]/);
+  const sentence = sentenceEnd > 24 ? firstLine.slice(0, sentenceEnd + 1) : firstLine;
+  return sentence.length > 160 ? `${sentence.slice(0, 157).trim()}…` : sentence;
+}
+
+// Salient lowercase content words from the recent passages, so the nudge can
+// name the over-used motifs (e.g. "дверь", "свеча") the model keeps reaching for.
+function recurringMotifs(passages: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const passage of passages) {
+    const seen = new Set<string>();
+    const words = passage
+      .toLowerCase()
+      .replace(/ё/g, "е")
+      .match(/[a-zа-я][a-zа-я-]{4,}/gi);
+    if (!words) {
+      continue;
+    }
+    for (const word of words) {
+      if (BEAT_STOPWORDS.has(word) || seen.has(word)) {
+        continue;
+      }
+      seen.add(word);
+      counts.set(word, (counts.get(word) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([word]) => word);
+}
+
+export function buildAntiRepetitionNudge(messages: StoryMessage[]): string {
+  const recentNarration = messages
+    .filter((message) => message.role === "assistant")
+    .slice(-ANTI_REPETITION_BEATS);
+  if (recentNarration.length < 2) {
+    return "";
+  }
+
+  const beats = recentNarration
+    .map((message) => beatFromPassage(message.content))
+    .filter(Boolean);
+  if (!beats.length) {
+    return "";
+  }
+
+  const motifs = recurringMotifs(recentNarration.map((message) => message.content));
+  const lines = [
+    "ИЗБЕГАЙ ПОВТОРОВ",
+    "— Недавние сцены уже открывались так (НЕ повторяй их зачины, образы и структуру дословно):",
+    ...beats.map((beat) => `  • ${beat}`),
+  ];
+  if (motifs.length) {
+    lines.push(
+      `— Не опирайся снова на приевшиеся мотивы: ${motifs.join(", ")}. Смени ракурс, место действия, сенсорику и ритм первой фразы.`,
+    );
+  } else {
+    lines.push(
+      "— Начни этот ход с иного образа, ракурса или сенсорной детали, чем предыдущие; не копируй привычную структуру сцены.",
+    );
+  }
+  return lines.join("\n");
+}
+
+// Prepend the per-chat image style lock to a narrator-produced image prompt.
+// Single source of truth for the prefix so the streaming path, the buffered
+// path, and any future caller stay consistent. Idempotent: never double-applies
+// if the prompt already starts with the prefix.
+export function applyImageStylePrefix(prompt: string, stylePrefix: string): string {
+  const trimmedPrefix = stylePrefix.trim();
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrefix) {
+    return trimmedPrompt;
+  }
+  if (trimmedPrompt.toLowerCase().startsWith(trimmedPrefix.toLowerCase())) {
+    return trimmedPrompt;
+  }
+  // Join with ". " unless the prefix already ends in sentence punctuation, so the
+  // style reads as its own leading clause rather than colliding with the scene.
+  const separator = /[.!?,:;]$/.test(trimmedPrefix) ? " " : ". ";
+  return `${trimmedPrefix}${separator}${trimmedPrompt}`;
+}
+
 // Evicting history one message at a time would change the start of the prompt
 // every turn and invalidate the model server's prompt cache, forcing a full
 // re-prefill of the whole story. Dropping in blocks keeps the prefix stable
@@ -161,6 +300,7 @@ export function buildStoryMessages(
 
   const narratorSystem = settings.narratorPrompt?.trim() || DEFAULT_SYSTEM;
   const imageSystem = settings.imagePrompt?.trim() || IMAGE_SYSTEM;
+  const antiRepetitionNudge = settings.antiRepetition ? buildAntiRepetitionNudge(messages) : "";
 
   return [
     {
@@ -168,6 +308,8 @@ export function buildStoryMessages(
       content: [
         narratorSystem,
         RESPONSE_LENGTH_HINT[settings.responseLength] || RESPONSE_LENGTH_HINT.medium,
+        settings.causeAwareEnding ? ENDING_SYSTEM : "",
+        antiRepetitionNudge,
         settings.imageGenerationEnabled ? imageSystem : IMAGE_DISABLED_SYSTEM,
         `Мир / сценарий:\n${settings.world || "Реалистичная современная ролевая сцена с простором для импровизации."}`,
         `Тон / стиль прозы:\n${settings.style || "Чистая, мрачная проза текстовой игры, интимная, но без вычурности."}`,

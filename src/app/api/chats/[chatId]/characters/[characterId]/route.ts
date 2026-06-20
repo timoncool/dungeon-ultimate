@@ -23,6 +23,9 @@ const updateCharacterSchema = z.object({
   skills: z.string().optional(),
   spells: z.string().optional(),
   portrait: attachmentSchema.nullable().optional(),
+  // Per-character TTS voice id. Omit = unchanged; "" or null = clear back to the
+  // chat's single narrator voice.
+  voice: z.string().trim().max(200).nullable().optional(),
 });
 
 export async function PATCH(request: Request, context: CharacterRouteContext) {
