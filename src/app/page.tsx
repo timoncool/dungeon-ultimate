@@ -1985,7 +1985,12 @@ export default function Home() {
             </aside>
           )}
           <section className="flex h-full min-h-0 flex-col">
-            <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-1 flex-col">
+            <div
+              className={cn(
+                "mx-auto flex h-full min-h-0 w-full flex-1 flex-col",
+                bookMode ? "max-w-6xl" : "max-w-3xl",
+              )}
+            >
               {messages.length > 0 && (
                 <div className="mb-2 flex shrink-0 justify-end">
                   <button
@@ -1999,7 +2004,11 @@ export default function Home() {
                 </div>
               )}
               {bookMode ? (
-                <BookReader messages={messages} />
+                <BookReader
+                  messages={messages}
+                  speakingId={speakingId}
+                  onSpeak={(message) => speakText(message.id, message.content)}
+                />
               ) : (
               <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain pr-1 pb-3 sm:space-y-10">
                 {libraryLoading || loadingChat ? (
