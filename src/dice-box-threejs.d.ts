@@ -23,6 +23,7 @@ declare module "@3d-dice/dice-box-threejs" {
 
   export default class DiceBox {
     constructor(selector: string, config?: DiceBoxConfig);
+    volume: number;
     initialize(): Promise<void>;
     loadTheme(opts: { colorset?: string; texture?: string; material?: string }): Promise<void>;
     roll(notation: string): Promise<unknown>;

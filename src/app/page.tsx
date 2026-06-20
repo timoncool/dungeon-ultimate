@@ -416,6 +416,22 @@ export default function Home() {
   const [suggestedActions, setSuggestedActions] = useState<Array<{ emoji?: string; label: string }>>([]);
   const [journal, setJournal] = useState<GameEvent[]>([]);
   const [diceQueue, setDiceQueue] = useState<DiceJob[]>([]);
+  // DEV-only manual dice trigger (stripped from production builds):
+  //   window.__odRollDie(20, "critSuccess", "Сила · d20 20 +4 = 24 ≥ 15 → крит. успех")
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __odRollDie?: (d: number, o?: string, c?: string) => void }).__odRollDie = (
+      d,
+      o = "success",
+      c = "Ловкость · d20 = проверка",
+    ) => {
+      setSettings((cur) => (cur.rpgEnabled ? cur : { ...cur, rpgEnabled: true }));
+      setDiceQueue((q) => [
+        ...q,
+        { id: makeId(), d20: Math.max(1, Math.min(20, Math.round(d) || 1)), outcome: o as DiceOutcome, caption: c },
+      ]);
+    };
+  }, []);
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState("");
   const lastSavedSettingsRef = useRef(JSON.stringify(DEFAULT_STORY_SETTINGS));
@@ -1621,10 +1637,12 @@ export default function Home() {
 
   return (
     <main className="flex h-dvh min-h-dvh flex-1 overflow-hidden bg-[#130d09] text-stone-100">
-      {settings.rpgEnabled && (
+      {settings.rpgEnabled && settings.diceEnabled && (
         <DiceStage
           job={diceQueue[0] ?? null}
           onDone={(id) => setDiceQueue((queue) => queue.filter((entry) => entry.id !== id))}
+          sound={settings.diceSound}
+          volume={settings.diceVolume}
         />
       )}
       <section className="mx-auto flex h-dvh min-h-0 w-full max-w-7xl flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4">
@@ -3805,11 +3823,13 @@ const DICE_COLORSET: Record<DiceOutcome, string> = {
   fail: "fire",
   critFail: "necrotic",
 };
+// RGB triplets for a soft radial spotlight behind the die (smooth falloff to
+// transparent — no hard-edged blob).
 const DICE_GLOW: Record<DiceOutcome, string> = {
-  critSuccess: "bg-amber-400",
-  success: "bg-emerald-500",
-  fail: "bg-orange-600",
-  critFail: "bg-red-700",
+  critSuccess: "250, 204, 21",
+  success: "52, 211, 153",
+  fail: "234, 88, 12",
+  critFail: "220, 38, 38",
 };
 const DICE_CAPTION_TONE: Record<DiceOutcome, string> = {
   critSuccess: "border-amber-300/60 text-amber-200",
@@ -3846,7 +3866,17 @@ function rollJobsFromEvents(events: GameEvent[]): DiceJob[] {
 // Real 3D physics d20 (@3d-dice/dice-box-threejs, three.js + cannon-es). The cube
 // is forced via `1d20@N` to land on the value the engine already rolled, recoloured
 // per outcome and clattering on felt. WebGL loads lazily, only in D&D mode.
-function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) => void }) {
+function DiceStage({
+  job,
+  onDone,
+  sound,
+  volume,
+}: {
+  job: DiceJob | null;
+  onDone: (id: string) => void;
+  sound: boolean;
+  volume: number;
+}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<DiceBox | null>(null);
   const [ready, setReady] = useState(false);
@@ -3883,16 +3913,19 @@ function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) 
           theme_surface: "green-felt",
           sound_dieMaterial: "metal",
           sounds: true,
-          volume: 55,
+          volume: sound ? volume : 0,
           shadows: true,
-          gravity_multiplier: 380,
+          gravity_multiplier: 260,
           light_intensity: 0.95,
-          baseScale: 240,
-          strength: 1.2,
+          baseScale: 175,
+          strength: 2.6,
         });
         await box.initialize();
         if (cancelled) return;
         boxRef.current = box;
+        if (process.env.NODE_ENV !== "production") {
+          (window as unknown as { __odDiceBox?: unknown }).__odDiceBox = box;
+        }
         setReady(true);
       } catch (error) {
         console.error("[dice] init failed", error);
@@ -3936,6 +3969,11 @@ function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) 
     })();
   }, [ready, job]);
 
+  // apply sound/volume changes live (sounds stay loaded; 0 = muted)
+  useEffect(() => {
+    if (boxRef.current) boxRef.current.volume = sound ? volume : 0;
+  }, [sound, volume]);
+
   const outcome = job?.outcome ?? "fail";
   const critical = outcome === "critSuccess" || outcome === "critFail";
   return (
@@ -3946,20 +3984,23 @@ function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) 
         active ? "opacity-100" : "opacity-0",
       )}
     >
-      <div className="absolute inset-0 bg-black/60" />
+      <div className="absolute inset-0 bg-black/65" />
       <div
         className={cn(
-          "pointer-events-none absolute rounded-full blur-3xl transition-opacity duration-700",
-          DICE_GLOW[outcome],
-          landed ? (critical ? "opacity-70" : "opacity-45") : "opacity-0",
+          "pointer-events-none absolute inset-0 transition-opacity duration-700",
+          landed ? (critical ? "opacity-100" : "opacity-70") : "opacity-0",
         )}
-        style={{ width: "min(62vmin, 430px)", height: "min(62vmin, 430px)" }}
+        style={{
+          background: `radial-gradient(circle at 50% 45%, rgba(${DICE_GLOW[outcome]}, ${
+            critical ? 0.32 : 0.22
+          }) 0%, transparent 58%)`,
+        }}
       />
       <div
         ref={mountRef}
         id="od-dice-stage"
         className="relative"
-        style={{ width: "min(70vmin, 460px)", height: "min(70vmin, 460px)" }}
+        style={{ width: "min(94vw, 1120px)", height: "min(62vh, 520px)" }}
       />
       {job && (
         <div
@@ -4064,6 +4105,56 @@ function StorySettingsPanel({
           className="size-4 accent-amber-300"
         />
       </label>
+      {settings.rpgEnabled && (
+        <div className="mb-1 space-y-2 rounded border border-stone-800 bg-stone-950/60 px-3 py-2">
+          <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">🎲 Кубики</div>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-xs text-stone-300">3D-бросок</span>
+            <input
+              type="checkbox"
+              checked={settings.diceEnabled}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, diceEnabled: event.target.checked }))
+              }
+              className="size-4 accent-amber-300"
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className={cn("text-xs", settings.diceEnabled ? "text-stone-300" : "text-stone-600")}>
+              Звук броска
+            </span>
+            <input
+              type="checkbox"
+              checked={settings.diceSound}
+              disabled={!settings.diceEnabled}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, diceSound: event.target.checked }))
+              }
+              className="size-4 accent-amber-300 disabled:opacity-40"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 flex items-center justify-between text-xs">
+              <span className={settings.diceEnabled && settings.diceSound ? "text-stone-300" : "text-stone-600"}>
+                Громкость
+              </span>
+              <span className="tabular-nums text-stone-500">{settings.diceVolume}%</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={settings.diceVolume}
+              disabled={!settings.diceEnabled || !settings.diceSound}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, diceVolume: Number(event.target.value) }))
+              }
+              className="w-full accent-amber-300 disabled:opacity-40"
+            />
+          </label>
+        </div>
+      )}
       <label className="block">
         <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
           Мир
