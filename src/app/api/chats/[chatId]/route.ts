@@ -3,6 +3,7 @@ import {
   deleteChat,
   getCharacterRpg,
   getChat,
+  getHeroCharacter,
   listEvents,
   listItems,
   updateChat,
@@ -67,7 +68,10 @@ export async function GET(_request: Request, context: ChatRouteContext) {
   if (!chat.settings.rpgEnabled) {
     return Response.json({ chat });
   }
-  const heroId = chat.characters[0]?.id ?? null;
+  // The protagonist is the OLDEST character (getHeroCharacter), matching the engine
+  // and image pipeline — NOT chat.characters[0], which is ordered by updated_at and
+  // would flip to whichever character was edited most recently.
+  const heroId = getHeroCharacter(chatId)?.id ?? null;
   // BASE stats here (not the engine's derived map): the client folds equipped-gear
   // modifiers itself via deriveRpg for display, so returning derived would double-count.
   const heroRpg = heroId ? getCharacterRpg(chatId, heroId) : null;

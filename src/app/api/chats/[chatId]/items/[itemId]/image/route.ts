@@ -106,6 +106,9 @@ export async function POST(request: Request, context: ItemImageRouteContext) {
         aspect: "square",
         width: dimensions.width,
         height: dimensions.height,
+        // steps/guidance are honored only by the Apple-Silicon mflux path; the
+        // Windows/Linux full-step backends (flux-uncensored, sdnq-hs) force
+        // steps>=12 and guidance=3.5 in the worker, so these are inert there.
         steps: 4,
         guidance: 0.0,
         references: [],

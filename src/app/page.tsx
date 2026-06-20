@@ -65,7 +65,7 @@ import type {
   StorySettings,
 } from "@/lib/types";
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod } from "@/lib/rpg/dice";
-import { deriveRpg } from "@/lib/rpg/derive";
+import { deriveForOwner } from "@/lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
 import type DiceBox from "@3d-dice/dice-box-threejs";
 
@@ -432,7 +432,11 @@ export default function Home() {
   const [journal, setJournal] = useState<GameEvent[]>([]);
   const [diceQueue, setDiceQueue] = useState<DiceJob[]>([]);
   const [heroRpg, setHeroRpg] = useState<CharacterRpg | null>(null);
+  const [heroId, setHeroId] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  // The protagonist character (matches the server's getHeroCharacter / heroId), used
+  // for the HUD name + portrait so they don't flip to a recently-edited companion.
+  const heroChar = characters.find((character) => character.id === heroId) ?? characters[0] ?? null;
   const [bookMode, setBookMode] = useState(false);
   // DEV-only manual dice trigger (stripped from production builds):
   //   window.__odRollDie(20, "critSuccess", "Сила · d20 20 +4 = 24 ≥ 15 → крит. успех")
@@ -482,6 +486,7 @@ export default function Home() {
       hero: CharacterRpg | null = null,
       ownedItems: Item[] = [],
       events: GameEvent[] = [],
+      heroIdArg: string | null = null,
     ) => {
       setSelectedChatId(chat.id);
       window.localStorage.setItem(SELECTED_CHAT_KEY, chat.id);
@@ -492,6 +497,7 @@ export default function Home() {
       setAttachments([]);
       setImageStatus({});
       setHeroRpg(hero);
+      setHeroId(heroIdArg);
       setItems(ownedItems);
       setJournal(events);
       lastSavedSettingsRef.current = JSON.stringify(chat.settings);
@@ -520,7 +526,7 @@ export default function Home() {
       try {
         const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
         const payload = await readApi<ChatResponse>(response);
-        applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? []);
+        applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
       } finally {
@@ -540,6 +546,7 @@ export default function Home() {
     setAttachments([]);
     setImageStatus({});
     setHeroRpg(null);
+    setHeroId(null);
     setItems([]);
   }, [applyDefaultSettings]);
 
@@ -571,6 +578,7 @@ export default function Home() {
       const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
       const payload = await readApi<ChatResponse>(response);
       setHeroRpg(payload.heroRpg ?? null);
+      setHeroId(payload.heroId ?? null);
       setItems(payload.items ?? []);
     } catch {
       // best-effort HUD refresh
@@ -726,7 +734,7 @@ export default function Home() {
           const response = await fetch(`/api/chats/${nextChatId}`, { cache: "no-store" });
           const payload = await readApi<ChatResponse>(response);
           if (!cancelled) {
-            applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? []);
+            applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
           }
         } else if (!cancelled) {
           applyDefaultSettings();
@@ -1587,7 +1595,7 @@ export default function Home() {
         payload.chat,
         ...current.filter((chat) => chat.id !== payload.chat.id),
       ]);
-      applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? []);
+      applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
       void refreshChats();
 
       if (options.opening.mode === "self") {
@@ -1916,8 +1924,9 @@ export default function Home() {
             <aside className="hidden min-h-0 flex-col gap-2 overflow-y-auto pr-1 lg:flex">
               <CharacterSheet
                 hero={heroRpg}
-                name={characters[0]?.name || "Герой"}
-                portrait={characters[0]?.portrait}
+                heroId={heroId}
+                name={heroChar?.name || "Герой"}
+                portrait={heroChar?.portrait}
                 items={items}
                 onToggle={equipItem}
                 busy={busy}
@@ -2074,7 +2083,12 @@ export default function Home() {
               {settings.rpgEnabled && (heroRpg || items.length > 0) && (
                 <div className="mb-2 shrink-0 space-y-2 lg:hidden">
                   {heroRpg && (
-                    <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} items={items} />
+                    <HudBar
+                      hero={heroRpg}
+                      heroId={heroId}
+                      name={heroChar?.name || "Герой"}
+                      items={items}
+                    />
                   )}
                   {items.length > 0 && (
                     <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
@@ -4030,13 +4044,26 @@ function hpTone(pct: number): { bar: string; text: string } {
 
 // Player HUD: name + level, coloured HP bar, AC, six abilities with 5e modifiers,
 // active conditions. Read-only; mirrors the stone/amber journal strip styling.
-function HudBar({ hero, name, items }: { hero: CharacterRpg; name: string; items: Item[] }) {
-  // Same derived (base + equipped) view the character sheet and resolver use.
-  const { rpg: eff, bonus } = deriveRpg(hero, items);
+function HudBar({
+  hero,
+  heroId,
+  name,
+  items,
+}: {
+  hero: CharacterRpg;
+  heroId: string | null;
+  name: string;
+  items: Item[];
+}) {
+  // Same derived (base + equipped) view the resolver uses — scoped to the hero's
+  // OWN items so the HUD can't show buffs from a companion's gear the engine ignores.
+  const { rpg: eff, bonus } = deriveForOwner(hero, items, heroId ?? undefined);
   const max = Math.max(1, eff.hp.max);
   const cur = Math.max(0, Math.min(eff.hp.current, max));
   const pct = Math.round((cur / max) * 100);
   const tone = hpTone(pct);
+  // Never let the fill vanish while alive — a 0px bar reads as "dead" at 1 HP.
+  const fillPct = cur > 0 ? Math.max(4, pct) : 0;
   return (
     <div className="rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-amber-100/90">
       <div className="flex items-center justify-between gap-3">
@@ -4057,7 +4084,7 @@ function HudBar({ hero, name, items }: { hero: CharacterRpg; name: string; items
       <div className="mt-1.5 flex items-center gap-2">
         <Heart className={cn("size-3.5 shrink-0", tone.text)} aria-hidden="true" />
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-800">
-          <div className={cn("h-full rounded-full transition-all", tone.bar)} style={{ width: `${pct}%` }} />
+          <div className={cn("h-full rounded-full transition-all", tone.bar)} style={{ width: `${fillPct}%` }} />
         </div>
         <span className={cn("shrink-0 text-xs tabular-nums", tone.text)}>
           {cur}/{max}
@@ -4212,6 +4239,7 @@ function InventoryPanel({
 // worn equipment, and an inventory satchel grid (click a slot to equip/unequip).
 function CharacterSheet({
   hero,
+  heroId,
   name,
   portrait,
   items,
@@ -4219,6 +4247,7 @@ function CharacterSheet({
   busy,
 }: {
   hero: CharacterRpg;
+  heroId: string | null;
   name: string;
   portrait?: Attachment | null;
   items: Item[];
@@ -4227,14 +4256,16 @@ function CharacterSheet({
 }) {
   const equipped = items.filter((item) => item.equipped);
   // Fold equipped-gear modifiers into the displayed stats / AC / max-HP via the
-  // SAME deriveRpg the combat resolver uses on the server, so the sheet can never
-  // disagree with the numbers the engine actually rolls against. `bonus` drives
-  // the amber tint on buffed values.
-  const { rpg: eff, bonus } = deriveRpg(hero, items);
+  // SAME deriveForOwner the combat resolver uses on the server — scoped to the
+  // hero's OWN items — so the sheet can never disagree with the numbers the engine
+  // rolls against. `bonus` drives the amber tint on buffed values.
+  const { rpg: eff, bonus } = deriveForOwner(hero, items, heroId ?? undefined);
   const maxHp = eff.hp.max;
   const cur = Math.max(0, Math.min(eff.hp.current, maxHp));
   const pct = Math.round((cur / maxHp) * 100);
   const tone = hpTone(pct);
+  // Never let the fill vanish while alive — a 0px bar reads as "dead" at 1 HP.
+  const fillPct = cur > 0 ? Math.max(4, pct) : 0;
   const effAc = eff.ac;
   return (
     <div className="flex flex-col gap-2">
@@ -4270,7 +4301,7 @@ function CharacterSheet({
           <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-stone-800">
             <div
               className={cn("h-full rounded-full transition-all", tone.bar)}
-              style={{ width: `${pct}%` }}
+              style={{ width: `${fillPct}%` }}
             />
           </div>
           <span className={cn("shrink-0 text-xs tabular-nums", tone.text)}>
@@ -4356,17 +4387,19 @@ function CharacterSheet({
             {items.map((item) => {
               const Icon = SLOT_ICON[item.slot];
               const equippable = item.slot !== "consumable" && item.slot !== "misc";
+              const label = `${item.name}${item.damage ? ` · ${item.damage}` : ""}${
+                equippable ? (item.equipped ? " · надето (нажмите чтобы снять)" : " · надеть") : ""
+              }`;
               return (
                 <button
                   key={item.id}
                   type="button"
                   disabled={busy || !equippable}
                   onClick={() => equippable && onToggle(item.id, !item.equipped)}
-                  title={`${item.name}${item.damage ? ` · ${item.damage}` : ""}${
-                    equippable ? (item.equipped ? " · надето (снять)" : " · надеть") : ""
-                  }`}
+                  title={label}
+                  aria-label={label}
                   className={cn(
-                    "relative flex aspect-square items-center justify-center rounded border bg-stone-950/60 transition disabled:cursor-default",
+                    "relative flex aspect-square items-center justify-center rounded border bg-stone-950/60 transition disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70",
                     item.equipped
                       ? "border-amber-300/70 shadow-[0_0_10px_rgba(251,191,36,0.2)]"
                       : "border-stone-800 hover:border-amber-300/40",
@@ -4495,6 +4528,7 @@ function DiceStage({
   const mountRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<DiceBox | null>(null);
   const [ready, setReady] = useState(false);
+  const [initFailed, setInitFailed] = useState(false);
   const [active, setActive] = useState(false);
   const [landed, setLanded] = useState(false);
   const lastIdRef = useRef<string | null>(null);
@@ -4544,6 +4578,7 @@ function DiceStage({
         setReady(true);
       } catch (error) {
         console.error("[dice] init failed", error);
+        if (!cancelled) setInitFailed(true);
       }
     })();
     return () => {
@@ -4558,8 +4593,16 @@ function DiceStage({
   }, []);
 
   useEffect(() => {
+    if (!job || lastIdRef.current === job.id) return;
+    // If the 3D dice never initialized (no WebGL), still drain the job so the
+    // turn pipeline isn't left waiting — the numeric result shows in the journal.
+    if (initFailed) {
+      lastIdRef.current = job.id;
+      onDoneRef.current(job.id);
+      return;
+    }
     const box = boxRef.current;
-    if (!ready || !box || !job || lastIdRef.current === job.id) return;
+    if (!ready || !box) return;
     lastIdRef.current = job.id;
     setActive(true);
     setLanded(false);
@@ -4582,7 +4625,7 @@ function DiceStage({
       }
       box.roll(`1d20@${job.d20}`).then(finish).catch(finish);
     })();
-  }, [ready, job]);
+  }, [ready, job, initFailed]);
 
   // apply sound/volume changes live (sounds stay loaded; 0 = muted)
   useEffect(() => {

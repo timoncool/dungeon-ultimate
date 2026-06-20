@@ -17,7 +17,7 @@ import type {
 } from "@/lib/types";
 import { coerceCharacterRpg, DEFAULT_RPG_STATE } from "@/lib/rpg/types";
 import type { CharacterRpg, Enemy, GameEvent, Item, RpgState } from "@/lib/rpg/types";
-import { deriveRpg } from "@/lib/rpg/derive";
+import { deriveForOwner } from "@/lib/rpg/derive";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(process.cwd(), "data", "local-roleplay.sqlite");
@@ -989,8 +989,10 @@ export function getCharacterRpgMap(
   chatId: string,
 ): Map<string, { name: string; rpg: CharacterRpg }> {
   const db = getDatabase();
+  // created_at ASC keeps the FIRST map entry the oldest character (the protagonist),
+  // matching getHeroCharacter and the firstActorId fallback in the resolver.
   const rows = db
-    .prepare("SELECT id, name, rpg_json FROM characters WHERE chat_id = ?")
+    .prepare("SELECT id, name, rpg_json FROM characters WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC")
     .all(chatId) as Array<{ id: string; name: string; rpg_json?: string }>;
   const items = listItems(chatId);
   const map = new Map<string, { name: string; rpg: CharacterRpg }>();
@@ -1003,8 +1005,7 @@ export function getCharacterRpgMap(
         parsed = undefined;
       }
     }
-    const owned = items.filter((item) => item.ownerId === row.id);
-    map.set(row.id, { name: row.name, rpg: deriveRpg(coerceCharacterRpg(parsed), owned).rpg });
+    map.set(row.id, { name: row.name, rpg: deriveForOwner(coerceCharacterRpg(parsed), items, row.id).rpg });
   }
   return map;
 }

@@ -222,6 +222,15 @@ export function applyImageStylePrefix(prompt: string, stylePrefix: string): stri
   return `${trimmedPrefix}${separator}${trimmedPrompt}`;
 }
 
+// Finalize a SCENE image prompt: apply the style prefix, then append a hard
+// anti-text clause. The worker backends accept no negative prompt, and scenes are
+// built from Russian prose full of proper nouns, so without this FLUX tends to
+// engrave garbled text — the same reason the item-portrait path bakes one in.
+export function finalizeScenePrompt(prompt: string, stylePrefix: string): string {
+  const styled = applyImageStylePrefix(prompt, stylePrefix).replace(/\s*$/, "");
+  return `${styled}. No text, no letters, no words, no captions, no watermark, no UI.`;
+}
+
 // Evicting history one message at a time would change the start of the prompt
 // every turn and invalidate the model server's prompt cache, forcing a full
 // re-prefill of the whole story. Dropping in blocks keeps the prefix stable

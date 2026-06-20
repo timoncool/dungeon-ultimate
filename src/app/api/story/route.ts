@@ -22,9 +22,9 @@ import { buildRpgSection } from "@/lib/rpg/prompt";
 import type { Enemy, GameEvent } from "@/lib/rpg/types";
 import { serverEnv } from "@/lib/server-env";
 import {
-  applyImageStylePrefix,
   buildStoryMessages,
   extractStoryText,
+  finalizeScenePrompt,
   packStoryHistory,
 } from "@/lib/story-prompt";
 import {
@@ -979,7 +979,10 @@ function resolveRpgTurn(
         // then compound every turn as gear is re-folded on top).
         const base = getCharacterRpg(chatId, id);
         if (base) {
-          base.hp.current = actor.rpg.hp.current;
+          // actor.rpg.hp.current was clamped to the DERIVED max (which may include a
+          // +maxHp item). Clamp to the BASE max here so the stored row is never
+          // self-inconsistent (current > max) once gear is folded back out.
+          base.hp.current = Math.min(actor.rpg.hp.current, base.hp.max);
           base.dead = actor.rpg.dead;
           saveCharacterRpg(id, base);
         }
@@ -1191,7 +1194,7 @@ export async function POST(request: Request) {
             includeImageTool && imageToolArgs?.prompt
               ? {
                   needed: true,
-                  prompt: applyImageStylePrefix(
+                  prompt: finalizeScenePrompt(
                     imageToolArgs.prompt,
                     body.settings.imageStylePrefix,
                   ),
@@ -1268,7 +1271,7 @@ export async function POST(request: Request) {
       body.settings.imageGenerationEnabled && body.settings.autoImages && imageToolArgs?.prompt
         ? {
             needed: true,
-            prompt: applyImageStylePrefix(imageToolArgs.prompt, body.settings.imageStylePrefix),
+            prompt: finalizeScenePrompt(imageToolArgs.prompt, body.settings.imageStylePrefix),
             mode: body.settings.imageMode,
             backend: body.settings.imageBackend,
             aspect: body.settings.aspect,
