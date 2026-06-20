@@ -88,14 +88,20 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
     );
     if (!hit) continue;
     const notation = attack.damage || "1d6";
-    const base = rollNotation(notation).total;
-    const damage = Math.max(1, result.crit === "success" ? base * 2 : base);
+    // 5e crits double the DICE, not the flat modifier: 1d8+3 → 2d8+3, not (1d8+3)×2.
+    const rolled = rollNotation(notation);
+    const diceSum = rolled.rolls.reduce((sum, value) => sum + value, 0);
+    const flat = rolled.total - diceSum; // signed; correct for "1d8-1" too
+    const damage = Math.max(
+      1,
+      result.crit === "success" ? diceSum * 2 + flat : rolled.total,
+    );
     target.rpg.hp.current = clampStat(target.rpg.hp.current - damage, -999, target.rpg.hp.max);
     changed.add(attack.targetId);
     events.push(
       makeEvent(
         "hp",
-        `💥 ${target.name}: -${damage} HP (${notation}${result.crit === "success" ? ", крит ×2" : ""}) → ${Math.max(0, target.rpg.hp.current)}/${target.rpg.hp.max}`,
+        `💥 ${target.name}: -${damage} HP (${notation}${result.crit === "success" ? ", крит — удвоенные кости" : ""}) → ${Math.max(0, target.rpg.hp.current)}/${target.rpg.hp.max}`,
         { damage },
       ),
     );
@@ -144,7 +150,12 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
         { delta },
       ),
     );
-    if (actor.rpg.hp.current <= 0 && !actor.rpg.dead) {
+    // A heal that lifts a downed actor back above 0 revives them — otherwise a
+    // character could read "alive" on the HP bar yet stay flagged dead forever.
+    if (actor.rpg.dead && actor.rpg.hp.current > 0) {
+      actor.rpg.dead = false;
+      events.push(makeEvent("hp", `✨ ${actor.name} приходит в себя.`, { characterId: delta.characterId }));
+    } else if (actor.rpg.hp.current <= 0 && !actor.rpg.dead) {
       actor.rpg.dead = true;
       events.push(makeEvent("death", `☠️ ${actor.name} погибает.`, { characterId: delta.characterId }));
     }
@@ -164,6 +175,7 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
       modifiers: grant.modifiers as Item["modifiers"],
       equipped: false,
       qty: grant.qty && grant.qty > 0 ? Math.round(grant.qty) : 1,
+      imagePromptEn: grant.imagePromptEn?.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
     items.push(item);

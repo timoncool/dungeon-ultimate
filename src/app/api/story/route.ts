@@ -5,6 +5,7 @@ import {
   addEvents,
   addItems,
   addMessage,
+  getCharacterRpg,
   getCharacterRpgMap,
   getCombatants,
   getStorySummary,
@@ -971,7 +972,18 @@ function resolveRpgTurn(
     for (const id of changed) {
       if (enemyIds.has(id)) continue; // enemies are persisted together below
       const actor = actors.get(id);
-      if (actor && characterActors.has(id)) saveCharacterRpg(id, actor.rpg);
+      if (actor && characterActors.has(id)) {
+        // actor.rpg is the DERIVED block (base + equipped modifiers). Persist
+        // ONLY the mutated HP and dead flag back onto the canonical BASE row, so
+        // equipment bonuses are never baked into stored base stats (which would
+        // then compound every turn as gear is re-folded on top).
+        const base = getCharacterRpg(chatId, id);
+        if (base) {
+          base.hp.current = actor.rpg.hp.current;
+          base.dead = actor.rpg.dead;
+          saveCharacterRpg(id, base);
+        }
+      }
     }
     // Rebuild the encounter: surviving enemies (mutated in place) + new spawns,
     // dropping the defeated so they don't linger into the next turn.

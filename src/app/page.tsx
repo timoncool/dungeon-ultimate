@@ -65,6 +65,7 @@ import type {
   StorySettings,
 } from "@/lib/types";
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod } from "@/lib/rpg/dice";
+import { deriveRpg } from "@/lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
 import type DiceBox from "@3d-dice/dice-box-threejs";
 
@@ -2072,7 +2073,9 @@ export default function Home() {
 
               {settings.rpgEnabled && (heroRpg || items.length > 0) && (
                 <div className="mb-2 shrink-0 space-y-2 lg:hidden">
-                  {heroRpg && <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} />}
+                  {heroRpg && (
+                    <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} items={items} />
+                  )}
                   {items.length > 0 && (
                     <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
                   )}
@@ -4027,9 +4030,11 @@ function hpTone(pct: number): { bar: string; text: string } {
 
 // Player HUD: name + level, coloured HP bar, AC, six abilities with 5e modifiers,
 // active conditions. Read-only; mirrors the stone/amber journal strip styling.
-function HudBar({ hero, name }: { hero: CharacterRpg; name: string }) {
-  const max = Math.max(1, hero.hp.max);
-  const cur = Math.max(0, Math.min(hero.hp.current, max));
+function HudBar({ hero, name, items }: { hero: CharacterRpg; name: string; items: Item[] }) {
+  // Same derived (base + equipped) view the character sheet and resolver use.
+  const { rpg: eff, bonus } = deriveRpg(hero, items);
+  const max = Math.max(1, eff.hp.max);
+  const cur = Math.max(0, Math.min(eff.hp.current, max));
   const pct = Math.round((cur / max) * 100);
   const tone = hpTone(pct);
   return (
@@ -4046,7 +4051,7 @@ function HudBar({ hero, name }: { hero: CharacterRpg; name: string }) {
         </div>
         <span className="inline-flex items-center gap-1 text-xs text-stone-300">
           <Shield className="size-3.5 text-amber-300" aria-hidden="true" />
-          <span className="tabular-nums">AC {hero.ac}</span>
+          <span className={cn("tabular-nums", bonus.ac ? "text-amber-300" : undefined)}>AC {eff.ac}</span>
         </span>
       </div>
       <div className="mt-1.5 flex items-center gap-2">
@@ -4060,8 +4065,9 @@ function HudBar({ hero, name }: { hero: CharacterRpg; name: string }) {
       </div>
       <div className="mt-2 grid grid-cols-6 gap-1">
         {ABILITIES.map((ability) => {
-          const score = hero.stats[ability];
+          const score = eff.stats[ability];
           const mod = abilityMod(score);
+          const buffed = Boolean(bonus[ability]);
           return (
             <div
               key={ability}
@@ -4071,7 +4077,14 @@ function HudBar({ hero, name }: { hero: CharacterRpg; name: string }) {
               <span className="text-[9px] uppercase tracking-wide text-stone-500">
                 {ABILITY_LABELS_RU[ability].slice(0, 3)}
               </span>
-              <span className="text-sm font-semibold tabular-nums text-stone-200">{score}</span>
+              <span
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  buffed ? "text-amber-300" : "text-stone-200",
+                )}
+              >
+                {score}
+              </span>
               <span className="text-[10px] tabular-nums text-amber-300/80">
                 {mod >= 0 ? `+${mod}` : mod}
               </span>
@@ -4213,19 +4226,16 @@ function CharacterSheet({
   busy?: boolean;
 }) {
   const equipped = items.filter((item) => item.equipped);
-  // Fold equipped-gear modifiers into the displayed stats / AC / max-HP, so loot
-  // visibly changes the hero (a +2 STR blade reads as a higher, amber-tinted STR).
-  const bonus: Record<string, number> = {};
-  for (const item of equipped) {
-    for (const [key, value] of Object.entries(item.modifiers ?? {})) {
-      if (typeof value === "number") bonus[key] = (bonus[key] ?? 0) + value;
-    }
-  }
-  const maxHp = Math.max(1, hero.hp.max + (bonus.maxHp ?? 0));
-  const cur = Math.max(0, Math.min(hero.hp.current, maxHp));
+  // Fold equipped-gear modifiers into the displayed stats / AC / max-HP via the
+  // SAME deriveRpg the combat resolver uses on the server, so the sheet can never
+  // disagree with the numbers the engine actually rolls against. `bonus` drives
+  // the amber tint on buffed values.
+  const { rpg: eff, bonus } = deriveRpg(hero, items);
+  const maxHp = eff.hp.max;
+  const cur = Math.max(0, Math.min(eff.hp.current, maxHp));
   const pct = Math.round((cur / maxHp) * 100);
   const tone = hpTone(pct);
-  const effAc = hero.ac + (bonus.ac ?? 0);
+  const effAc = eff.ac;
   return (
     <div className="flex flex-col gap-2">
       <div className="relative overflow-hidden rounded-lg border border-amber-900/40 bg-amber-950/10">
@@ -4281,7 +4291,7 @@ function CharacterSheet({
 
       <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-amber-900/40 bg-amber-950/10 p-2">
         {ABILITIES.map((ability) => {
-          const score = hero.stats[ability] + (bonus[ability] ?? 0);
+          const score = eff.stats[ability];
           const mod = abilityMod(score);
           const buffed = Boolean(bonus[ability]);
           return (

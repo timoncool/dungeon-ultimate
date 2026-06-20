@@ -40,6 +40,32 @@ const gameUpdateSchema = z
         }),
       )
       .optional(),
+    // Combat: foes entering the field. The engine assigns ids; attacks target them.
+    // stats uses a LOOSE string-key record (like modifiers above) — an enum-keyed
+    // record would make all six abilities required in Zod and reject partial stats,
+    // failing the whole parse. applyGameUpdate iterates ABILITIES and type-checks.
+    spawnEnemies: z
+      .array(
+        z.object({
+          name: z.string(),
+          hp: z.number().optional(),
+          ac: z.number().optional(),
+          level: z.number().optional(),
+          stats: z.record(z.string(), z.number()).optional(),
+        }),
+      )
+      .optional(),
+    attacks: z
+      .array(
+        z.object({
+          attackerId: z.string().optional(),
+          targetId: z.string(),
+          ability: ability.optional(),
+          damage: z.string().optional(),
+          label: z.string().optional(),
+        }),
+      )
+      .optional(),
     note: z.string().optional(),
   })
   .strip();

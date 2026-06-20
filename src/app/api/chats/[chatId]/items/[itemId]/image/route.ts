@@ -22,18 +22,37 @@ const RARITY_EN: Record<string, string> = {
   legendary: "legendary",
 };
 
-// A standalone item portrait: one object, centred, on a neutral dark backdrop —
-// readable as an inventory icon and clean enough to reuse as the image2image
-// reference when the item later appears in a scene.
-function itemPortraitPrompt(name: string, description?: string, rarity?: string): string {
-  return [
-    `A detailed fantasy item illustration of "${name}"`,
-    description?.trim() || "",
-    rarity && RARITY_EN[rarity] ? `${RARITY_EN[rarity]} rarity` : "",
-    "single object, centered, studio product shot, neutral dark background, soft rim light, no text, no characters",
-  ]
-    .filter(Boolean)
-    .join(", ");
+const SLOT_EN: Record<string, string> = {
+  weapon: "weapon",
+  armor: "suit of armor",
+  shield: "shield",
+  trinket: "magic trinket",
+  consumable: "potion or consumable",
+  misc: "object",
+};
+
+// A standalone item portrait, framed as a clean game inventory icon: one object,
+// centred, on a plain dark backdrop — reusable as the image2image reference when
+// the item later appears in a scene. Tuned against FLUX.2 [klein]: the item name
+// is NOT quoted into the prompt (a quoted name — especially Cyrillic — makes the
+// model engrave garbled text on the item), the visual description leads, and a
+// strong anti-text clause keeps the icon clean. The description renders well in
+// any language, so no English translation is needed.
+function itemPortraitPrompt(
+  name: string,
+  description?: string,
+  rarity?: string,
+  slot?: string,
+): string {
+  const category = SLOT_EN[slot ?? "misc"] ?? "object";
+  const subject = description?.trim() || name;
+  const quality = rarity && RARITY_EN[rarity] ? `${RARITY_EN[rarity]} quality. ` : "";
+  return (
+    `Fantasy game inventory icon of a ${category}. ${subject}. ${quality}` +
+    `A single hero object centered with the whole item in frame, studio product shot ` +
+    `on a plain dark background, soft rim light, crisp clean game-asset render. ` +
+    `No text, no letters, no words, no runes, no inscriptions, no people.`
+  );
 }
 
 export async function POST(request: Request, context: ItemImageRouteContext) {
@@ -62,7 +81,11 @@ export async function POST(request: Request, context: ItemImageRouteContext) {
     override = undefined;
   }
 
-  const basePrompt = override ?? itemPortraitPrompt(item.name, item.description, item.rarity);
+  // Prefer the narrator's English visual prompt (best FLUX results); fall back to
+  // the in-world description, then the bare name.
+  const basePrompt =
+    override ??
+    itemPortraitPrompt(item.name, item.imagePromptEn || item.description, item.rarity, item.slot);
   const prompt = applyImageStylePrefix(basePrompt, settings.imageStylePrefix ?? "");
 
   const workerUrl = serverEnv("FLUX_WORKER_URL", "http://127.0.0.1:7869");

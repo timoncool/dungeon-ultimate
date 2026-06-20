@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 import { coerceCharacterRpg, DEFAULT_RPG_STATE } from "@/lib/rpg/types";
 import type { CharacterRpg, Enemy, GameEvent, Item, RpgState } from "@/lib/rpg/types";
+import { deriveRpg } from "@/lib/rpg/derive";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(process.cwd(), "data", "local-roleplay.sqlite");
@@ -979,8 +980,11 @@ export function setCombatants(chatId: string, enemies: Enemy[]) {
   );
 }
 
-// Map of characterId -> { name, rpg } for the resolver. Characters with no
-// stored RPG blob get defaults via coerceCharacterRpg.
+// Map of characterId -> { name, rpg } for the resolver. The rpg is DERIVED:
+// base stats (from rpg_json, defaulted via coerceCharacterRpg) with each
+// character's equipped-item modifiers folded in, so rolls / AC / damage use the
+// same effective numbers the character sheet shows. The stored base is never
+// mutated here — resolveRpgTurn persists only the HP/dead delta back onto it.
 export function getCharacterRpgMap(
   chatId: string,
 ): Map<string, { name: string; rpg: CharacterRpg }> {
@@ -988,6 +992,7 @@ export function getCharacterRpgMap(
   const rows = db
     .prepare("SELECT id, name, rpg_json FROM characters WHERE chat_id = ?")
     .all(chatId) as Array<{ id: string; name: string; rpg_json?: string }>;
+  const items = listItems(chatId);
   const map = new Map<string, { name: string; rpg: CharacterRpg }>();
   for (const row of rows) {
     let parsed: unknown;
@@ -998,7 +1003,8 @@ export function getCharacterRpgMap(
         parsed = undefined;
       }
     }
-    map.set(row.id, { name: row.name, rpg: coerceCharacterRpg(parsed) });
+    const owned = items.filter((item) => item.ownerId === row.id);
+    map.set(row.id, { name: row.name, rpg: deriveRpg(coerceCharacterRpg(parsed), owned).rpg });
   }
   return map;
 }
@@ -1066,14 +1072,29 @@ export function getCharacterRpg(chatId: string, characterId: string): CharacterR
 
 export function setItemEquipped(chatId: string, itemId: string, equipped: boolean): Item | null {
   const db = getDatabase();
-  const row = db
-    .prepare("SELECT data_json FROM items WHERE id = ? AND chat_id = ?")
-    .get(itemId, chatId) as { data_json: string } | undefined;
-  if (!row) return null;
-  const item = safeJsonParse(row.data_json) as Item | undefined;
+  const rows = db
+    .prepare("SELECT id, data_json FROM items WHERE chat_id = ?")
+    .all(chatId) as Array<{ id: string; data_json: string }>;
+  const targetRow = rows.find((entry) => entry.id === itemId);
+  if (!targetRow) return null;
+  const item = safeJsonParse(targetRow.data_json) as Item | undefined;
   if (!item) return null;
   item.equipped = equipped;
   db.transaction(() => {
+    // One item per slot: equipping a piece unequips any other equipped item that
+    // occupies the same slot for the same owner (it stays in inventory), so a
+    // player can't stack three rings or two blades and multiply the bonuses.
+    if (equipped) {
+      const update = db.prepare("UPDATE items SET data_json = ? WHERE id = ? AND chat_id = ?");
+      for (const row of rows) {
+        if (row.id === itemId) continue;
+        const other = safeJsonParse(row.data_json) as Item | undefined;
+        if (!other || !other.equipped || other.slot !== item.slot) continue;
+        if (other.ownerId !== item.ownerId) continue;
+        other.equipped = false;
+        update.run(JSON.stringify(other), row.id, chatId);
+      }
+    }
     db.prepare("UPDATE items SET data_json = ? WHERE id = ? AND chat_id = ?").run(
       JSON.stringify(item),
       itemId,

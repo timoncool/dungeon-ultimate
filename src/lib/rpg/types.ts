@@ -51,6 +51,7 @@ export type Item = {
   equipped: boolean;
   qty: number;
   imageUrl?: string;
+  imagePromptEn?: string; // optional English visual prompt for the item icon
   createdAt: string;
 };
 

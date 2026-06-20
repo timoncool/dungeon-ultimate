@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   deleteChat,
-  getCharacterRpgMap,
+  getCharacterRpg,
   getChat,
   listEvents,
   listItems,
@@ -68,7 +68,9 @@ export async function GET(_request: Request, context: ChatRouteContext) {
     return Response.json({ chat });
   }
   const heroId = chat.characters[0]?.id ?? null;
-  const heroRpg = heroId ? getCharacterRpgMap(chatId).get(heroId)?.rpg ?? null : null;
+  // BASE stats here (not the engine's derived map): the client folds equipped-gear
+  // modifiers itself via deriveRpg for display, so returning derived would double-count.
+  const heroRpg = heroId ? getCharacterRpg(chatId, heroId) : null;
   return Response.json({
     chat,
     heroId,

@@ -9,7 +9,9 @@ export const runtime = "nodejs";
 // story tool-calling so it never affects the streamed prose.
 
 const requestSchema = z.object({
-  passage: z.string().min(1).max(8000),
+  // Only the last 4000 chars are used (see below), so a generous cap just keeps a
+  // very long passage from 500ing this best-effort route instead of degrading.
+  passage: z.string().min(1).max(40000),
   settings: z
     .object({
       customBaseUrl: z.string().trim().max(500).default(""),
@@ -60,7 +62,13 @@ function parseActions(raw: string): Array<{ emoji?: string; label: string }> {
 }
 
 export async function POST(request: Request) {
-  const body = requestSchema.parse(await request.json());
+  // Best-effort route: a malformed/oversized body must degrade to empty chips,
+  // never a 500 that the comment + catch below promise it won't be.
+  const parsed = requestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ actions: [] });
+  }
+  const body = parsed.data;
 
   const baseUrl =
     body.settings.customBaseUrl.trim() ||
