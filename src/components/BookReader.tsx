@@ -70,18 +70,23 @@ export default function BookReader({
       return;
     }
     m.style.width = `${dims.pageW - PAD * 2}px`;
-    const contentH = dims.pageH - PAD * 2 - FOOTER;
+    // -8 safety so a drop-cap's taller first line can never tip the last line over.
+    const contentH = dims.pageH - PAD * 2 - FOOTER - 8;
     const imgH = Math.round(dims.pageH * 0.33);
     const textHeight = (s: string) => {
       m.textContent = s;
       return m.scrollHeight;
     };
 
-    // Pack the story so every page fills: paragraphs are split at sentence
-    // boundaries when the rest won't fit the remaining space (real-book flow).
+    // Pour the story across pages like a real book: each paragraph is split at
+    // sentence boundaries (then by words, if a lone sentence is taller than a whole
+    // page) and greedily filled into the space left on the page. The invariant is
+    // that we NEVER push a block taller than what remains — so nothing is ever
+    // clipped at the page bottom and every page fills as far as whole sentences go.
     const out: Block[][] = [];
     let page: Block[] = [];
     let h = 0;
+    let curMsg = passages[0];
     const avail = () => contentH - h;
     const flushPage = () => {
       if (page.length) {
@@ -90,7 +95,69 @@ export default function BookReader({
         h = 0;
       }
     };
+    const pushText = (text: string, drop: boolean) => {
+      page.push({ kind: "text", text: text.trim(), message: curMsg, drop });
+      h += textHeight(text) + GAP;
+    };
+    // Place whole sentences greedily; when the next sentence won't fit the space
+    // left on the page, pour in as many of its leading WORDS as fit and carry the
+    // rest to the next page — so a sentence flows across the page break and every
+    // page fills down to the last line, exactly like a real book. The invariant is
+    // that we never push a block taller than the remaining height (no clipping).
+    const splitWords = (s: string) => s.match(/\S+\s*/g) ?? [s];
+    const fill = (sentences: string[], dropFirst: boolean) => {
+      const queue = [...sentences];
+      let buf = "";
+      let drop = dropFirst;
+      while (queue.length) {
+        const sentence = queue.shift() as string;
+        if (!buf && page.length && textHeight(sentence) + GAP > avail()) {
+          // Doesn't fit even at the top of what's left: fill the leftover lines with
+          // leading words, break, and continue the sentence on the next page.
+          const words = splitWords(sentence);
+          let take = "";
+          let i = 0;
+          while (i < words.length && textHeight(take + words[i]) + GAP <= avail()) {
+            take += words[i++];
+          }
+          if (take) {
+            pushText(take, drop);
+            drop = false;
+          }
+          flushPage();
+          const rest = words.slice(i).join("");
+          if (rest) queue.unshift(rest);
+          continue;
+        }
+        if (!buf) {
+          buf = sentence;
+        } else if (textHeight(buf + sentence) + GAP <= avail()) {
+          buf += sentence;
+        } else {
+          // `buf` fits — top up the leftover with leading words of `sentence`, break,
+          // and carry the remaining words forward.
+          const words = splitWords(sentence);
+          let add = "";
+          let i = 0;
+          while (i < words.length && textHeight(buf + add + words[i]) + GAP <= avail()) {
+            add += words[i++];
+          }
+          pushText(buf + add, drop);
+          drop = false;
+          flushPage();
+          buf = "";
+          const rest = words.slice(i).join("");
+          if (rest) queue.unshift(rest);
+        }
+      }
+      if (buf) {
+        if (page.length && textHeight(buf) + GAP > avail()) flushPage();
+        pushText(buf, drop);
+      }
+    };
+
     for (const message of passages) {
+      curMsg = message;
       if (message.generatedImage?.url) {
         if (page.length && imgH + GAP > avail()) flushPage();
         page.push({ kind: "image", url: message.generatedImage.url, message });
@@ -100,28 +167,7 @@ export default function BookReader({
         .split(/\n\s*\n/)
         .map((p) => p.trim())
         .filter(Boolean);
-      paras.forEach((para, index) => {
-        let buf = "";
-        let drop = index === 0;
-        const flushBuf = () => {
-          if (!buf.trim()) return;
-          page.push({ kind: "text", text: buf.trim(), message, drop });
-          h += textHeight(buf) + GAP;
-          buf = "";
-          drop = false;
-        };
-        for (const sentence of splitSentences(para)) {
-          if (buf && textHeight(buf + sentence) + GAP > avail()) {
-            flushBuf();
-            flushPage();
-          }
-          buf += sentence;
-        }
-        if (buf.trim()) {
-          if (page.length && textHeight(buf) + GAP > avail()) flushPage();
-          flushBuf();
-        }
-      });
+      paras.forEach((para, index) => fill(splitSentences(para), index === 0));
     }
     flushPage();
     setPages(out);
@@ -131,7 +177,8 @@ export default function BookReader({
     <div
       ref={measureRef}
       aria-hidden
-      className="pointer-events-none invisible fixed left-[-9999px] top-0 whitespace-pre-wrap font-serif"
+      lang="ru"
+      className="pointer-events-none invisible fixed left-[-9999px] top-0 whitespace-pre-wrap font-serif hyphens-auto text-justify"
       style={{ fontSize: FONT_PX, lineHeight: `${LINE_PX}px` }}
     />
   );
@@ -196,10 +243,11 @@ export default function BookReader({
                       ) : (
                         <p
                           key={bi}
+                          lang="ru"
                           className={cn(
-                            "mb-3.5 whitespace-pre-wrap font-serif",
+                            "mb-3.5 whitespace-pre-wrap font-serif hyphens-auto text-justify",
                             block.drop &&
-                              "[&::first-letter]:float-left [&::first-letter]:mr-2 [&::first-letter]:font-bold [&::first-letter]:text-5xl [&::first-letter]:leading-[0.85] [&::first-letter]:text-[#7a3b18]",
+                              "[&::first-letter]:float-left [&::first-letter]:mr-1 [&::first-letter]:mt-0.5 [&::first-letter]:font-bold [&::first-letter]:text-5xl [&::first-letter]:leading-[0.8] [&::first-letter]:text-[#7a3b18]",
                           )}
                           style={{ fontSize: FONT_PX, lineHeight: `${LINE_PX}px` }}
                         >

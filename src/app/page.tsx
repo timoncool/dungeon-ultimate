@@ -6,8 +6,10 @@ import {
   Aperture,
   Backpack,
   BookOpen,
-  PanelLeft,
-  PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Check,
   ChevronRight,
   Cpu,
@@ -445,6 +447,17 @@ export default function Home() {
   const [rightOpen, setRightOpen] = useState(true);
   const showLeft = settings.rpgEnabled && !!heroRpg && leftOpen;
   const showRight = rightOpen;
+  // The flip-book is a desktop/tablet reading mode — a fixed two-page spread can't
+  // fit a phone, so below the lg breakpoint we always fall back to the feed.
+  const [isWide, setIsWide] = useState(true);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsWide(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  const showBook = bookMode && isWide;
   // DEV-only manual dice trigger (stripped from production builds):
   //   window.__odRollDie(20, "critSuccess", "Сила · d20 20 +4 = 24 ≥ 15 → крит. успех")
   useEffect(() => {
@@ -1872,32 +1885,8 @@ export default function Home() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {settings.rpgEnabled && heroRpg && (
-              <button
-                type="button"
-                aria-label={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
-                title={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
-                onClick={() => setLeftOpen((value) => !value)}
-                className={cn(
-                  "hidden size-10 items-center justify-center rounded border text-stone-300 hover:bg-stone-900 lg:inline-flex",
-                  leftOpen ? "border-amber-300/60 text-amber-200" : "border-stone-700",
-                )}
-              >
-                <PanelLeft className="size-4" aria-hidden="true" />
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label={rightOpen ? "Скрыть меню" : "Показать меню"}
-              title={rightOpen ? "Скрыть меню" : "Показать меню"}
-              onClick={() => setRightOpen((value) => !value)}
-              className={cn(
-                "hidden size-10 items-center justify-center rounded border text-stone-300 hover:bg-stone-900 lg:inline-flex",
-                rightOpen ? "border-amber-300/60 text-amber-200" : "border-stone-700",
-              )}
-            >
-              <PanelRight className="size-4" aria-hidden="true" />
-            </button>
+            {/* Тогглы сайдбаров живут «язычками» на краях центральной колонки —
+                рядом с панелями, которые они скрывают (см. ниже). */}
             <button
               type="button"
               aria-label="Открыть инструменты истории"
@@ -2021,7 +2010,47 @@ export default function Home() {
               )}
             </aside>
           )}
-          <section className="flex h-full min-h-0 flex-col">
+          <section className="relative flex h-full min-h-0 flex-col">
+            {/* Левый язычок — на границе с панелью персонажа: скрывает/показывает её. */}
+            {settings.rpgEnabled && heroRpg && (
+              <button
+                type="button"
+                aria-label={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
+                title={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
+                onClick={() => setLeftOpen((value) => !value)}
+                className={cn(
+                  "absolute left-0 top-1/2 z-20 hidden h-20 w-6 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 shadow-xl transition lg:flex",
+                  leftOpen
+                    ? "border-stone-600 bg-stone-800/95 text-stone-300 hover:border-amber-300/70 hover:text-amber-200"
+                    : "border-amber-400/70 bg-stone-800 text-amber-300 ring-1 ring-amber-400/20 hover:border-amber-300 hover:text-amber-100",
+                )}
+              >
+                {leftOpen ? (
+                  <PanelLeftClose className="size-4" aria-hidden="true" />
+                ) : (
+                  <PanelLeftOpen className="size-4" aria-hidden="true" />
+                )}
+              </button>
+            )}
+            {/* Правый язычок — на границе с панелью меню: скрывает/показывает её. */}
+            <button
+              type="button"
+              aria-label={rightOpen ? "Скрыть меню" : "Показать меню"}
+              title={rightOpen ? "Скрыть меню" : "Показать меню"}
+              onClick={() => setRightOpen((value) => !value)}
+              className={cn(
+                "absolute right-0 top-1/2 z-20 hidden h-20 w-6 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 shadow-xl transition lg:flex",
+                rightOpen
+                  ? "border-stone-600 bg-stone-800/95 text-stone-300 hover:border-amber-300/70 hover:text-amber-200"
+                  : "border-amber-400/70 bg-stone-800 text-amber-300 ring-1 ring-amber-400/20 hover:border-amber-300 hover:text-amber-100",
+              )}
+            >
+              {rightOpen ? (
+                <PanelRightClose className="size-4" aria-hidden="true" />
+              ) : (
+                <PanelRightOpen className="size-4" aria-hidden="true" />
+              )}
+            </button>
             <div
               className={cn(
                 "mx-auto flex h-full min-h-0 w-full flex-1 flex-col",
@@ -2029,7 +2058,7 @@ export default function Home() {
               )}
             >
               {messages.length > 0 && (
-                <div className="mb-2 flex shrink-0 justify-end">
+                <div className="mb-2 hidden shrink-0 justify-end lg:flex">
                   <button
                     type="button"
                     onClick={() => setBookMode((value) => !value)}
@@ -2040,7 +2069,7 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              {bookMode ? (
+              {showBook ? (
                 <BookReader
                   messages={messages}
                   speakingId={speakingId}
