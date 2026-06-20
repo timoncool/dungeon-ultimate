@@ -46,6 +46,7 @@ import {
   useRef,
   useState,
 } from "react";
+import dynamic from "next/dynamic";
 import { cn } from "@/lib/cn";
 import { DEFAULT_STORY_SETTINGS, titleFromInput } from "@/lib/defaults";
 import { LOCAL_TEXT_MODELS, type LocalTextModelId, type TextProvider } from "@/lib/text-models";
@@ -66,6 +67,9 @@ import type {
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod } from "@/lib/rpg/dice";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
 import type DiceBox from "@3d-dice/dice-box-threejs";
+
+// Page-flip reader (react-pageflip touches the DOM) — client-only.
+const BookReader = dynamic(() => import("@/components/BookReader"), { ssr: false });
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
@@ -428,6 +432,7 @@ export default function Home() {
   const [diceQueue, setDiceQueue] = useState<DiceJob[]>([]);
   const [heroRpg, setHeroRpg] = useState<CharacterRpg | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [bookMode, setBookMode] = useState(false);
   // DEV-only manual dice trigger (stripped from production builds):
   //   window.__odRollDie(20, "critSuccess", "Сила · d20 20 +4 = 24 ≥ 15 → крит. успех")
   useEffect(() => {
@@ -1909,6 +1914,21 @@ export default function Home() {
           )}
           <section className="flex h-full min-h-0 flex-col">
             <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-1 flex-col">
+              {messages.length > 0 && (
+                <div className="mb-2 flex shrink-0 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setBookMode((value) => !value)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-stone-700 px-3 py-1 text-xs text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
+                  >
+                    <BookOpen className="size-3.5" aria-hidden="true" />
+                    {bookMode ? "Лента" : "Книга"}
+                  </button>
+                </div>
+              )}
+              {bookMode ? (
+                <BookReader messages={messages} />
+              ) : (
               <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain pr-1 pb-3 sm:space-y-10">
                 {libraryLoading || loadingChat ? (
                   <StorySkeleton />
@@ -2018,6 +2038,7 @@ export default function Home() {
                 )}
                 <div ref={endRef} />
               </div>
+              )}
 
               {settings.rpgEnabled && (heroRpg || items.length > 0) && (
                 <div className="mb-2 shrink-0 space-y-2 lg:hidden">
