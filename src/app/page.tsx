@@ -179,6 +179,7 @@ type ChatResponse = {
   heroId?: string | null;
   heroRpg?: CharacterRpg | null;
   items?: Item[];
+  events?: GameEvent[];
 };
 type ChatsResponse = { chats: StoryChatSummary[] };
 type CharacterResponse = { character: StoryCharacter };
@@ -468,7 +469,12 @@ export default function Home() {
   }, [activeDesktopPanel]);
 
   const applyChat = useCallback(
-    (chat: StoryChat, hero: CharacterRpg | null = null, ownedItems: Item[] = []) => {
+    (
+      chat: StoryChat,
+      hero: CharacterRpg | null = null,
+      ownedItems: Item[] = [],
+      events: GameEvent[] = [],
+    ) => {
       setSelectedChatId(chat.id);
       window.localStorage.setItem(SELECTED_CHAT_KEY, chat.id);
       setMessages(chat.messages);
@@ -479,6 +485,7 @@ export default function Home() {
       setImageStatus({});
       setHeroRpg(hero);
       setItems(ownedItems);
+      setJournal(events);
       lastSavedSettingsRef.current = JSON.stringify(chat.settings);
     },
     [],
@@ -505,7 +512,7 @@ export default function Home() {
       try {
         const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
         const payload = await readApi<ChatResponse>(response);
-        applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? []);
+        applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? []);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
       } finally {
@@ -548,6 +555,19 @@ export default function Home() {
     },
     [items, selectedChatId],
   );
+
+  // Pull the authoritative hero stats + inventory back after a turn changed them,
+  // so the HUD's HP bar / inventory update live instead of only on reload.
+  const refreshRpg = useCallback(async (chatId: string) => {
+    try {
+      const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
+      const payload = await readApi<ChatResponse>(response);
+      setHeroRpg(payload.heroRpg ?? null);
+      setItems(payload.items ?? []);
+    } catch {
+      // best-effort HUD refresh
+    }
+  }, []);
 
   const deleteChatById = useCallback(
     async (chatId: string) => {
@@ -621,7 +641,7 @@ export default function Home() {
           const response = await fetch(`/api/chats/${nextChatId}`, { cache: "no-store" });
           const payload = await readApi<ChatResponse>(response);
           if (!cancelled) {
-            applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? []);
+            applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? []);
           }
         } else if (!cancelled) {
           applyDefaultSettings();
@@ -1225,6 +1245,12 @@ export default function Home() {
               setJournal((current) => [...current, ...incoming]);
               const jobs = rollJobsFromEvents(incoming);
               if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
+              if (
+                selectedChatId &&
+                incoming.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death")
+              ) {
+                void refreshRpg(selectedChatId);
+              }
             }
           }
         };
@@ -1288,6 +1314,12 @@ export default function Home() {
           setJournal((current) => [...current, ...payload.events!]);
           const jobs = rollJobsFromEvents(payload.events);
           if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
+          if (
+            selectedChatId &&
+            payload.events.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death")
+          ) {
+            void refreshRpg(selectedChatId);
+          }
         }
       }
     } catch (storyError) {
@@ -1464,7 +1496,7 @@ export default function Home() {
         payload.chat,
         ...current.filter((chat) => chat.id !== payload.chat.id),
       ]);
-      applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? []);
+      applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? []);
       void refreshChats();
 
       if (options.opening.mode === "self") {

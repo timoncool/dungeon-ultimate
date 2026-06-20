@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { deleteChat, getCharacterRpgMap, getChat, listItems, updateChat } from "@/lib/db";
+import {
+  deleteChat,
+  getCharacterRpgMap,
+  getChat,
+  listEvents,
+  listItems,
+  updateChat,
+} from "@/lib/db";
 import { LOCAL_TEXT_MODEL_IDS } from "@/lib/text-models";
 import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 
@@ -57,7 +64,13 @@ export async function GET(_request: Request, context: ChatRouteContext) {
   }
   const heroId = chat.characters[0]?.id ?? null;
   const heroRpg = heroId ? getCharacterRpgMap(chatId).get(heroId)?.rpg ?? null : null;
-  return Response.json({ chat, heroId, heroRpg, items: listItems(chatId) });
+  return Response.json({
+    chat,
+    heroId,
+    heroRpg,
+    items: listItems(chatId),
+    events: listEvents(chatId),
+  });
 }
 
 export async function PATCH(request: Request, context: ChatRouteContext) {
