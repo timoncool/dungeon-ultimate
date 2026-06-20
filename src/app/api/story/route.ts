@@ -6,17 +6,19 @@ import {
   addItems,
   addMessage,
   getCharacterRpgMap,
+  getCombatants,
   getStorySummary,
   listCharacters,
   listItems,
   saveCharacterRpg,
+  setCombatants,
   setStorySummary,
   updateChatTitleFromInput,
 } from "@/lib/db";
 import { applyGameUpdate, type ActorMap } from "@/lib/rpg/apply";
 import { extractGameUpdate } from "@/lib/rpg/parse";
 import { buildRpgSection } from "@/lib/rpg/prompt";
-import type { GameEvent } from "@/lib/rpg/types";
+import type { Enemy, GameEvent } from "@/lib/rpg/types";
 import { serverEnv } from "@/lib/server-env";
 import { buildStoryMessages, extractStoryText, packStoryHistory } from "@/lib/story-prompt";
 import {
@@ -937,7 +939,8 @@ async function summarizeEvictedPassages(
 function resolveRpgTurn(
   chatId: string | undefined,
   enabled: boolean,
-  actors: ActorMap,
+  characterActors: ActorMap,
+  enemies: Enemy[],
   storyText: string,
 ): { clean: string; events: GameEvent[] } {
   if (!enabled) {
@@ -947,12 +950,23 @@ function resolveRpgTurn(
   if (!update) {
     return { clean, events: [] };
   }
-  const { events, changed, items } = applyGameUpdate(update, actors);
+  // Combined actor map: player characters + current enemies, so the engine can
+  // resolve attacks/HP against either side and target newly-spawned foes.
+  const actors: ActorMap = new Map(characterActors);
+  const enemyIds = new Set(enemies.map((enemy) => enemy.id));
+  for (const enemy of enemies) actors.set(enemy.id, { name: enemy.name, rpg: enemy.rpg });
+
+  const { events, changed, items, spawnedEnemies } = applyGameUpdate(update, actors);
   if (chatId) {
     for (const id of changed) {
+      if (enemyIds.has(id)) continue; // enemies are persisted together below
       const actor = actors.get(id);
-      if (actor) saveCharacterRpg(id, actor.rpg);
+      if (actor && characterActors.has(id)) saveCharacterRpg(id, actor.rpg);
     }
+    // Rebuild the encounter: surviving enemies (mutated in place) + new spawns,
+    // dropping the defeated so they don't linger into the next turn.
+    const nextEnemies = [...enemies, ...spawnedEnemies].filter((enemy) => !enemy.rpg.dead);
+    setCombatants(chatId, nextEnemies);
     addEvents(chatId, events);
     addItems(chatId, items);
   }
@@ -966,8 +980,9 @@ export async function POST(request: Request) {
   const rpgEnabled = body.settings.rpgEnabled;
   const rpgActors: ActorMap =
     rpgEnabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
+  const rpgEnemies: Enemy[] = rpgEnabled && body.chatId ? getCombatants(body.chatId) : [];
   const rpgSection = rpgEnabled
-    ? buildRpgSection(rpgActors, body.chatId ? listItems(body.chatId) : [])
+    ? buildRpgSection(rpgActors, body.chatId ? listItems(body.chatId) : [], rpgEnemies)
     : "";
   const userMessage: StoryMessage = {
     id: body.userMessageId || crypto.randomUUID(),
@@ -1125,7 +1140,7 @@ export async function POST(request: Request) {
         const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
 
         const trimmedStory = extractStoryText(storyText);
-        const rpg = resolveRpgTurn(chatId, rpgEnabled, rpgActors, trimmedStory);
+        const rpg = resolveRpgTurn(chatId, rpgEnabled, rpgActors, rpgEnemies, trimmedStory);
         const characterIds =
           imageToolArgs?.characterIds
             ?.filter((id) => knownCharacterIds.has(id))
@@ -1186,7 +1201,7 @@ export async function POST(request: Request) {
   }
 
   const storyText = extractStoryText(message?.content);
-  const rpg = resolveRpgTurn(body.chatId, rpgEnabled, rpgActors, storyText);
+  const rpg = resolveRpgTurn(body.chatId, rpgEnabled, rpgActors, rpgEnemies, storyText);
   const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
 
   if (!storyText && !imageToolArgs) {

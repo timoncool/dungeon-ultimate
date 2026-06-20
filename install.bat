@@ -6,17 +6,39 @@ echo ========================================
 echo   Dungeon Ultimate - Install
 echo ========================================
 echo.
-echo Two embedded Pythons (text/TTS torch 2.8, image torch 2.11) + portable Node.
-echo Everything stays in this folder. Nothing is written to C: or the registry.
+echo This sets up everything the four local servers + the web app need:
+echo   * python-text : torch 2.8 stack - runs servers\od-text-server.py (LLM, 8080),
+echo                   servers\od-tts-server.py (Qwen3-TTS, 8081),
+echo                   servers\od-asr-server.py (Parakeet ASR, 8082)
+echo   * python-image: torch 2.11 stack - runs image_server (FLUX.2 SDNQ, 7869)
+echo   * portable Node + npm install (the Next.js web app on 3000)
+echo Both Pythons are embedded; everything stays in this folder (nothing in C:).
 echo.
+echo YOU MUST PROVIDE (these are NOT downloaded automatically):
+echo   1. An NVIDIA GPU + recent driver. CUDA toolkit is bundled via the torch
+echo      wheels, but the driver itself must already be installed.
+echo   2. Gemma 4 12B GGUF weights (normal + uncensored) + their mmproj files.
+echo      Put them in  servers\models\mt\  (and ...\mt\unc\ for the uncensored
+echo      pair), OR set OD_MODELS_DIR. See servers\README.md for exact filenames.
+echo   3. A shorts-dub checkout (provides the Qwen3-TTS engine for the TTS server).
+echo      Set SHORTS_DUB_DIR to it. Without it, TTS is disabled (text still works).
+echo   4. A voice pack: <name>.mp3 reference clips in servers\voices\ (or set
+echo      OD_VOICES_DIR). Needed only for TTS. See servers\README.md.
+echo   5. ultra-fast-image-gen checkout for image generation. Set
+echo      ULTRA_FAST_IMAGE_GEN_DIR. Without it, images are disabled.
+echo The Gemma GGUF / FLUX SDNQ / ASR model weights that ARE on Hugging Face get
+echo pulled on first run; the items above are user-supplied.
+echo.
+pause
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
 set "TEMP=%SCRIPT_DIR%temp"
 set "TMP=%SCRIPT_DIR%temp"
 
-REM === Create directories ===
-for %%D in (downloads temp models cache logs data) do if not exist "%%D" mkdir "%%D"
+REM === Create directories (servers\models\mt + servers\voices are where you
+REM     drop the user-supplied Gemma weights and voice clips) ===
+for %%D in (downloads temp models cache logs data servers\models\mt servers\voices) do if not exist "%%D" mkdir "%%D"
 
 REM ============================================================
 REM  Step 1: GPU selection (sets CUDA + the pinned text-venv wheels)
@@ -108,6 +130,11 @@ if exist "servers\qwen3-tts-triton\pyproject.toml" (
 ) else (
     echo [!] servers\qwen3-tts-triton not vendored yet - TTS triton kernels will be missing.
 )
+
+REM ASR (servers\od-asr-server.py): Parakeet via onnx-asr on the GPU. Shares this
+REM same python-text env. onnxruntime-gpu must match the installed CUDA runtime.
+python-text\python.exe -m pip install onnx-asr onnxruntime-gpu --no-warn-script-location
+
 call :patch_triton_headers python-text
 
 REM ============================================================
@@ -135,17 +162,25 @@ if exist "node\node.exe" (
 )
 set "PATH=%SCRIPT_DIR%node;%PATH%"
 
-echo [9/9] Installing npm dependencies and building the web app...
+echo [9/9] Installing npm dependencies...
 call "%SCRIPT_DIR%node\npm.cmd" install
-call "%SCRIPT_DIR%node\npm.cmd" run build
+REM run.bat launches the app with `npm run dev`, so a production build is NOT
+REM required. We still try it (so `npm start` works too); a build failure here
+REM is non-fatal for dev mode.
+call "%SCRIPT_DIR%node\npm.cmd" run build || echo [!] build failed - that's OK, run.bat uses `npm run dev`. Run `npm run build` later if you want `npm start`.
 
 echo %CUDA_VERSION%> cuda_version.txt
 
 echo.
 echo ========================================
 echo   Installation complete.
-echo   Start with: run.bat
-echo   Models (Gemma GGUF, FLUX SDNQ, uncensored TE, TTS) download on first run.
+echo   Start with: run.bat   (launches text 8080, image 7869, TTS 8081, ASR 8082, web 3000)
+echo.
+echo   On first run, Hugging Face models (FLUX SDNQ, uncensored TE, ASR) download
+echo   automatically. The Gemma GGUFs, the shorts-dub TTS engine, the voice pack
+echo   and ultra-fast-image-gen are USER-SUPPLIED - see the list above and
+echo   servers\README.md. Without them, those features stay disabled but the rest
+echo   of the app still runs.
 echo ========================================
 pause
 exit /b 0

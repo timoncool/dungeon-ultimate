@@ -56,6 +56,14 @@ export type Item = {
 
 // The narrator's mechanical declaration for a turn (the `[[GAME]]` block). v1
 // resolves rolls + hpDelta + note + item drops; later phases add combat/xp.
+// A combat opponent — mechanically identical to a character's RPG block, but
+// stored per-chat as transient encounter state rather than on a character row.
+export type Enemy = {
+  id: string;
+  name: string;
+  rpg: CharacterRpg;
+};
+
 export type GameUpdate = {
   rolls?: Array<{
     ability: Ability;
@@ -64,6 +72,22 @@ export type GameUpdate = {
     actorId?: string;
     kind?: "skill" | "attack" | "save";
     targetId?: string;
+  }>;
+  // Bring foes onto the field. The engine assigns ids; later attacks target them.
+  spawnEnemies?: Array<{
+    name: string;
+    hp?: number;
+    ac?: number;
+    level?: number;
+    stats?: Partial<CharacterStats>;
+  }>;
+  // An attack: roll d20 + attacker's ability mod vs target AC; on hit roll damage.
+  attacks?: Array<{
+    attackerId?: string;
+    targetId: string;
+    ability?: Ability;
+    damage?: string; // dice notation, e.g. "1d8+2"
+    label?: string;
   }>;
   hpDelta?: Array<{ characterId: string; amount: number; reason?: string }>;
   grantItems?: Array<{

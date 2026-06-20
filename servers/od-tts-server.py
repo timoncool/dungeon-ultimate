@@ -29,21 +29,65 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 import uvicorn
 
+# ============================================================================
+# CONFIG  — override with env-vars; defaults work from a clone where possible,
+#           with the old dev-box paths kept only as last-resort fallbacks.
+# ----------------------------------------------------------------------------
+#   SHORTS_DUB_DIR    : checkout of the shorts-dub project (provides the
+#                       Qwen3-TTS engine module shorts_dub/tts.py). REQUIRED —
+#                       this engine is an EXTERNAL dependency, not vendored here.
+#   OD_TTS_ENGINE_PY  : direct path to that tts.py (overrides SHORTS_DUB_DIR).
+#   OD_VOICES_DIR     : folder of <name>.mp3 reference clips = the voice pack
+#                       (you supply these; see servers/README.md). Defaults to
+#                       <repo>/servers/voices when present.
+#   OD_VOICE_UPLOADS_DIR : where the app writes user-uploaded clone refs.
+#                       Defaults to <repo>/public/uploads/voices (in-repo).
+#   OD_DEFAULT_VOICE  : voice id used when none is requested.
+#   OD_TTS_PORT       : listen port (default 8081; app's TTS_WORKER_URL).
+#   OD_TTS_CACHE      : rendered-wav cache dir. Defaults to <repo>/.tts-cache.
+# ============================================================================
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO = os.path.dirname(_HERE)  # <repo>  (servers/ is one level down)
+
+# Locate shorts-dub's tts.py (the Qwen3-TTS engine). Priority:
+#   1) OD_TTS_ENGINE_PY (explicit file)  2) SHORTS_DUB_DIR/shorts_dub/tts.py
+#   3) a sibling ../shorts-dub checkout  4) the original dev-box path.
+_DEV_DEFAULT_TTS_PY = r"D:\Projects\TEMP\shorts-dub\shorts_dub\tts.py"
+_SHORTS_DUB_DIR = os.environ.get("SHORTS_DUB_DIR")
+_TTS_PY = (
+    os.environ.get("OD_TTS_ENGINE_PY")
+    or (os.path.join(_SHORTS_DUB_DIR, "shorts_dub", "tts.py") if _SHORTS_DUB_DIR else None)
+    or (lambda p: p if os.path.exists(p) else None)(
+        os.path.join(os.path.dirname(_REPO), "shorts-dub", "shorts_dub", "tts.py")
+    )
+    or _DEV_DEFAULT_TTS_PY
+)
+if not os.path.exists(_TTS_PY):
+    raise SystemExit(
+        f"[od-tts] shorts-dub TTS engine not found at {_TTS_PY}\n"
+        "         Set SHORTS_DUB_DIR (or OD_TTS_ENGINE_PY) to your shorts-dub checkout.\n"
+        "         See servers/README.md."
+    )
+
 # Load shorts-dub's tts.py standalone (no package __init__ side effects).
-_TTS_PY = r"D:\Projects\TEMP\shorts-dub\shorts_dub\tts.py"
 _spec = importlib.util.spec_from_file_location("sd_tts", _TTS_PY)
 sd_tts = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sd_tts)
 
-VOICES_DIR = os.environ.get("OD_VOICES_DIR", r"D:\Projects\TEMP\DotsTTS-Studio\downloads\vp\voice-pack")
+_BUNDLED_VOICES = os.path.join(_HERE, "voices")  # <repo>/servers/voices (optional)
+VOICES_DIR = os.environ.get("OD_VOICES_DIR") or (
+    _BUNDLED_VOICES if os.path.isdir(_BUNDLED_VOICES)
+    else r"D:\Projects\TEMP\DotsTTS-Studio\downloads\vp\voice-pack"  # dev box only
+)
 # User-uploaded clone references (written by the /api/tts-voice Next route).
+# Lives inside the repo, so the repo-relative default works from a clone.
 UPLOADS_DIR = os.environ.get(
-    "OD_VOICE_UPLOADS_DIR", r"D:\Projects\TEMP\open-dungeon\public\uploads\voices"
+    "OD_VOICE_UPLOADS_DIR", os.path.join(_REPO, "public", "uploads", "voices")
 )
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 DEFAULT_VOICE = os.environ.get("OD_DEFAULT_VOICE", "RU_Male_Gabidullin_ruslan")
 HOST, PORT = "127.0.0.1", int(os.environ.get("OD_TTS_PORT", "8081"))
-CACHE_DIR = os.environ.get("OD_TTS_CACHE", r"D:\Projects\TEMP\.tts-cache")
+CACHE_DIR = os.environ.get("OD_TTS_CACHE", os.path.join(_REPO, ".tts-cache"))
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 

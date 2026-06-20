@@ -13,8 +13,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import uvicorn
 
-HOST, PORT = "127.0.0.1", 8082
-MODEL = "nemo-parakeet-tdt-0.6b-v3"
+# CONFIG (env overrides). No absolute paths here: the Parakeet model is fetched
+# by onnx_asr into the HF cache on first run (set HF_HOME to relocate it).
+#   OD_ASR_PORT  : listen port (default 8082; the app's ASR endpoint).
+#   OD_ASR_MODEL : onnx-asr model id (default nemo-parakeet-tdt-0.6b-v3).
+HOST, PORT = "127.0.0.1", int(os.environ.get("OD_ASR_PORT", "8082"))
+MODEL = os.environ.get("OD_ASR_MODEL", "nemo-parakeet-tdt-0.6b-v3")
 
 _providers = (
     ["CUDAExecutionProvider", "CPUExecutionProvider"]

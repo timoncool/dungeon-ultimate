@@ -24,7 +24,10 @@ import {
   RotateCcw,
   Send,
   Settings2,
+  Shield,
+  ShieldHalf,
   Sparkles,
+  Swords,
   Trash2,
   Type,
   UserRound,
@@ -60,7 +63,8 @@ import type {
   StoryMessage,
   StorySettings,
 } from "@/lib/types";
-import type { GameEvent } from "@/lib/rpg/types";
+import { ABILITIES, ABILITY_LABELS_RU, abilityMod } from "@/lib/rpg/dice";
+import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
 import type DiceBox from "@3d-dice/dice-box-threejs";
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
@@ -170,7 +174,12 @@ const STORY_PRESETS = [
 type StoryPresetId = (typeof STORY_PRESETS)[number]["id"] | "custom";
 
 type ImageStatus = Record<string, "loading" | "error">;
-type ChatResponse = { chat: StoryChat };
+type ChatResponse = {
+  chat: StoryChat;
+  heroId?: string | null;
+  heroRpg?: CharacterRpg | null;
+  items?: Item[];
+};
 type ChatsResponse = { chats: StoryChatSummary[] };
 type CharacterResponse = { character: StoryCharacter };
 type CharacterDraft = {
@@ -416,6 +425,8 @@ export default function Home() {
   const [suggestedActions, setSuggestedActions] = useState<Array<{ emoji?: string; label: string }>>([]);
   const [journal, setJournal] = useState<GameEvent[]>([]);
   const [diceQueue, setDiceQueue] = useState<DiceJob[]>([]);
+  const [heroRpg, setHeroRpg] = useState<CharacterRpg | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
   // DEV-only manual dice trigger (stripped from production builds):
   //   window.__odRollDie(20, "critSuccess", "Сила · d20 20 +4 = 24 ≥ 15 → крит. успех")
   useEffect(() => {
@@ -490,6 +501,8 @@ export default function Home() {
         const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
         const payload = await readApi<ChatResponse>(response);
         applyChat(payload.chat);
+        setHeroRpg(payload.heroRpg ?? null);
+        setItems(payload.items ?? []);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
       } finally {
@@ -508,7 +521,30 @@ export default function Home() {
     applyDefaultSettings();
     setAttachments([]);
     setImageStatus({});
+    setHeroRpg(null);
+    setItems([]);
   }, [applyDefaultSettings]);
+
+  const equipItem = useCallback(
+    async (itemId: string, equipped: boolean) => {
+      if (!selectedChatId) return;
+      const snapshot = items;
+      setItems((current) => current.map((it) => (it.id === itemId ? { ...it, equipped } : it)));
+      try {
+        const response = await fetch(`/api/chats/${selectedChatId}/items/${itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ equipped }),
+        });
+        const payload = await readApi<{ item: Item }>(response);
+        setItems((current) => current.map((it) => (it.id === itemId ? payload.item : it)));
+      } catch (equipError) {
+        setItems(snapshot);
+        setError(equipError instanceof Error ? equipError.message : "Не удалось обновить предмет.");
+      }
+    },
+    [items, selectedChatId],
+  );
 
   const deleteChatById = useCallback(
     async (chatId: string) => {
@@ -1847,6 +1883,14 @@ export default function Home() {
                 <div ref={endRef} />
               </div>
 
+              {settings.rpgEnabled && (heroRpg || items.length > 0) && (
+                <div className="mb-2 shrink-0 space-y-2">
+                  {heroRpg && <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} />}
+                  {items.length > 0 && (
+                    <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
+                  )}
+                </div>
+              )}
               {settings.rpgEnabled && journal.length > 0 && (
                 <div className="mb-2 max-h-28 shrink-0 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
                   <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
@@ -3787,6 +3831,182 @@ type RollResult = {
   crit: "success" | "fail" | null;
   modifier: number;
 };
+
+function hpTone(pct: number): { bar: string; text: string } {
+  if (pct <= 25) return { bar: "bg-red-500", text: "text-red-300" };
+  if (pct <= 50) return { bar: "bg-amber-400", text: "text-amber-200" };
+  return { bar: "bg-emerald-500", text: "text-emerald-200" };
+}
+
+// Player HUD: name + level, coloured HP bar, AC, six abilities with 5e modifiers,
+// active conditions. Read-only; mirrors the stone/amber journal strip styling.
+function HudBar({ hero, name }: { hero: CharacterRpg; name: string }) {
+  const max = Math.max(1, hero.hp.max);
+  const cur = Math.max(0, Math.min(hero.hp.current, max));
+  const pct = Math.round((cur / max) * 100);
+  const tone = hpTone(pct);
+  return (
+    <div className="rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-amber-100/90">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-baseline gap-2">
+          <span className="truncate font-serif text-sm text-stone-100">{name}</span>
+          <span className="text-[10px] uppercase tracking-wide text-amber-300/70">Ур. {hero.level}</span>
+          {hero.dead && (
+            <span className="rounded border border-red-500/60 px-1.5 text-[10px] font-medium uppercase text-red-300">
+              ☠️ погиб
+            </span>
+          )}
+        </div>
+        <span className="inline-flex items-center gap-1 text-xs text-stone-300">
+          <Shield className="size-3.5 text-amber-300" aria-hidden="true" />
+          <span className="tabular-nums">AC {hero.ac}</span>
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2">
+        <Heart className={cn("size-3.5 shrink-0", tone.text)} aria-hidden="true" />
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-800">
+          <div className={cn("h-full rounded-full transition-all", tone.bar)} style={{ width: `${pct}%` }} />
+        </div>
+        <span className={cn("shrink-0 text-xs tabular-nums", tone.text)}>
+          {cur}/{max}
+        </span>
+      </div>
+      <div className="mt-2 grid grid-cols-6 gap-1">
+        {ABILITIES.map((ability) => {
+          const score = hero.stats[ability];
+          const mod = abilityMod(score);
+          return (
+            <div
+              key={ability}
+              className="flex flex-col items-center rounded border border-stone-800 bg-stone-950/60 py-1"
+              title={ABILITY_LABELS_RU[ability]}
+            >
+              <span className="text-[9px] uppercase tracking-wide text-stone-500">
+                {ABILITY_LABELS_RU[ability].slice(0, 3)}
+              </span>
+              <span className="text-sm font-semibold tabular-nums text-stone-200">{score}</span>
+              <span className="text-[10px] tabular-nums text-amber-300/80">
+                {mod >= 0 ? `+${mod}` : mod}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {hero.conditions.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {hero.conditions.map((condition) => (
+            <span
+              key={condition}
+              className="rounded-full border border-amber-900/60 bg-amber-950/30 px-2 py-0.5 text-[10px] text-amber-200"
+            >
+              {condition}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RARITY_TONE: Record<Item["rarity"], string> = {
+  common: "text-stone-200",
+  uncommon: "text-emerald-300",
+  rare: "text-sky-300",
+  epic: "text-fuchsia-300",
+  legendary: "text-amber-300",
+};
+const SLOT_RU: Record<Item["slot"], string> = {
+  weapon: "оружие",
+  armor: "броня",
+  shield: "щит",
+  trinket: "украшение",
+  consumable: "расходник",
+  misc: "прочее",
+};
+const SLOT_ICON: Record<Item["slot"], typeof Swords> = {
+  weapon: Swords,
+  armor: ShieldHalf,
+  shield: Shield,
+  trinket: Sparkles,
+  consumable: Heart,
+  misc: Backpack,
+};
+
+// Inventory list: rarity-tinted name, slot/damage line, optional generated
+// thumbnail, equip/unequip toggle. Equippable = anything that isn't consumable/misc.
+function InventoryPanel({
+  items,
+  onToggle,
+  disabled,
+}: {
+  items: Item[];
+  onToggle: (itemId: string, equipped: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="max-h-44 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
+        <Backpack className="size-3.5" aria-hidden="true" />
+        Инвентарь
+      </div>
+      {items.map((item) => {
+        const Icon = SLOT_ICON[item.slot];
+        const equippable = item.slot !== "consumable" && item.slot !== "misc";
+        return (
+          <div
+            key={item.id}
+            className="flex items-center gap-2 rounded border border-stone-800 bg-stone-950/60 px-2 py-1.5"
+          >
+            {item.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.imageUrl}
+                alt=""
+                className="size-9 shrink-0 rounded object-cover"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+            ) : (
+              <div className="flex size-9 shrink-0 items-center justify-center rounded bg-stone-900">
+                <Icon className="size-4 text-stone-500" aria-hidden="true" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className={cn("truncate text-sm font-medium", RARITY_TONE[item.rarity])}>
+                  {item.name}
+                </span>
+                {item.qty > 1 && (
+                  <span className="shrink-0 text-[10px] tabular-nums text-stone-500">×{item.qty}</span>
+                )}
+              </div>
+              <div className="truncate text-[10px] text-stone-500">
+                {SLOT_RU[item.slot]}
+                {item.damage ? ` · ${item.damage}` : ""}
+              </div>
+            </div>
+            {equippable && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onToggle(item.id, !item.equipped)}
+                className={cn(
+                  "shrink-0 rounded border px-2 py-1 text-[10px] font-medium uppercase transition disabled:opacity-40",
+                  item.equipped
+                    ? "border-amber-300 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20"
+                    : "border-stone-700 text-stone-400 hover:border-amber-300/60 hover:text-amber-200",
+                )}
+              >
+                {item.equipped ? "Снять" : "Надеть"}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // Compact journal chip showing the settled d20, tinted by outcome (gold crit,
 // green success, red fail). The motion now lives in the 3D DiceStage below; this

@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { deleteChat, getChat, updateChat } from "@/lib/db";
+import {
+  deleteChat,
+  getCharacterRpgMap,
+  getChat,
+  getRpgState,
+  listItems,
+  updateChat,
+} from "@/lib/db";
 import { LOCAL_TEXT_MODEL_IDS } from "@/lib/text-models";
 import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 
@@ -46,7 +53,15 @@ export async function GET(_request: Request, context: ChatRouteContext) {
     return Response.json({ error: "Chat not found." }, { status: 404 });
   }
 
-  return Response.json({ chat });
+  // In D&D mode, hydrate the player HUD + inventory alongside the chat so they
+  // survive a reload (they are otherwise only built from live turn events).
+  const rpg = getRpgState(chatId);
+  if (!rpg.enabled) {
+    return Response.json({ chat });
+  }
+  const heroId = chat.characters[0]?.id ?? null;
+  const heroRpg = heroId ? getCharacterRpgMap(chatId).get(heroId)?.rpg ?? null : null;
+  return Response.json({ chat, heroId, heroRpg, items: listItems(chatId) });
 }
 
 export async function PATCH(request: Request, context: ChatRouteContext) {

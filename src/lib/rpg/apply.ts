@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { ABILITY_LABELS_RU, clampStat, rollCheck } from "./dice";
-import type { CharacterRpg, GameEvent, GameUpdate, Item, ItemRarity, ItemSlot } from "./types";
+import { ABILITIES, ABILITY_LABELS_RU, clampStat, rollCheck, rollNotation } from "./dice";
+import { DEFAULT_RPG } from "./types";
+import type { CharacterRpg, Enemy, GameEvent, GameUpdate, Item, ItemRarity, ItemSlot } from "./types";
 
 const RARITY_RU: Record<string, string> = {
   common: "обычный",
@@ -14,8 +15,9 @@ export type ActorMap = Map<string, { name: string; rpg: CharacterRpg }>;
 
 export type ApplyResult = {
   events: GameEvent[];
-  changed: Set<string>; // character ids whose rpg state was mutated
+  changed: Set<string>; // actor ids (characters or enemies) whose rpg state changed
   items: Item[]; // new items to persist into the inventory
+  spawnedEnemies: Enemy[]; // foes brought onto the field this turn
 };
 
 function makeEvent(kind: GameEvent["kind"], text: string, data?: unknown): GameEvent {
@@ -27,6 +29,10 @@ function firstActorId(actors: ActorMap): string | undefined {
   return undefined;
 }
 
+function fmtMod(mod: number): string {
+  return `${mod >= 0 ? "+" : ""}${mod}`;
+}
+
 // Resolve the narrator's declared mechanics deterministically. The LLM proposes
 // (a check + DC, an HP delta); the engine rolls + clamps + decides death here so
 // the model can never invent a total or a survival.
@@ -34,6 +40,70 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
   const events: GameEvent[] = [];
   const changed = new Set<string>();
   const items: Item[] = [];
+  const spawnedEnemies: Enemy[] = [];
+
+  // Foes arrive first so the same turn's attacks can target them by id.
+  for (const spawn of update.spawnEnemies ?? []) {
+    const rpg = structuredClone(DEFAULT_RPG);
+    if (typeof spawn.hp === "number" && Number.isFinite(spawn.hp)) {
+      rpg.hp.max = Math.max(1, Math.round(spawn.hp));
+      rpg.hp.current = rpg.hp.max;
+    }
+    if (typeof spawn.ac === "number") rpg.ac = clampStat(spawn.ac, 1, 40);
+    if (typeof spawn.level === "number") rpg.level = Math.max(1, Math.round(spawn.level));
+    if (spawn.stats) {
+      for (const ability of ABILITIES) {
+        const value = spawn.stats[ability];
+        if (typeof value === "number") rpg.stats[ability] = clampStat(value, 1, 30);
+      }
+    }
+    const enemy: Enemy = { id: randomUUID(), name: spawn.name || "Враг", rpg };
+    actors.set(enemy.id, { name: enemy.name, rpg: enemy.rpg });
+    spawnedEnemies.push(enemy);
+    changed.add(enemy.id);
+    events.push(
+      makeEvent("combat", `👹 В бой вступает ${enemy.name} — HP ${rpg.hp.max}, КЗ ${rpg.ac}`, { enemy }),
+    );
+  }
+
+  // Attacks: d20 + the attacker's ability mod vs the target's AC; a hit rolls damage.
+  for (const attack of update.attacks ?? []) {
+    const attackerId =
+      attack.attackerId && actors.has(attack.attackerId) ? attack.attackerId : firstActorId(actors);
+    const attacker = attackerId ? actors.get(attackerId) : undefined;
+    const target = actors.get(attack.targetId);
+    if (!attacker || !target || target.rpg.dead) continue;
+    const ability = attack.ability ?? "str";
+    const score = attacker.rpg.stats[ability] ?? 10;
+    const ac = target.rpg.ac ?? 10;
+    const result = rollCheck(score, ac);
+    const hit = result.success;
+    const label = attack.label || `${attacker.name} → ${target.name}`;
+    events.push(
+      makeEvent(
+        "roll",
+        `⚔️ ${label}: d20 ${result.d20} ${fmtMod(result.modifier)} = ${result.total} против КЗ ${ac} → ${hit ? (result.crit === "success" ? "крит. попадание" : "попадание") : "промах"}`,
+        { roll: { ...attack, kind: "attack", dc: ac }, result },
+      ),
+    );
+    if (!hit) continue;
+    const notation = attack.damage || "1d6";
+    const base = rollNotation(notation).total;
+    const damage = Math.max(1, result.crit === "success" ? base * 2 : base);
+    target.rpg.hp.current = clampStat(target.rpg.hp.current - damage, -999, target.rpg.hp.max);
+    changed.add(attack.targetId);
+    events.push(
+      makeEvent(
+        "hp",
+        `💥 ${target.name}: -${damage} HP (${notation}${result.crit === "success" ? ", крит ×2" : ""}) → ${Math.max(0, target.rpg.hp.current)}/${target.rpg.hp.max}`,
+        { damage },
+      ),
+    );
+    if (target.rpg.hp.current <= 0 && !target.rpg.dead) {
+      target.rpg.dead = true;
+      events.push(makeEvent("death", `☠️ ${target.name} повержен.`, { characterId: attack.targetId }));
+    }
+  }
 
   for (const roll of update.rolls ?? []) {
     const actorId = roll.actorId && actors.has(roll.actorId) ? roll.actorId : firstActorId(actors);
@@ -111,5 +181,5 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
     events.push(makeEvent("note", update.note.trim()));
   }
 
-  return { events, changed, items };
+  return { events, changed, items, spawnedEnemies };
 }

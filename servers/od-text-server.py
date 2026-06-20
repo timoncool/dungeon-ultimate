@@ -21,7 +21,23 @@ import uvicorn
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import Gemma4ChatHandler
 
-_MT = r"D:\Projects\TEMP\shorts-dub\models\mt"
+# ============================================================================
+# CONFIG  — override with env-vars; defaults work from a clone, with the old
+#           dev-box path kept only as a last-resort fallback.
+# ----------------------------------------------------------------------------
+#   OD_MODELS_DIR : folder holding the Gemma 4 12B GGUFs + their mmproj files.
+#                   These weights are NOT shipped in the repo (multi-GB, gated)
+#                   — download them yourself (see servers/README.md). Either set
+#                   OD_MODELS_DIR, or drop the files in <repo>/servers/models/mt
+#                   and leave the env-var unset (that folder is auto-detected).
+#   OD_TEXT_PORT  : listen port (default 8080; the app's OPENAI_COMPAT_BASE_URL).
+# ============================================================================
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_BUNDLED_MT = os.path.join(_HERE, "models", "mt")        # <repo>/servers/models/mt
+_DEV_DEFAULT_MT = r"D:\Projects\TEMP\shorts-dub\models\mt"  # original dev box only
+_MT = os.environ.get("OD_MODELS_DIR") or (
+    _BUNDLED_MT if os.path.isdir(_BUNDLED_MT) else _DEV_DEFAULT_MT
+)
 
 # id -> metadata. Both are Gemma 4 12B → same chat handler.
 MODELS = {
@@ -37,7 +53,7 @@ MODELS = {
     },
 }
 DEFAULT_ID = "gemma-4-12b-uncensored"
-HOST, PORT = "127.0.0.1", 8080
+HOST, PORT = "127.0.0.1", int(os.environ.get("OD_TEXT_PORT", "8080"))
 
 print(f"[od-text-server] torch {torch.__version__} cuda={torch.cuda.is_available()} "
       f"({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})", flush=True)

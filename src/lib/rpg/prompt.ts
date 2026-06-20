@@ -1,22 +1,37 @@
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod } from "./dice";
-import type { CharacterRpg, Item } from "./types";
+import type { CharacterRpg, Enemy, Item } from "./types";
 
-const RPG_RULES = `ПРАВИЛА МЕХАНИКИ (D&D-режим — соблюдай строго):
-— Кубик кидает ДВИЖОК, не ты. Ты НЕ называешь в тексте результат броска, итог, успех/провал или новое число HP — опиши само действие, движок вернёт исход.
-— Когда срабатывает механика, добавь В САМОМ КОНЦЕ ответа служебный блок (игроку он не показывается):
-[[GAME:{"rolls":[{"ability":"dex","dc":14,"label":"Прыжок через пропасть","actorId":"ID_героя"}],"hpDelta":[{"characterId":"ID_героя","amount":-6,"reason":"падение"}]}]]
-— rolls: ability (str/dex/con/int/wis/cha), dc (5 легко … 15 средне … 20 очень трудно), label, actorId. hpDelta: characterId, amount (минус — урон, плюс — лечение), reason. Смерть при HP ≤ 0 движок объявит сам.
-— Лут/находка → grantItems: { name, slot (weapon/armor/shield/trinket/consumable/misc), rarity (common/uncommon/rare/epic/legendary), damage (напр. «1d8»), description, modifiers, withImage:true для иллюстрации }. Создавай предметы по правилам мира.
-— Ссылайся на персонажей ТОЛЬКО по точному ID из «СОСТОЯНИЕ ИГРЫ» выше. Все поля блока опциональны.
-— В чисто повествовательных ходах блок [[GAME]] НЕ добавляй.`;
+const RPG_RULES = `ПРАВИЛА МЕХАНИКИ (D&D-режим — соблюдай СТРОГО):
 
-// The authoritative game-state block mirrored into the system prompt each turn,
-// plus the rules. The narrator reads stats/HP from here and never invents them.
+— Кубик кидает ДВИЖОК, не ты. НИКОГДА не пиши в тексте число кубика, итог броска, слова «успех/провал», величину урона или новое значение HP. Опиши только САМО действие и обстановку — движок вернёт исход следующим ходом.
+
+— КОГДА НУЖЕН БРОСОК: каждый раз, когда исход действия игрока НЕ предрешён (атака, уклонение, взлом, убеждение, скрытность, прыжок, поиск ловушек, спасбросок и т.п.), ты ОБЯЗАН в САМОМ КОНЦЕ ответа добавить служебный блок [[GAME:{...}]] — игрок его не видит. Если действие тривиально (идёт, говорит, осматривается без риска) — блок НЕ добавляй.
+
+ФОРМАТ — строгий JSON в одну строку в самом конце ответа:
+[[GAME:{"rolls":[{"ability":"dex","dc":14,"label":"Прыжок через пропасть","actorId":"ID_ИГРОКА"}]}]]
+
+Поля блока (все опциональны, добавляй только нужные):
+— rolls: проверка. ability=str|dex|con|int|wis|cha; dc=5 (легко) … 15 (средне) … 20 (очень трудно); label кратко по-русски; actorId — ТОЧНЫЙ ID из «СОСТОЯНИЕ ИГРЫ».
+— hpDelta: [{"characterId":"ID","amount":-6,"reason":"падение"}] — урон (минус) или лечение (плюс) ВНЕ боя.
+— grantItems: [{"name":"Меч","slot":"weapon|armor|shield|trinket|consumable|misc","rarity":"common|uncommon|rare|epic|legendary","damage":"1d8","description":"...","withImage":true}] — лут по правилам мира.
+
+БОЁВКА:
+— spawnEnemies: в начале боя ОБЪЯВИ врагов — [{"name":"Гоблин","hp":12,"ac":13,"level":1,"stats":{"str":12,"dex":14}}]. Движок выдаст им ID и покажет в разделе «ПРОТИВНИКИ».
+— attacks: атака по цели — [{"attackerId":"ID_атакующего","targetId":"ID_цели","ability":"str","damage":"1d8+2","label":"Удар мечом"}]. Движок кинет d20+модификатор против КЗ цели и при попадании посчитает урон. Действуй И за игрока (по врагу), И за врагов: в каждый ход боя живые враги атакуют через attacks, где attackerId — их ID, а targetId — ID игрока.
+— Ссылайся на бойцов ТОЛЬКО по точным ID из блоков состояния. Смерть при HP ≤ 0 движок объявит сам — не убивай словами заранее.
+
+ПРИМЕР. Текст: «Ты разбегаешься и в прыжке тянешься к дальнему краю расщелины…»
+В самом конце: [[GAME:{"rolls":[{"ability":"dex","dc":13,"label":"Прыжок","actorId":"ID_ИГРОКА"}]}]]`;
+
+// The authoritative game-state block mirrored into the system prompt each turn:
+// player characters, inventory, and any active enemies, followed by the rules.
+// The narrator reads stats/HP/ids from here and never invents them.
 export function buildRpgSection(
   actors: Map<string, { name: string; rpg: CharacterRpg }>,
   items: Item[] = [],
+  enemies: Enemy[] = [],
 ): string {
-  if (!actors.size) {
+  if (!actors.size && !enemies.length) {
     return RPG_RULES;
   }
   const lines: string[] = [];
@@ -37,5 +52,16 @@ export function buildRpgSection(
         )
         .join("\n")}`
     : "";
-  return `СОСТОЯНИЕ ИГРЫ (authoritative — опирайся на него, НЕ выдумывай числа):\n${lines.join("\n")}${inventory}\n\n${RPG_RULES}`;
+  const foes = enemies.length
+    ? `\n\nПРОТИВНИКИ (атакуй их через attacks, цель — их ID):\n${enemies
+        .map(
+          (enemy) =>
+            `• ${enemy.name} [ID: ${enemy.id}] — HP ${Math.max(0, enemy.rpg.hp.current)}/${enemy.rpg.hp.max}, КЗ ${enemy.rpg.ac}${enemy.rpg.dead ? " — МЁРТВ" : ""}`,
+        )
+        .join("\n")}`
+    : "";
+  const head = actors.size
+    ? lines.join("\n")
+    : "• (нет игровых персонажей)";
+  return `СОСТОЯНИЕ ИГРЫ (authoritative — опирайся на него, НЕ выдумывай числа):\n${head}${inventory}${foes}\n\n${RPG_RULES}`;
 }

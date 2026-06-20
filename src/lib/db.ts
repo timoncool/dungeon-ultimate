@@ -16,7 +16,7 @@ import type {
   StorySettings,
 } from "@/lib/types";
 import { coerceCharacterRpg, DEFAULT_RPG_STATE } from "@/lib/rpg/types";
-import type { CharacterRpg, GameEvent, Item, RpgState } from "@/lib/rpg/types";
+import type { CharacterRpg, Enemy, GameEvent, Item, RpgState } from "@/lib/rpg/types";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(process.cwd(), "data", "local-roleplay.sqlite");
@@ -128,6 +128,9 @@ function ensureSchema(db: Database.Database) {
   }
   if (!chatColumns.some((column) => column.name === "rpg_state_json")) {
     db.exec(`ALTER TABLE chats ADD COLUMN rpg_state_json TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!chatColumns.some((column) => column.name === "combatants_json")) {
+    db.exec(`ALTER TABLE chats ADD COLUMN combatants_json TEXT NOT NULL DEFAULT ''`);
   }
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
@@ -827,6 +830,34 @@ export function setRpgState(chatId: string, state: RpgState) {
   );
 }
 
+// Current encounter foes, stored as a JSON blob on the chat row. Defeated enemies
+// are dropped by the resolver before persisting, so this stays small.
+export function getCombatants(chatId: string): Enemy[] {
+  const db = getDatabase();
+  const row = db.prepare("SELECT combatants_json FROM chats WHERE id = ?").get(chatId) as
+    | { combatants_json?: string }
+    | undefined;
+  if (!row?.combatants_json) return [];
+  const parsed = safeJsonParse(row.combatants_json);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((value) => {
+      const enemy = value as Partial<Enemy>;
+      if (!enemy || typeof enemy.id !== "string" || typeof enemy.name !== "string") return null;
+      return { id: enemy.id, name: enemy.name, rpg: coerceCharacterRpg(enemy.rpg) } as Enemy;
+    })
+    .filter((enemy): enemy is Enemy => enemy !== null);
+}
+
+export function setCombatants(chatId: string, enemies: Enemy[]) {
+  const db = getDatabase();
+  db.prepare("UPDATE chats SET combatants_json = ?, updated_at = ? WHERE id = ?").run(
+    JSON.stringify(enemies),
+    new Date().toISOString(),
+    chatId,
+  );
+}
+
 // Map of characterId -> { name, rpg } for the resolver. Characters with no
 // stored RPG blob get defaults via coerceCharacterRpg.
 export function getCharacterRpgMap(
@@ -901,6 +932,35 @@ export function listEvents(chatId: string, limit = 200): GameEvent[] {
     data: row.data_json ? safeJsonParse(row.data_json) : undefined,
     createdAt: row.created_at,
   }));
+}
+
+export function getCharacterRpg(chatId: string, characterId: string): CharacterRpg | null {
+  const db = getDatabase();
+  const row = db
+    .prepare("SELECT rpg_json FROM characters WHERE id = ? AND chat_id = ?")
+    .get(characterId, chatId) as { rpg_json?: string } | undefined;
+  if (!row) return null;
+  return coerceCharacterRpg(row.rpg_json ? safeJsonParse(row.rpg_json) : undefined);
+}
+
+export function setItemEquipped(chatId: string, itemId: string, equipped: boolean): Item | null {
+  const db = getDatabase();
+  const row = db
+    .prepare("SELECT data_json FROM items WHERE id = ? AND chat_id = ?")
+    .get(itemId, chatId) as { data_json: string } | undefined;
+  if (!row) return null;
+  const item = safeJsonParse(row.data_json) as Item | undefined;
+  if (!item) return null;
+  item.equipped = equipped;
+  db.transaction(() => {
+    db.prepare("UPDATE items SET data_json = ? WHERE id = ? AND chat_id = ?").run(
+      JSON.stringify(item),
+      itemId,
+      chatId,
+    );
+    db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), chatId);
+  })();
+  return item;
 }
 
 function safeJsonParse(value: string): unknown {
