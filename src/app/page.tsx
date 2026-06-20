@@ -3794,31 +3794,64 @@ function DiceRollBadge({ result }: { result: RollResult }) {
   );
 }
 
-type DiceJob = { id: string; d20: number };
+type DiceOutcome = "critSuccess" | "success" | "fail" | "critFail";
+type DiceJob = { id: string; d20: number; outcome: DiceOutcome; caption: string };
 
-// Pull the raw d20 faces out of this turn's roll events so the 3D die can be
-// forced to land on exactly what the engine already rolled (server-authoritative).
+// Per-outcome die colour (valid dice-box-threejs colorsets), backdrop glow and
+// caption tint — a nat-20 blazes gold, a nat-1 turns to blood and skulls.
+const DICE_COLORSET: Record<DiceOutcome, string> = {
+  critSuccess: "radiant",
+  success: "acid",
+  fail: "fire",
+  critFail: "necrotic",
+};
+const DICE_GLOW: Record<DiceOutcome, string> = {
+  critSuccess: "bg-amber-400",
+  success: "bg-emerald-500",
+  fail: "bg-orange-600",
+  critFail: "bg-red-700",
+};
+const DICE_CAPTION_TONE: Record<DiceOutcome, string> = {
+  critSuccess: "border-amber-300/60 text-amber-200",
+  success: "border-emerald-400/50 text-emerald-200",
+  fail: "border-orange-500/50 text-orange-200",
+  critFail: "border-red-500/60 text-red-200",
+};
+
+function outcomeOf(result: RollResult): DiceOutcome {
+  if (result.crit === "success") return "critSuccess";
+  if (result.crit === "fail") return "critFail";
+  return result.success ? "success" : "fail";
+}
+
+// Pull this turn's rolls out of the event stream so the 3D die can be forced to
+// land on exactly what the engine already rolled, tinted by the outcome.
 function rollJobsFromEvents(events: GameEvent[]): DiceJob[] {
   const jobs: DiceJob[] = [];
   for (const event of events) {
     if (event.kind !== "roll") continue;
     const result = (event.data as { result?: RollResult } | undefined)?.result;
     if (result && Number.isInteger(result.d20)) {
-      jobs.push({ id: event.id, d20: result.d20 });
+      jobs.push({
+        id: event.id,
+        d20: result.d20,
+        outcome: outcomeOf(result),
+        caption: event.text.replace(/^🎲\s*/, ""),
+      });
     }
   }
   return jobs;
 }
 
 // Real 3D physics d20 (@3d-dice/dice-box-threejs, three.js + cannon-es). The cube
-// is forced via `1d20@N` to land on the value the engine already rolled, so the
-// die the player watches always matches the journal. WebGL loads lazily, only
-// while D&D mode is on.
+// is forced via `1d20@N` to land on the value the engine already rolled, recoloured
+// per outcome and clattering on felt. WebGL loads lazily, only in D&D mode.
 function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) => void }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<DiceBox | null>(null);
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(false);
+  const [landed, setLanded] = useState(false);
   const lastIdRef = useRef<string | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
@@ -3848,12 +3881,14 @@ function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) 
           theme_texture: "fire",
           theme_material: "metal",
           theme_surface: "green-felt",
-          sounds: false,
+          sound_dieMaterial: "metal",
+          sounds: true,
+          volume: 55,
           shadows: true,
           gravity_multiplier: 380,
           light_intensity: 0.95,
           baseScale: 240,
-          strength: 1.0,
+          strength: 1.2,
         });
         await box.initialize();
         if (cancelled) return;
@@ -3879,19 +3914,30 @@ function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) 
     if (!ready || !box || !job || lastIdRef.current === job.id) return;
     lastIdRef.current = job.id;
     setActive(true);
+    setLanded(false);
     let settled = false;
     const finish = () => {
       if (settled) return;
       settled = true;
-      // hold the result a beat so the player reads it, then fade out
+      setLanded(true);
+      // hold the landed die + verdict a beat so the player reads it, then fade
       window.setTimeout(() => {
         setActive(false);
         onDoneRef.current(job.id);
-      }, 1800);
+      }, 2600);
     };
-    box.roll(`1d20@${job.d20}`).then(finish).catch(finish);
+    void (async () => {
+      try {
+        await box.loadTheme({ colorset: DICE_COLORSET[job.outcome], texture: "", material: "metal" });
+      } catch {
+        // keep the current theme if the recolour fails
+      }
+      box.roll(`1d20@${job.d20}`).then(finish).catch(finish);
+    })();
   }, [ready, job]);
 
+  const outcome = job?.outcome ?? "fail";
+  const critical = outcome === "critSuccess" || outcome === "critFail";
   return (
     <div
       aria-hidden
@@ -3900,13 +3946,32 @@ function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) 
         active ? "opacity-100" : "opacity-0",
       )}
     >
-      <div className="absolute inset-0 bg-black/55" />
+      <div className="absolute inset-0 bg-black/60" />
+      <div
+        className={cn(
+          "pointer-events-none absolute rounded-full blur-3xl transition-opacity duration-700",
+          DICE_GLOW[outcome],
+          landed ? (critical ? "opacity-70" : "opacity-45") : "opacity-0",
+        )}
+        style={{ width: "min(62vmin, 430px)", height: "min(62vmin, 430px)" }}
+      />
       <div
         ref={mountRef}
         id="od-dice-stage"
         className="relative"
         style={{ width: "min(70vmin, 460px)", height: "min(70vmin, 460px)" }}
       />
+      {job && (
+        <div
+          className={cn(
+            "absolute bottom-[12%] max-w-[86vw] rounded-lg border bg-stone-950/80 px-4 py-2 text-center font-serif text-sm shadow-lg backdrop-blur-sm transition-all duration-500 sm:text-base",
+            DICE_CAPTION_TONE[outcome],
+            landed ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
+          )}
+        >
+          {job.caption}
+        </div>
+      )}
     </div>
   );
 }
