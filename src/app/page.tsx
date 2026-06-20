@@ -61,6 +61,7 @@ import type {
   StorySettings,
 } from "@/lib/types";
 import type { GameEvent } from "@/lib/rpg/types";
+import type DiceBox from "@3d-dice/dice-box-threejs";
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
@@ -414,6 +415,7 @@ export default function Home() {
   const [inputMode, setInputMode] = useState<InputMode>("do");
   const [suggestedActions, setSuggestedActions] = useState<Array<{ emoji?: string; label: string }>>([]);
   const [journal, setJournal] = useState<GameEvent[]>([]);
+  const [diceQueue, setDiceQueue] = useState<DiceJob[]>([]);
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState("");
   const lastSavedSettingsRef = useRef(JSON.stringify(DEFAULT_STORY_SETTINGS));
@@ -1164,7 +1166,10 @@ export default function Home() {
               imageRequest: data.imageRequest,
             });
             if (Array.isArray(data.events) && data.events.length) {
-              setJournal((current) => [...current, ...(data.events as GameEvent[])]);
+              const incoming = data.events as GameEvent[];
+              setJournal((current) => [...current, ...incoming]);
+              const jobs = rollJobsFromEvents(incoming);
+              if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
             }
           }
         };
@@ -1226,6 +1231,8 @@ export default function Home() {
         });
         if (payload.events?.length) {
           setJournal((current) => [...current, ...payload.events!]);
+          const jobs = rollJobsFromEvents(payload.events);
+          if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
         }
       }
     } catch (storyError) {
@@ -1614,6 +1621,12 @@ export default function Home() {
 
   return (
     <main className="flex h-dvh min-h-dvh flex-1 overflow-hidden bg-[#130d09] text-stone-100">
+      {settings.rpgEnabled && (
+        <DiceStage
+          job={diceQueue[0] ?? null}
+          onDone={(id) => setDiceQueue((queue) => queue.filter((entry) => entry.id !== id))}
+        />
+      )}
       <section className="mx-auto flex h-dvh min-h-0 w-full max-w-7xl flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -3757,26 +3770,10 @@ type RollResult = {
   modifier: number;
 };
 
-// Animated d20: the number tumbles for a beat, then lands on the real roll and
-// pops, tinted by the outcome (gold crit, green success, red fail).
+// Compact journal chip showing the settled d20, tinted by outcome (gold crit,
+// green success, red fail). The motion now lives in the 3D DiceStage below; this
+// is the persistent record the player scrolls back through.
 function DiceRollBadge({ result }: { result: RollResult }) {
-  const [display, setDisplay] = useState(result.d20);
-  const [settled, setSettled] = useState(false);
-  useEffect(() => {
-    setSettled(false);
-    let frame = 0;
-    const id = window.setInterval(() => {
-      frame += 1;
-      if (frame > 11) {
-        window.clearInterval(id);
-        setDisplay(result.d20);
-        setSettled(true);
-      } else {
-        setDisplay(1 + Math.floor(Math.random() * 20));
-      }
-    }, 55);
-    return () => window.clearInterval(id);
-  }, [result.d20]);
   const tone =
     result.crit === "success"
       ? "border-amber-300 text-amber-300"
@@ -3790,11 +3787,127 @@ function DiceRollBadge({ result }: { result: RollResult }) {
       className={cn(
         "inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-stone-950 text-sm font-bold tabular-nums",
         tone,
-        settled ? "dice-pop" : "opacity-90",
       )}
     >
-      {display}
+      {result.d20}
     </span>
+  );
+}
+
+type DiceJob = { id: string; d20: number };
+
+// Pull the raw d20 faces out of this turn's roll events so the 3D die can be
+// forced to land on exactly what the engine already rolled (server-authoritative).
+function rollJobsFromEvents(events: GameEvent[]): DiceJob[] {
+  const jobs: DiceJob[] = [];
+  for (const event of events) {
+    if (event.kind !== "roll") continue;
+    const result = (event.data as { result?: RollResult } | undefined)?.result;
+    if (result && Number.isInteger(result.d20)) {
+      jobs.push({ id: event.id, d20: result.d20 });
+    }
+  }
+  return jobs;
+}
+
+// Real 3D physics d20 (@3d-dice/dice-box-threejs, three.js + cannon-es). The cube
+// is forced via `1d20@N` to land on the value the engine already rolled, so the
+// die the player watches always matches the journal. WebGL loads lazily, only
+// while D&D mode is on.
+function DiceStage({ job, onDone }: { job: DiceJob | null; onDone: (id: string) => void }) {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<DiceBox | null>(null);
+  const [ready, setReady] = useState(false);
+  const [active, setActive] = useState(false);
+  const lastIdRef = useRef<string | null>(null);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  useEffect(() => {
+    let cancelled = false;
+    // dice-box samples the container size at construction; wait until layout has
+    // given the mount real dimensions, otherwise the world builds at 1×1 (invisible).
+    const waitForSize = () =>
+      new Promise<void>((resolve) => {
+        const check = () => {
+          if (cancelled) return resolve();
+          const el = mountRef.current;
+          if (el && el.clientWidth > 16 && el.clientHeight > 16) return resolve();
+          requestAnimationFrame(check);
+        };
+        check();
+      });
+    void (async () => {
+      try {
+        const { default: DiceBoxCtor } = await import("@3d-dice/dice-box-threejs");
+        await waitForSize();
+        if (cancelled || !mountRef.current) return;
+        const box = new DiceBoxCtor("#od-dice-stage", {
+          assetPath: "/dice/",
+          theme_colorset: "fire",
+          theme_texture: "fire",
+          theme_material: "metal",
+          theme_surface: "green-felt",
+          sounds: false,
+          shadows: true,
+          gravity_multiplier: 380,
+          light_intensity: 0.95,
+          baseScale: 240,
+          strength: 1.0,
+        });
+        await box.initialize();
+        if (cancelled) return;
+        boxRef.current = box;
+        setReady(true);
+      } catch (error) {
+        console.error("[dice] init failed", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try {
+        boxRef.current?.clearDice();
+      } catch {
+        // ignore teardown races
+      }
+      boxRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!ready || !box || !job || lastIdRef.current === job.id) return;
+    lastIdRef.current = job.id;
+    setActive(true);
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      // hold the result a beat so the player reads it, then fade out
+      window.setTimeout(() => {
+        setActive(false);
+        onDoneRef.current(job.id);
+      }, 1800);
+    };
+    box.roll(`1d20@${job.d20}`).then(finish).catch(finish);
+  }, [ready, job]);
+
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none fixed inset-0 z-[60] flex items-center justify-center transition-opacity duration-300",
+        active ? "opacity-100" : "opacity-0",
+      )}
+    >
+      <div className="absolute inset-0 bg-black/55" />
+      <div
+        ref={mountRef}
+        id="od-dice-stage"
+        className="relative"
+        style={{ width: "min(70vmin, 460px)", height: "min(70vmin, 460px)" }}
+      />
+    </div>
   );
 }
 

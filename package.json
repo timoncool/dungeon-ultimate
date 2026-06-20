@@ -30,6 +30,7 @@
     "flux:worker": "npm run image:server"
   },
   "dependencies": {
+    "@3d-dice/dice-box-threejs": "^0.0.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.16",
     "better-sqlite3": "^12.10.0",
