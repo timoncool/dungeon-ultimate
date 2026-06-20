@@ -34,7 +34,7 @@ const settingsSchema = z.object({
   customModel: z.string().optional(),
   customApiKey: z.string().optional(),
   imageMode: z.enum(["fast", "slow"]).optional(),
-  imageBackend: z.enum(["mflux-hs", "sdnq-hs", "flux-uncensored"]).optional(),
+  imageBackend: z.enum(["mflux-hs", "sdnq-hs"]).optional(),
   aspect: z.enum(["square", "portrait", "landscape"]).optional(),
   imageGenerationEnabled: z.boolean().optional(),
   autoImages: z.boolean().optional(),

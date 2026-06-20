@@ -44,7 +44,7 @@ export const DEFAULT_RPG: CharacterRpg = {
 // of what the engine resolved from the narrator's declarations.
 export type GameEvent = {
   id: string;
-  kind: "roll" | "hp" | "death" | "item" | "combat" | "note";
+  kind: "roll" | "hp" | "death" | "item" | "combat" | "effect" | "note";
   text: string; // Russian, player-facing
   data?: unknown; // raw resolution detail
   createdAt: string;

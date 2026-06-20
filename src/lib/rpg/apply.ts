@@ -140,7 +140,7 @@ export function applyGameUpdate(
   for (const [id, actor] of actors) {
     for (const name of tickEffects(actor.rpg)) {
       changed.add(id);
-      events.push(makeEvent("note", `⏳ Эффект развеялся: ${name}.`));
+      events.push(makeEvent("effect", `⏳ Эффект развеялся: ${name}.`));
     }
   }
 
@@ -170,11 +170,17 @@ export function applyGameUpdate(
 
   // Attacks: d20 + the attacker's ability mod vs the target's AC; a hit rolls damage.
   for (const attack of update.attacks ?? []) {
-    const attackerId =
-      attack.attackerId && actors.has(attack.attackerId) ? attack.attackerId : firstActorId(actors);
+    // A PRESENT-but-unknown attackerId is skipped (don't silently turn an enemy's
+    // attack into the hero's); only an ABSENT id defaults to the hero/first actor.
+    const attackerId = attack.attackerId
+      ? actors.has(attack.attackerId)
+        ? attack.attackerId
+        : undefined
+      : firstActorId(actors);
     const attacker = attackerId ? actors.get(attackerId) : undefined;
     const target = actors.get(attack.targetId);
-    if (!attacker || !target || target.rpg.dead) continue;
+    // Skip if there's no valid attacker/target, or either is already dead.
+    if (!attacker || attacker.rpg.dead || !target || target.rpg.dead) continue;
     const ability = attack.ability ?? "str";
     const score = attacker.rpg.stats[ability] ?? 10;
     const ac = target.rpg.ac ?? 10;
@@ -320,7 +326,7 @@ export function applyGameUpdate(
     mergeEffect(actor.rpg, effect);
     changed.add(id);
     const icon = effect.kind === "debuff" ? "🔻" : "✨";
-    events.push(makeEvent("note", `${icon} ${effectSummary(effect.name, effect.modifiers, effect.turns)}`));
+    events.push(makeEvent("effect", `${icon} ${effectSummary(effect.name, effect.modifiers, effect.turns)}`));
   }
 
   // A random blessing/curse may strike the hero each turn (toggleable).
@@ -334,7 +340,7 @@ export function applyGameUpdate(
         const icon = event.kind === "debuff" ? "🌑" : "🌟";
         events.push(
           makeEvent(
-            "note",
+            "effect",
             `${icon} Случайное событие: ${effectSummary(event.name, event.modifiers, event.turns)}. ${event.note}`,
           ),
         );

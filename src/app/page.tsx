@@ -561,7 +561,25 @@ export default function Home() {
     async (itemId: string, equipped: boolean) => {
       if (!selectedChatId) return;
       const snapshot = items;
-      setItems((current) => current.map((it) => (it.id === itemId ? { ...it, equipped } : it)));
+      const target = items.find((it) => it.id === itemId);
+      // Mirror the server's one-item-per-slot swap optimistically: equipping a piece
+      // unequips the same-slot sibling for the same owner, so the sheet doesn't show
+      // two items in one slot until a reload.
+      setItems((current) =>
+        current.map((it) => {
+          if (it.id === itemId) return { ...it, equipped };
+          if (
+            equipped &&
+            target &&
+            it.equipped &&
+            it.slot === target.slot &&
+            it.ownerId === target.ownerId
+          ) {
+            return { ...it, equipped: false };
+          }
+          return it;
+        }),
+      );
       try {
         const response = await fetch(`/api/chats/${selectedChatId}/items/${itemId}`, {
           method: "PATCH",
@@ -1352,7 +1370,7 @@ export default function Home() {
               if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
               if (
                 selectedChatId &&
-                incoming.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death")
+                incoming.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death" || e.kind === "effect")
               ) {
                 void refreshRpg(selectedChatId);
               }
@@ -1422,7 +1440,7 @@ export default function Home() {
           if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
           if (
             selectedChatId &&
-            payload.events.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death")
+            payload.events.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death" || e.kind === "effect")
           ) {
             void refreshRpg(selectedChatId);
           }
