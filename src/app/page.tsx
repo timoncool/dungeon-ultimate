@@ -16,6 +16,7 @@ import {
   ImagePlus,
   Library,
   Loader2,
+  Mic,
   Paperclip,
   Pencil,
   Play,
@@ -1926,6 +1927,12 @@ export default function Home() {
                           <Paperclip className="size-4" aria-hidden="true" />
                         )}
                       </button>
+                      <MicButton
+                        onTranscript={(text) =>
+                          setInput((current) => (current ? `${current} ${text}` : text))
+                        }
+                        disabled={busy || libraryLoading}
+                      />
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="hidden text-xs text-stone-600 sm:inline">⌘↵ отправить</span>
@@ -3563,6 +3570,152 @@ function VoicePanel({
     >
       <VoiceControl settings={settings} setSettings={setSettings} />
     </PanelSection>
+  );
+}
+
+// --- Voice input: record the mic to 16 kHz mono WAV in the browser, POST /api/asr ---
+function mergeFloat32(chunks: Float32Array[]): Float32Array {
+  let length = 0;
+  for (const chunk of chunks) length += chunk.length;
+  const out = new Float32Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+function downsampleBuffer(buffer: Float32Array, from: number, to: number): Float32Array {
+  if (to >= from) return buffer;
+  const ratio = from / to;
+  const newLength = Math.round(buffer.length / ratio);
+  const out = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i += 1) {
+    const start = Math.floor(i * ratio);
+    const end = Math.min(buffer.length, Math.floor((i + 1) * ratio));
+    let sum = 0;
+    let count = 0;
+    for (let j = start; j < end; j += 1) {
+      sum += buffer[j];
+      count += 1;
+    }
+    out[i] = count ? sum / count : buffer[start] || 0;
+  }
+  return out;
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+  };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+    offset += 2;
+  }
+  return buffer;
+}
+
+function MicButton({
+  onTranscript,
+  disabled,
+}: {
+  onTranscript: (text: string) => void;
+  disabled?: boolean;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const procRef = useRef<ScriptProcessorNode | null>(null);
+  const chunksRef = useRef<Float32Array[]>([]);
+
+  const stop = async () => {
+    setRecording(false);
+    const ctx = ctxRef.current;
+    const stream = streamRef.current;
+    const proc = procRef.current;
+    const sampleRate = ctx?.sampleRate ?? 48000;
+    proc?.disconnect();
+    stream?.getTracks().forEach((track) => track.stop());
+    if (ctx) await ctx.close().catch(() => {});
+    ctxRef.current = null;
+    streamRef.current = null;
+    procRef.current = null;
+
+    const pcm = mergeFloat32(chunksRef.current);
+    chunksRef.current = [];
+    if (!pcm.length) return;
+
+    const wav = encodeWav(downsampleBuffer(pcm, sampleRate, 16000), 16000);
+    setBusy(true);
+    try {
+      const response = await fetch("/api/asr", {
+        method: "POST",
+        headers: { "Content-Type": "audio/wav" },
+        body: wav,
+      });
+      const data = (await response.json()) as { text?: string };
+      if (response.ok && data.text) onTranscript(data.text);
+    } catch {
+      // voice input is optional
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const start = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      chunksRef.current = [];
+      proc.onaudioprocess = (event) => {
+        chunksRef.current.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      source.connect(proc);
+      proc.connect(ctx.destination);
+      ctxRef.current = ctx;
+      streamRef.current = stream;
+      procRef.current = proc;
+      setRecording(true);
+    } catch {
+      // mic permission denied or unavailable
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void (recording ? stop() : start())}
+      disabled={disabled || busy}
+      title={recording ? "Остановить запись" : "Голосовой ввод"}
+      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
+    >
+      {busy ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Mic size={18} className={recording ? "animate-pulse text-red-400" : ""} />
+      )}
+    </button>
   );
 }
 
