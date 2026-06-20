@@ -1,12 +1,5 @@
 import { z } from "zod";
-import {
-  deleteChat,
-  getCharacterRpgMap,
-  getChat,
-  getRpgState,
-  listItems,
-  updateChat,
-} from "@/lib/db";
+import { deleteChat, getCharacterRpgMap, getChat, listItems, updateChat } from "@/lib/db";
 import { LOCAL_TEXT_MODEL_IDS } from "@/lib/text-models";
 import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 
@@ -28,10 +21,14 @@ const settingsSchema = z.object({
   customModel: z.string().optional(),
   customApiKey: z.string().optional(),
   imageMode: z.enum(["fast", "slow"]).optional(),
-  imageBackend: z.enum(["mflux-hs", "sdnq-hs"]).optional(),
+  imageBackend: z.enum(["mflux-hs", "sdnq-hs", "flux-uncensored"]).optional(),
   aspect: z.enum(["square", "portrait", "landscape"]).optional(),
   imageGenerationEnabled: z.boolean().optional(),
   autoImages: z.boolean().optional(),
+  rpgEnabled: z.boolean().optional(),
+  diceEnabled: z.boolean().optional(),
+  diceSound: z.boolean().optional(),
+  diceVolume: z.number().optional(),
   proseSize: z.enum(PROSE_SIZE_VALUES).optional(),
   responseLength: z.enum(RESPONSE_LENGTH_VALUES).optional(),
   voice: z.string().optional(),
@@ -55,8 +52,7 @@ export async function GET(_request: Request, context: ChatRouteContext) {
 
   // In D&D mode, hydrate the player HUD + inventory alongside the chat so they
   // survive a reload (they are otherwise only built from live turn events).
-  const rpg = getRpgState(chatId);
-  if (!rpg.enabled) {
+  if (!chat.settings.rpgEnabled) {
     return Response.json({ chat });
   }
   const heroId = chat.characters[0]?.id ?? null;

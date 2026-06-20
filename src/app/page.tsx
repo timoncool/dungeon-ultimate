@@ -467,17 +467,22 @@ export default function Home() {
     return activeDesktopPanel ? [activeDesktopPanel] : DESKTOP_PANEL_ORDER;
   }, [activeDesktopPanel]);
 
-  const applyChat = useCallback((chat: StoryChat) => {
-    setSelectedChatId(chat.id);
-    window.localStorage.setItem(SELECTED_CHAT_KEY, chat.id);
-    setMessages(chat.messages);
-    setCharacters(chat.characters || []);
-    setCharacterDraft(emptyCharacterDraft());
-    setSettings(chat.settings);
-    setAttachments([]);
-    setImageStatus({});
-    lastSavedSettingsRef.current = JSON.stringify(chat.settings);
-  }, []);
+  const applyChat = useCallback(
+    (chat: StoryChat, hero: CharacterRpg | null = null, ownedItems: Item[] = []) => {
+      setSelectedChatId(chat.id);
+      window.localStorage.setItem(SELECTED_CHAT_KEY, chat.id);
+      setMessages(chat.messages);
+      setCharacters(chat.characters || []);
+      setCharacterDraft(emptyCharacterDraft());
+      setSettings(chat.settings);
+      setAttachments([]);
+      setImageStatus({});
+      setHeroRpg(hero);
+      setItems(ownedItems);
+      lastSavedSettingsRef.current = JSON.stringify(chat.settings);
+    },
+    [],
+  );
 
   const applyDefaultSettings = useCallback(() => {
     const defaults = defaultSettingsRef.current;
@@ -500,9 +505,7 @@ export default function Home() {
       try {
         const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
         const payload = await readApi<ChatResponse>(response);
-        applyChat(payload.chat);
-        setHeroRpg(payload.heroRpg ?? null);
-        setItems(payload.items ?? []);
+        applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? []);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
       } finally {
@@ -618,7 +621,7 @@ export default function Home() {
           const response = await fetch(`/api/chats/${nextChatId}`, { cache: "no-store" });
           const payload = await readApi<ChatResponse>(response);
           if (!cancelled) {
-            applyChat(payload.chat);
+            applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? []);
           }
         } else if (!cancelled) {
           applyDefaultSettings();
@@ -1461,7 +1464,7 @@ export default function Home() {
         payload.chat,
         ...current.filter((chat) => chat.id !== payload.chat.id),
       ]);
-      applyChat(payload.chat);
+      applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? []);
       void refreshChats();
 
       if (options.opening.mode === "self") {
