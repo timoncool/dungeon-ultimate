@@ -1,4 +1,5 @@
 import type { LocalTextModelId, TextProvider } from "@/lib/text-models";
+import type { RpgSnapshot } from "@/lib/rpg/types";
 
 export type StoryRole = "user" | "assistant";
 
@@ -60,6 +61,7 @@ export type StoryMessage = {
   attachments?: Attachment[];
   imageRequest?: ImageRequest;
   generatedImage?: GeneratedImage;
+  rpgSnapshot?: RpgSnapshot; // pre-turn RPG state, for Retry/Erase rollback
 };
 
 export type GeneratedImage = {

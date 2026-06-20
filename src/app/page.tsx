@@ -500,6 +500,13 @@ export default function Home() {
       setHeroId(heroIdArg);
       setItems(ownedItems);
       setJournal(events);
+      // Don't let the previous chat bleed into this one: stop its TTS, drop its
+      // queued dice roll and its suggested-action chips (refs/setters are stable).
+      speakSeqRef.current += 1;
+      if (audioRef.current) audioRef.current.pause();
+      setSpeakingId("");
+      setDiceQueue([]);
+      setSuggestedActions([]);
       lastSavedSettingsRef.current = JSON.stringify(chat.settings);
     },
     [],
@@ -573,13 +580,16 @@ export default function Home() {
 
   // Pull the authoritative hero stats + inventory back after a turn changed them,
   // so the HUD's HP bar / inventory update live instead of only on reload.
-  const refreshRpg = useCallback(async (chatId: string) => {
+  const refreshRpg = useCallback(async (chatId: string, resetJournal = false) => {
     try {
       const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
       const payload = await readApi<ChatResponse>(response);
       setHeroRpg(payload.heroRpg ?? null);
       setHeroId(payload.heroId ?? null);
       setItems(payload.items ?? []);
+      // After a Retry/Erase rollback the journal must be re-pulled (the rolled-back
+      // turn's events were deleted server-side); live turns append instead.
+      if (resetJournal) setJournal(payload.events ?? []);
     } catch {
       // best-effort HUD refresh
     }
@@ -1488,6 +1498,8 @@ export default function Home() {
       // fall through — local state is still corrected below
     }
     setMessages(before);
+    // The DELETE rolled the turn's RPG state back server-side — resync before re-running.
+    if (settings.rpgEnabled) await refreshRpg(selectedChatId, true);
 
     if (priorUser) {
       const historyBeforeUser = before.slice(0, before.lastIndexOf(priorUser));
@@ -1535,6 +1547,8 @@ export default function Home() {
       // fall through
     }
     setMessages(messages.slice(0, cutFrom));
+    // The DELETE rolled the erased turn's RPG state back server-side — resync the HUD/journal.
+    if (settings.rpgEnabled) void refreshRpg(selectedChatId, true);
     void refreshChats();
   }
 

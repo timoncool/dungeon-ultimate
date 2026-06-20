@@ -133,6 +133,15 @@ export type GameUpdate = {
   note?: string;
 };
 
+// A pre-turn snapshot stored on the assistant message so Retry / Erase can roll the
+// RPG side effects back instead of double-applying them on the regenerated turn.
+export type RpgSnapshot = {
+  chars: Record<string, CharacterRpg>; // base rpg per character, BEFORE the turn
+  combatants: Enemy[]; // combatant roster BEFORE the turn
+  itemIds: string[]; // ids of items granted during the turn (deleted on rollback)
+  eventIds: string[]; // ids of journal events added during the turn (deleted on rollback)
+};
+
 // Chat-level RPG state, stored as JSON on the chat row.
 export type RpgState = {
   enabled: boolean;

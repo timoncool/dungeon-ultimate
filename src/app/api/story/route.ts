@@ -19,7 +19,7 @@ import {
 import { applyGameUpdate, type ActorMap } from "@/lib/rpg/apply";
 import { extractGameUpdate } from "@/lib/rpg/parse";
 import { buildRpgSection } from "@/lib/rpg/prompt";
-import type { Enemy, GameEvent } from "@/lib/rpg/types";
+import type { Enemy, GameEvent, RpgSnapshot } from "@/lib/rpg/types";
 import { serverEnv } from "@/lib/server-env";
 import {
   buildStoryMessages,
@@ -955,7 +955,7 @@ function resolveRpgTurn(
   enemies: Enemy[],
   storyText: string,
   randomEvents = false,
-): { clean: string; events: GameEvent[] } {
+): { clean: string; events: GameEvent[]; snapshot?: RpgSnapshot } {
   if (!enabled) {
     return { clean: storyText, events: [] };
   }
@@ -976,7 +976,20 @@ function resolveRpgTurn(
     heroId,
     randomEvents,
   });
+  let snapshot: RpgSnapshot | undefined;
   if (chatId) {
+    // Pre-turn snapshot for Retry/Erase rollback, captured BEFORE the saves below
+    // (getCharacterRpg still returns the base, `enemies` is the pre-turn roster).
+    snapshot = {
+      chars: {},
+      combatants: enemies,
+      itemIds: items.map((item) => item.id),
+      eventIds: events.map((event) => event.id),
+    };
+    for (const id of characterActors.keys()) {
+      const base = getCharacterRpg(chatId, id);
+      if (base) snapshot.chars[id] = base;
+    }
     for (const id of changed) {
       if (enemyIds.has(id)) continue; // enemies are persisted together below
       const actor = actors.get(id);
@@ -1008,7 +1021,7 @@ function resolveRpgTurn(
     addEvents(chatId, events);
     addItems(chatId, items);
   }
-  return { clean, events };
+  return { clean, events, snapshot };
 }
 
 export async function POST(request: Request) {
@@ -1245,6 +1258,7 @@ export async function POST(request: Request) {
                   characterIds,
                 }
               : { needed: false },
+          rpgSnapshot: rpg.snapshot,
         };
 
         if (chatId) {
@@ -1326,6 +1340,7 @@ export async function POST(request: Request) {
             characterIds,
           }
         : { needed: false },
+    rpgSnapshot: rpg.snapshot,
   };
 
   if (body.chatId) {

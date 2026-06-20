@@ -16,7 +16,7 @@ import type {
   StorySettings,
 } from "@/lib/types";
 import { coerceCharacterRpg, DEFAULT_RPG_STATE } from "@/lib/rpg/types";
-import type { CharacterRpg, Enemy, GameEvent, Item, RpgState } from "@/lib/rpg/types";
+import type { CharacterRpg, Enemy, GameEvent, Item, RpgSnapshot, RpgState } from "@/lib/rpg/types";
 import { deriveForOwner } from "@/lib/rpg/derive";
 
 const dbPath =
@@ -110,6 +110,13 @@ function ensureSchema(db: Database.Database) {
   }
   if (!chatColumns.some((column) => column.name === "story_summary_count")) {
     db.exec(`ALTER TABLE chats ADD COLUMN story_summary_count INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const messageColumns = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>;
+  // Pre-turn RPG snapshot, so deleting an assistant message (Retry/Erase) can roll
+  // its HP/effects/combatants/loot back instead of leaving them double-applied.
+  if (!messageColumns.some((column) => column.name === "rpg_snapshot_json")) {
+    db.exec(`ALTER TABLE messages ADD COLUMN rpg_snapshot_json TEXT`);
   }
 
   const characterColumns = db.prepare(`PRAGMA table_info(characters)`).all() as Array<{ name: string }>;
@@ -551,9 +558,10 @@ export function addMessage(chatId: string, message: StoryMessage) {
           attachments_json,
           image_request_json,
           generated_image_json,
+          rpg_snapshot_json,
           created_at
         )
-        VALUES (@id, @chatId, @role, @content, @attachmentsJson, @imageRequestJson, @generatedImageJson, @createdAt)
+        VALUES (@id, @chatId, @role, @content, @attachmentsJson, @imageRequestJson, @generatedImageJson, @rpgSnapshotJson, @createdAt)
       `,
     ).run({
       id: message.id,
@@ -563,6 +571,7 @@ export function addMessage(chatId: string, message: StoryMessage) {
       attachmentsJson: JSON.stringify(message.attachments || []),
       imageRequestJson: message.imageRequest ? JSON.stringify(message.imageRequest) : null,
       generatedImageJson: message.generatedImage ? JSON.stringify(message.generatedImage) : null,
+      rpgSnapshotJson: message.rpgSnapshot ? JSON.stringify(message.rpgSnapshot) : null,
       createdAt: message.createdAt,
     });
 
@@ -648,7 +657,45 @@ export function deleteMessageAndAfter(messageId: string, includeAfter = true): b
     return false;
   }
 
+  // The messages about to be removed (the target + everything after, or just it),
+  // oldest first — so we can roll back the RPG side effects of those turns.
+  const doomed = (
+    includeAfter
+      ? db
+          .prepare(
+            "SELECT id, rpg_snapshot_json FROM messages WHERE chat_id = ? AND (created_at > ? OR (created_at = ? AND id = ?)) ORDER BY created_at ASC, rowid ASC",
+          )
+          .all(row.chat_id, row.created_at, row.created_at, messageId)
+      : db.prepare("SELECT id, rpg_snapshot_json FROM messages WHERE id = ?").all(messageId)
+  ) as Array<{ id: string; rpg_snapshot_json?: string | null }>;
+
+  const snapshots = doomed
+    .map((m) => (m.rpg_snapshot_json ? (safeJsonParse(m.rpg_snapshot_json) as RpgSnapshot) : null))
+    .filter((s): s is RpgSnapshot => !!s);
+
   db.transaction(() => {
+    // Roll back from the EARLIEST removed turn: restore each character's BASE rpg and
+    // the combatant roster to their pre-turn state, and delete every item / journal
+    // event those turns created — otherwise a Retry would double-apply them.
+    if (snapshots.length) {
+      const now = new Date().toISOString();
+      const base = snapshots[0];
+      const restoreChar = db.prepare(
+        "UPDATE characters SET rpg_json = ?, updated_at = ? WHERE id = ? AND chat_id = ?",
+      );
+      for (const [id, rpg] of Object.entries(base.chars ?? {})) {
+        restoreChar.run(JSON.stringify(rpg), now, id, row.chat_id);
+      }
+      db.prepare("UPDATE chats SET combatants_json = ? WHERE id = ?").run(
+        JSON.stringify(base.combatants ?? []),
+        row.chat_id,
+      );
+      const delItem = db.prepare("DELETE FROM items WHERE id = ? AND chat_id = ?");
+      for (const id of snapshots.flatMap((s) => s.itemIds ?? [])) delItem.run(id, row.chat_id);
+      const delEvent = db.prepare("DELETE FROM events WHERE id = ? AND chat_id = ?");
+      for (const id of snapshots.flatMap((s) => s.eventIds ?? [])) delEvent.run(id, row.chat_id);
+    }
+
     if (includeAfter) {
       db.prepare(
         "DELETE FROM messages WHERE chat_id = ? AND (created_at > ? OR (created_at = ? AND id = ?))",

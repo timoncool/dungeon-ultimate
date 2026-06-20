@@ -239,10 +239,13 @@ export function applyGameUpdate(
   }
 
   for (const delta of update.hpDelta ?? []) {
-    const actor = actors.get(delta.characterId);
-    if (!actor || !Number.isFinite(delta.amount)) continue;
+    // Fall back to the hero on a missing/placeholder id (the prompt example uses a
+    // literal "ID") like rolls/attacks do — otherwise the HP change is silently lost.
+    const targetId = resolveActorId(delta.characterId);
+    const actor = targetId ? actors.get(targetId) : undefined;
+    if (!actor || !targetId || !Number.isFinite(delta.amount)) continue;
     actor.rpg.hp.current = clampStat(actor.rpg.hp.current + delta.amount, -999, actor.rpg.hp.max);
-    changed.add(delta.characterId);
+    changed.add(targetId);
     const sign = delta.amount >= 0 ? "+" : "";
     const heart = delta.amount >= 0 ? "💚" : "💔";
     events.push(
@@ -256,10 +259,10 @@ export function applyGameUpdate(
     // character could read "alive" on the HP bar yet stay flagged dead forever.
     if (actor.rpg.dead && actor.rpg.hp.current > 0) {
       actor.rpg.dead = false;
-      events.push(makeEvent("hp", `✨ ${actor.name} приходит в себя.`, { characterId: delta.characterId }));
+      events.push(makeEvent("hp", `✨ ${actor.name} приходит в себя.`, { characterId: targetId }));
     } else if (actor.rpg.hp.current <= 0 && !actor.rpg.dead) {
       actor.rpg.dead = true;
-      events.push(makeEvent("death", `☠️ ${actor.name} погибает.`, { characterId: delta.characterId }));
+      events.push(makeEvent("death", `☠️ ${actor.name} погибает.`, { characterId: targetId }));
     }
   }
 
