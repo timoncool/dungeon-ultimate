@@ -410,6 +410,7 @@ export default function Home() {
   const [imageWorkerMessage, setImageWorkerMessage] = useState("");
   const [newStoryOpen, setNewStoryOpen] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>("do");
+  const [suggestedActions, setSuggestedActions] = useState<Array<{ emoji?: string; label: string }>>([]);
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState("");
   const lastSavedSettingsRef = useRef(JSON.stringify(DEFAULT_STORY_SETTINGS));
@@ -1042,6 +1043,7 @@ export default function Home() {
           void speakText(final.id || streamMessageId || makeId(), text);
         }
         void refreshChats();
+        void fetchSuggestedActions(text);
         if (
           opts.settings.imageGenerationEnabled &&
           final.imageRequest?.needed &&
@@ -1409,10 +1411,10 @@ export default function Home() {
     }
   }
 
-  async function submitTurn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const trimmed = input.trim();
+  // Core turn submission, reused by the composer form, the one-button action
+  // chips, and (later) voice input. Takes the raw player text directly.
+  async function playInput(rawText: string) {
+    const trimmed = rawText.trim();
     if (!trimmed || busy || !selectedChatId) {
       return;
     }
@@ -1431,6 +1433,7 @@ export default function Home() {
     setMessages((current) => [...current, userMessage]);
     setInput("");
     setAttachments([]);
+    setSuggestedActions([]);
 
     await runTurn({
       chatId: selectedChatId,
@@ -1441,6 +1444,34 @@ export default function Home() {
       attachments: turnAttachments,
       settings,
     });
+  }
+
+  async function submitTurn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await playInput(input);
+  }
+
+  // One-button play: after a passage lands, ask the text server for a few quick
+  // D&D-style action chips based on it. Best-effort — never blocks play.
+  async function fetchSuggestedActions(passage: string) {
+    if (!passage.trim()) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passage, settings }),
+      });
+      const data = (await response.json()) as {
+        actions?: Array<{ emoji?: string; label: string }>;
+      };
+      if (Array.isArray(data.actions)) {
+        setSuggestedActions(data.actions.slice(0, 4));
+      }
+    } catch {
+      // chips are optional
+    }
   }
 
   function desktopPanelControls(panel: DesktopPanel) {
@@ -1773,6 +1804,22 @@ export default function Home() {
                 )}
                 <div ref={endRef} />
               </div>
+
+              {suggestedActions.length > 0 && !busy && (
+                <div className="flex shrink-0 flex-wrap gap-2 px-1 pb-2">
+                  {suggestedActions.map((action, index) => (
+                    <button
+                      key={`${index}-${action.label}`}
+                      type="button"
+                      onClick={() => void playInput(action.label)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-amber-900/60 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-100 transition hover:border-amber-300 hover:bg-amber-900/30"
+                    >
+                      {action.emoji && <span aria-hidden="true">{action.emoji}</span>}
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <form
                 onSubmit={submitTurn}
