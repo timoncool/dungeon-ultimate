@@ -9,6 +9,7 @@ import {
   Check,
   ChevronRight,
   Cpu,
+  Dices,
   Eraser,
   FolderOpen,
   Heart,
@@ -3518,6 +3519,51 @@ function VoicePanel({
   );
 }
 
+function DiceButton({
+  field,
+  settings,
+  onValue,
+  context,
+}: {
+  field: "world" | "style" | "character" | "opening";
+  settings: StorySettings;
+  onValue: (value: string) => void;
+  context?: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const roll = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field, context, settings }),
+      });
+      const data = (await response.json()) as { value?: string };
+      if (response.ok && data.value) {
+        onValue(data.value);
+      }
+    } catch {
+      // best-effort: leave the field untouched on failure
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={roll}
+      disabled={loading}
+      title="Придумать за меня"
+      className="inline-flex items-center gap-1 rounded border border-stone-700 px-1.5 py-0.5 text-[10px] font-normal normal-case text-stone-400 transition hover:border-amber-300 hover:text-amber-300 disabled:opacity-50"
+    >
+      <Dices size={13} className={loading ? "animate-spin" : ""} />
+      {loading ? "…" : "Идея"}
+    </button>
+  );
+}
+
 function StorySettingsPanel({
   settings,
   setSettings,
@@ -3551,8 +3597,14 @@ function StorySettingsPanel({
         </>
       )}
       <label className="block">
-        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
+        <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
           Мир
+          <DiceButton
+            field="world"
+            settings={settings}
+            context={settings.style}
+            onValue={(value) => setSettings((current) => ({ ...current, world: value }))}
+          />
         </span>
         <textarea
           id={`${idPrefix}-story-world`}
@@ -3566,8 +3618,14 @@ function StorySettingsPanel({
         />
       </label>
       <label className="block">
-        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
+        <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
           Стиль
+          <DiceButton
+            field="style"
+            settings={settings}
+            context={settings.world}
+            onValue={(value) => setSettings((current) => ({ ...current, style: value }))}
+          />
         </span>
         <textarea
           id={`${idPrefix}-story-style`}
