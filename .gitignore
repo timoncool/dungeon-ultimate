@@ -1,6 +1,41 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
+# ─────────────────────────────────────────────────────────────
+#  ПОРТАТИВКА: всё тяжёлое и сгенерированное живёт ВНУТРИ папки
+#  приложения (на несистемном диске) и в репозиторий НЕ попадает.
+#  Пушим только исходники + .bat/.ps1 лаунчеры.
+# ─────────────────────────────────────────────────────────────
+
+# Портативный Python (embed + venv CUDA llama-cpp-python для текст-сервера)
+/python/
+/python311._pth
+cuda_version.txt
+*.venv/
+.venv/
+
+# Портативный Node.js runtime (скачивается лаунчером install.bat)
+/node/
+
+# Локальные модели и весь HF/torch кэш (GGUF Gemma 4, FLUX.2 SDNQ и пр.)
+/models/
+/cache/
+
+# Временные файлы (TEMP/TMP перенаправлены сюда)
+/temp/
+/downloads/
+
+# Результаты / сгенерированные изображения
+/output/
+/generated/
+/public/generated
+/public/uploads
+
+# Встроенный клон image-воркера (ultra-fast-image-gen) — нестится внутрь папки
+/ultra-fast-image-gen/
+
+# ─────────────────────────────────────────────────────────────
+#  Node / Next.js
+# ─────────────────────────────────────────────────────────────
 /node_modules
 /.pnp
 .pnp.*
@@ -10,47 +45,45 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
 # next.js
 /.next/
 /out/
+next-env.d.ts
+*.tsbuildinfo
 
-# local app data
+# сборка / упаковка
+/build
+/dist
+
+# ─────────────────────────────────────────────────────────────
+#  Локальные данные приложения (SQLite-база чатов и т.п.)
+# ─────────────────────────────────────────────────────────────
 /data
-/public/generated
-/public/uploads
 /.serena
 
-# production
-/build
+# тесты
+/coverage
 
-# misc
-.DS_Store
-*.pem
+# ─────────────────────────────────────────────────────────────
+#  Python артефакты
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
 
-# debug
+# ─────────────────────────────────────────────────────────────
+#  Логи / прочее
+# ─────────────────────────────────────────────────────────────
+/logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-/logs
+.DS_Store
+*.pem
 
-# env files (can opt-in for committing if needed)
+# env-файлы (можно опт-ин закоммитить при необходимости)
 .env*
 !.env.example
 
-# python
-__pycache__/
-*.pyc
-
 # vercel
 .vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# packaging
-/dist

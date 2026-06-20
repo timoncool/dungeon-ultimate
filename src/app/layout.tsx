@@ -20,7 +20,7 @@ const sourceSerif = Source_Serif_4({
 
 export const metadata: Metadata = {
   title: "Open Dungeon",
-  description: "Fully on-device AI roleplay with inline image generation.",
+  description: "Полностью локальный ролевой ИИ-ассистент с встроенной генерацией изображений.",
 };
 
 export default function RootLayout({

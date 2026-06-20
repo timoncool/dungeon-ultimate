@@ -17,14 +17,14 @@ export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
 
   if (!allowedTypes.has(body.type)) {
-    return Response.json({ error: "Only PNG, JPEG, and WebP images are supported." }, { status: 415 });
+    return Response.json({ error: "Поддерживаются только изображения PNG, JPEG и WebP." }, { status: 415 });
   }
 
   const [, encoded] = body.dataUrl.split(",", 2);
   const buffer = Buffer.from(encoded || "", "base64");
 
   if (!buffer.length || buffer.length > MAX_FILE_SIZE) {
-    return Response.json({ error: "Image is empty or larger than 8MB." }, { status: 413 });
+    return Response.json({ error: "Изображение пусто или больше 8МБ." }, { status: 413 });
   }
 
   const extension = body.type === "image/png" ? "png" : body.type === "image/webp" ? "webp" : "jpg";

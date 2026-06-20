@@ -26,6 +26,14 @@ export function isProseSize(value: unknown): value is ProseSize {
   return typeof value === "string" && PROSE_SIZE_VALUES.includes(value as ProseSize);
 }
 
+export const RESPONSE_LENGTH_VALUES = ["short", "medium", "long", "epic"] as const;
+
+export type ResponseLength = (typeof RESPONSE_LENGTH_VALUES)[number];
+
+export function isResponseLength(value: unknown): value is ResponseLength {
+  return typeof value === "string" && RESPONSE_LENGTH_VALUES.includes(value as ResponseLength);
+}
+
 export type Attachment = {
   id: string;
   name: string;
@@ -71,6 +79,10 @@ export type GeneratedImage = {
 export type StorySettings = {
   world: string;
   style: string;
+  // Editable system prompts. Blank = fall back to the built-in DEFAULT_SYSTEM /
+  // IMAGE_SYSTEM in story-prompt.ts.
+  narratorPrompt: string;
+  imagePrompt: string;
   textProvider: TextProvider;
   localTextModel: LocalTextModelId;
   // Any OpenAI-compatible backend (llama.cpp, LM Studio, vLLM, OpenRouter, a
@@ -85,6 +97,11 @@ export type StorySettings = {
   imageGenerationEnabled: boolean;
   autoImages: boolean;
   proseSize: ProseSize;
+  responseLength: ResponseLength;
+  voice: string;
+  autoplay: boolean;
+  ttsVolume: number;
+  ttsSpeed: number;
 };
 
 export type StoryChatSummary = {

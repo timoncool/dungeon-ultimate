@@ -112,7 +112,7 @@ async function startWorker() {
     return Response.json({
       ok: true,
       status: "running",
-      message: "Image worker is already running.",
+      message: "Рабочий для изображений уже работает.",
       health: existing,
     });
   }
@@ -153,7 +153,7 @@ async function startWorker() {
       status: health ? "running" : "starting",
       message: health
         ? "Image worker started."
-        : "Image worker is starting. If it does not appear soon, check the log.",
+        : "Рабочий для изображений запускается. Если он не появится вскоре, проверьте журнал.",
       health,
       logPath,
     },

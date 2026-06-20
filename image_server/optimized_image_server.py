@@ -24,6 +24,7 @@ import time
 import uuid
 from typing import Any
 from urllib.parse import urlparse
+import urllib.request
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +75,7 @@ STATUS: dict[str, Any] = {
 BACKENDS = {
     "mflux-hs": "flux2-4b-uncensored-mflux-hs",
     "sdnq-hs": "flux2-4b-uncensored-sdnq-hs",
+    "flux-uncensored": "flux2-4b-uncensored",
 }
 STANDARD_SDNQ_MODEL = "flux2-4b-sdnq"
 MFLUX_BACKEND_CONFIGS = {
@@ -444,7 +446,7 @@ def backend_command(
             ]
         )
         env = mflux_env(steps, backend)
-    elif uses_standard_sdnq_backend(backend):
+    elif uses_standard_sdnq_backend(backend) or backend == "flux-uncensored":
         cmd.extend(["--device", IMAGE_DEVICE])
     else:
         cmd.extend(["--device", IMAGE_DEVICE, "--qchunk", "1024"])
@@ -517,6 +519,23 @@ def run_mflux_resident(
     return response
 
 
+TEXT_SERVER_URL = os.environ.get("OD_TEXT_SERVER_URL", "http://127.0.0.1:8080").rstrip("/")
+TEXT_SERVER_UNLOAD = os.environ.get("OD_TEXT_SERVER_UNLOAD", "1") not in ("0", "false", "False", "")
+
+
+def free_text_server_vram() -> None:
+    """Best-effort: tell the text LLM server to unload so the image backend gets
+    the whole GPU. Only one model is ever needed at a time; the text server
+    reloads lazily on its next request. Ignored if the server is down or old."""
+    if not TEXT_SERVER_UNLOAD:
+        return
+    try:
+        req = urllib.request.Request(f"{TEXT_SERVER_URL}/unload", data=b"", method="POST")
+        urllib.request.urlopen(req, timeout=20).read()
+    except Exception:
+        pass
+
+
 def run_generation(payload: dict[str, Any]) -> dict[str, Any]:
     backend, backend_warnings = normalize_backend(payload.get("backend"))
 
@@ -531,18 +550,21 @@ def run_generation(payload: dict[str, Any]) -> dict[str, Any]:
     if is_mflux_backend(backend) and not MFLUX_DIR.exists():
         raise FileNotFoundError(f"Missing patched MFLUX checkout: {MFLUX_DIR}")
 
+    free_text_server_vram()  # only one model on the GPU at a time — drop the LLM first
+
     standard_sdnq = uses_standard_sdnq_backend(backend)
+    full_step = standard_sdnq or backend == "flux-uncensored"
     dimensions = resolve_dimensions(payload)
     steps = clamp_int(
         payload.get("steps"),
-        12 if standard_sdnq else 4,
+        12 if full_step else 4,
         1,
-        32 if standard_sdnq else 8,
+        32 if full_step else 8,
     )
-    if standard_sdnq and steps <= 4:
+    if full_step and steps <= 4:
         steps = 12
-    guidance = float(payload.get("guidance", 3.5 if standard_sdnq else 0.0) or 0.0)
-    if standard_sdnq and guidance == 0.0:
+    guidance = float(payload.get("guidance", 3.5 if full_step else 0.0) or 0.0)
+    if full_step and guidance == 0.0:
         guidance = 3.5
     seed = clamp_int(payload.get("seed"), random.randint(1, 2**31 - 1), 1, 2**32 - 1)
     timeout = clamp_int(payload.get("timeout"), DEFAULT_TIMEOUT, 30, 1200)

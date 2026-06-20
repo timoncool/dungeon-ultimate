@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { deleteChat, getChat, updateChat } from "@/lib/db";
 import { LOCAL_TEXT_MODEL_IDS } from "@/lib/text-models";
-import { PROSE_SIZE_VALUES } from "@/lib/types";
+import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +13,8 @@ type ChatRouteContext = {
 const settingsSchema = z.object({
   world: z.string().optional(),
   style: z.string().optional(),
+  narratorPrompt: z.string().optional(),
+  imagePrompt: z.string().optional(),
   textProvider: z.enum(["local", "custom"]).optional(),
   localTextModel: z.enum(LOCAL_TEXT_MODEL_IDS).optional(),
   customBaseUrl: z.string().optional(),
@@ -24,6 +26,11 @@ const settingsSchema = z.object({
   imageGenerationEnabled: z.boolean().optional(),
   autoImages: z.boolean().optional(),
   proseSize: z.enum(PROSE_SIZE_VALUES).optional(),
+  responseLength: z.enum(RESPONSE_LENGTH_VALUES).optional(),
+  voice: z.string().optional(),
+  autoplay: z.boolean().optional(),
+  ttsVolume: z.number().optional(),
+  ttsSpeed: z.number().optional(),
 });
 
 const updateChatSchema = z.object({

@@ -15,7 +15,7 @@ import {
   LOCAL_TEXT_MODEL_IDS,
   localModelContextWindow,
 } from "@/lib/text-models";
-import { PROSE_SIZE_VALUES } from "@/lib/types";
+import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 import type { Attachment, StoryCharacter, StoryMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -91,7 +91,9 @@ const requestSchema = z.object({
   settings: z.object({
     world: z.string().default(""),
     style: z.string().default(""),
-    textProvider: z.enum(["local", "custom"]).default("local"),
+    narratorPrompt: z.string().default(""),
+    imagePrompt: z.string().default(""),
+    textProvider: z.enum(["local", "custom"]).default("custom"),
     localTextModel: z.enum(LOCAL_TEXT_MODEL_IDS).default(DEFAULT_LOCAL_TEXT_MODEL),
     customBaseUrl: z.string().trim().max(500).default(""),
     customModel: z.string().trim().max(200).default(""),
@@ -102,6 +104,11 @@ const requestSchema = z.object({
     imageGenerationEnabled: z.boolean().default(true),
     autoImages: z.boolean().default(true),
     proseSize: z.enum(PROSE_SIZE_VALUES).default("medium"),
+    responseLength: z.enum(RESPONSE_LENGTH_VALUES).default("medium"),
+    voice: z.string().default("RU_Male_Gabidullin_ruslan"),
+    autoplay: z.boolean().default(false),
+    ttsVolume: z.number().default(1),
+    ttsSpeed: z.number().default(1),
   }),
 });
 
@@ -118,7 +125,7 @@ const generateImageTool = {
         prompt: {
           type: "string",
           description:
-            "Detailed visual prompt. Include subject, environment, composition, lighting, camera style, mood, and avoid text overlays. For established characters, describe visible physical features and whether each person is a man or woman; do not rely on character names inside the prompt.",
+            "Detailed visual prompt. Include subject, environment, composition, lighting, camera style, mood, and avoid text overlays. For established characters, describe visible physical features and whether each person is a man or woman; do not rely on character names inside the prompt. Write this prompt in English.",
         },
         reason: {
           type: "string",
@@ -191,7 +198,7 @@ function buildCharacterVisionMessage(characters: StoryCharacter[]): OpenRouterMe
     {
       type: "text",
       text:
-        "Saved character portrait references for visual continuity. Each portrait is labeled with the character's name and exact ID. Use these images to understand what the characters look like, and use exact IDs when calling generate_image.characterIds.",
+        "Сохранённые ссылки на портреты персонажей для визуальной согласованности. Каждый портрет подписан именем персонажа и точным ID. Используй эти изображения, чтобы понять, как выглядят персонажи, и используй точные ID при вызове generate_image.characterIds.",
     },
   ];
 
@@ -210,10 +217,10 @@ function buildCharacterVisionMessage(characters: StoryCharacter[]): OpenRouterMe
     parts.push({
       type: "text",
       text: [
-        `Character portrait ${attachedCount}: ${character.name}`,
+        `Портрет персонажа ${attachedCount}: ${character.name}`,
         `ID: ${character.id}`,
-        character.details ? `Details: ${character.details}` : "",
-        `The next image is ${character.name}.`,
+        character.details ? `Детали: ${character.details}` : "",
+        `Следующее изображение — это ${character.name}.`,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -419,7 +426,7 @@ async function requestCustomMessage(
       error: Response.json(
         {
           error:
-            "No backend URL set. Add your server's URL (for example http://127.0.0.1:8080/v1) in Text Model settings.",
+            "Не указан URL сервера. Добавьте URL вашего сервера (например http://127.0.0.1:8080/v1) в настройки текстовой модели.",
         },
         { status: 400 },
       ),
@@ -437,7 +444,7 @@ async function requestCustomMessage(
       error: Response.json(
         {
           error:
-            "No model name set. Enter the model your server serves in Text Model settings.",
+            "Не указано имя модели. Введите модель, которую обслуживает ваш сервер, в настройки текстовой модели.",
         },
         { status: 400 },
       ),
@@ -534,12 +541,239 @@ async function requestCustomMessage(
   return { message: data?.choices?.[0]?.message };
 }
 
+// A streamed delta from the upstream, normalised across OpenAI-compatible
+// servers: visible story text fragments, plus incremental generate_image
+// tool-call argument fragments keyed by their tool-call index.
+type StreamEvent =
+  | { type: "text"; text: string }
+  | { type: "tool"; index: number; name?: string; argsFragment?: string }
+  | { type: "done" };
+
+type StreamStart =
+  | { stream: AsyncGenerator<StreamEvent>; error?: undefined }
+  | { stream?: undefined; error: Response };
+
+// Streaming twin of requestCustomMessage: same endpoint/model/key/header
+// resolution, but asks for stream:true and parses the SSE body into
+// StreamEvents. The route forwards text fragments to the client as they
+// arrive while accumulating the full passage + tool call server-side.
+async function requestCustomMessageStream(
+  baseUrl: string,
+  model: string,
+  apiKey: string,
+  messages: OpenRouterMessage[],
+  includeImageTool: boolean,
+): Promise<StreamStart> {
+  const trimmedBase = (baseUrl || "").trim();
+
+  if (!trimmedBase) {
+    return {
+      error: Response.json(
+        {
+          error:
+            "Не указан URL сервера. Добавьте URL вашего сервера (например http://127.0.0.1:8080/v1) в настройки текстовой модели.",
+        },
+        { status: 400 },
+      ),
+    };
+  }
+
+  const isOpenRouter = /(^|\.)openrouter\.ai/i.test(trimmedBase);
+  const resolvedModel =
+    (model || "").trim() ||
+    serverEnv("OPENAI_COMPAT_MODEL") ||
+    (isOpenRouter ? serverEnv("OPENROUTER_MODEL", "google/gemini-3.5-flash") : "");
+
+  if (!resolvedModel) {
+    return {
+      error: Response.json(
+        {
+          error:
+            "Не указано имя модели. Введите модель, которую обслуживает ваш сервер, в настройки текстовой модели.",
+        },
+        { status: 400 },
+      ),
+    };
+  }
+
+  const endpoint = customChatEndpoint(trimmedBase);
+  const resolvedKey =
+    (apiKey || "").trim() ||
+    (isOpenRouter ? serverEnv("OPENROUTER_API_KEY") : "") ||
+    serverEnv("OPENAI_COMPAT_API_KEY");
+  const requestPayload: Record<string, unknown> = {
+    model: resolvedModel,
+    messages,
+    temperature: 0.9,
+    max_tokens: configuredMaxOutputTokens(),
+    stream: true,
+  };
+
+  if (includeImageTool) {
+    requestPayload.tools = [generateImageTool];
+    requestPayload.tool_choice = "auto";
+  }
+
+  const timeoutMs = configuredTextTimeoutMs(
+    "CUSTOM_TEXT_TIMEOUT_MS",
+    DEFAULT_CUSTOM_TEXT_TIMEOUT_MS,
+  );
+  const requestTimeout = createRequestTimeout(timeoutMs);
+  let upstream: Response;
+  try {
+    upstream = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        ...(resolvedKey ? { Authorization: `Bearer ${resolvedKey}` } : {}),
+        ...(isOpenRouter
+          ? {
+              "HTTP-Referer": serverEnv("OPENROUTER_APP_URL", "http://localhost:3000"),
+              "X-Title": serverEnv("OPENROUTER_APP_TITLE", "Open Dungeon"),
+            }
+          : {}),
+      },
+      body: JSON.stringify(requestPayload),
+      signal: requestTimeout.signal,
+    });
+  } catch {
+    requestTimeout.clear();
+    if (requestTimeout.timedOut()) {
+      return {
+        error: Response.json(
+          {
+            error: `${isOpenRouter ? "OpenRouter" : "Backend"} request timed out after ${formatTimeout(timeoutMs)}. The server may still be generating in the background; wait a moment, then retry or lower that backend's context/output settings.`,
+          },
+          { status: 504 },
+        ),
+      };
+    }
+
+    return {
+      error: Response.json(
+        {
+          error: `Could not reach the backend at ${endpoint}. Check the URL and that your server is running.`,
+        },
+        { status: 502 },
+      ),
+    };
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const text = upstream.body ? await upstream.text() : "";
+    requestTimeout.clear();
+
+    // Some servers reject function tools; retry the stream without auto images.
+    if (includeImageTool && /tool|function|not support/i.test(text)) {
+      return requestCustomMessageStream(trimmedBase, resolvedModel, apiKey, messages, false);
+    }
+
+    return {
+      error: Response.json(
+        {
+          error: `${isOpenRouter ? "OpenRouter" : "Backend"} request failed (${upstream.status}).`,
+          detail: text.slice(0, 1000),
+        },
+        { status: upstream.status },
+      ),
+    };
+  }
+
+  const body = upstream.body;
+
+  async function* parseSse(): AsyncGenerator<StreamEvent> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE events are separated by a blank line; a data: line carries one
+        // JSON chunk (or [DONE]). Split on newlines and process whole lines.
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex).replace(/\r$/, "").trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          newlineIndex = buffer.indexOf("\n");
+
+          if (!line || line.startsWith(":")) {
+            continue;
+          }
+          if (!line.startsWith("data:")) {
+            continue;
+          }
+          const payload = line.slice(5).trim();
+          if (payload === "[DONE]") {
+            yield { type: "done" };
+            return;
+          }
+
+          let chunk: {
+            choices?: Array<{
+              delta?: {
+                content?: unknown;
+                tool_calls?: Array<{
+                  index?: number;
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+              finish_reason?: string | null;
+            }>;
+          };
+          try {
+            chunk = JSON.parse(payload);
+          } catch {
+            continue;
+          }
+
+          const delta = chunk.choices?.[0]?.delta;
+          if (!delta) {
+            continue;
+          }
+          if (typeof delta.content === "string" && delta.content) {
+            yield { type: "text", text: delta.content };
+          } else if (Array.isArray(delta.content)) {
+            const text = extractStoryText(delta.content);
+            if (text) {
+              yield { type: "text", text };
+            }
+          }
+          if (Array.isArray(delta.tool_calls)) {
+            for (const call of delta.tool_calls) {
+              yield {
+                type: "tool",
+                index: typeof call.index === "number" ? call.index : 0,
+                name: call.function?.name,
+                argsFragment: call.function?.arguments,
+              };
+            }
+          }
+        }
+      }
+      yield { type: "done" };
+    } finally {
+      requestTimeout.clear();
+      reader.releaseLock();
+    }
+  }
+
+  return { stream: parseSse() };
+}
+
 async function requestLocalMessage(
   model: string,
   messages: OpenRouterMessage[],
   includeImageTool: boolean,
   disableThinking = true,
 ): Promise<UpstreamResult> {
+  // Optional, secondary path. Only reached when a chat explicitly selects the
+  // "Ollama" (local) provider; the default text path is the custom server.
   const baseUrl = serverEnv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").replace(/\/$/, "");
   const requestPayload: Record<string, unknown> = {
     model,
@@ -629,11 +863,11 @@ async function requestLocalMessage(
   return { message: data?.message };
 }
 
-const SUMMARIZER_SYSTEM = `You maintain the canonical "story so far" memory for an ongoing interactive roleplay. Merge the existing summary with the new passages into one updated summary.
+const SUMMARIZER_SYSTEM = `Ты сохраняешь каноническую память «истории до сих пор» для текущей интерактивной ролевой игры. Объедини существующее резюме с новыми отрывками в одно обновленное резюме.
 
-Preserve, with priority: active plot threads and their current state; characters (names, roles, relationships, distinctive physical details); promises, debts, secrets, injuries, and items that could matter later; locations and the order of major events; choices the player made that shaped the story.
+Сохраняй с приоритетом: активные сюжетные линии и их текущее состояние; персонажи (имена, роли, отношения, отличительные физические черты); обещания, долги, секреты, ранения и предметы, которые могут иметь значение позже; локации и порядок основных событий; выборы, которые игрок сделал и которые сформировали историю.
 
-Write compact prose in past tense, no headings or lists, at most 500 words. Output only the updated summary.`;
+Пиши компактную прозу в прошедшем времени, без заголовков или списков, максимум 500 слов. Выводи только обновленное резюме.`;
 
 type StoryRequestSettings = z.infer<typeof requestSchema>["settings"];
 
@@ -664,13 +898,13 @@ async function summarizeEvictedPassages(
   passages: Array<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string | null> {
   const transcript = passages
-    .map((message) => `${message.role === "user" ? "Player" : "Narrator"}: ${message.content}`)
+    .map((message) => `${message.role === "user" ? "Игрок" : "Рассказчик"}: ${message.content}`)
     .join("\n\n");
   const messages: OpenRouterMessage[] = [
     { role: "system", content: SUMMARIZER_SYSTEM },
     {
       role: "user",
-      content: `Existing summary:\n${existingSummary || "(none yet)"}\n\nNew passages to fold in:\n${transcript}`,
+      content: `Существующее резюме:\n${existingSummary || "(ещё нет)"}\n\nНовые отрывки для включения:\n${transcript}`,
     },
   ];
 
@@ -757,7 +991,7 @@ export async function POST(request: Request) {
             {
               id: "pending-attachments",
               role: "user" as const,
-              content: "The player included visual references for this turn.",
+              content: "Игрок включил визуальные ссылки для этого хода.",
               createdAt: new Date().toISOString(),
               attachments: body.attachments,
             },
@@ -773,10 +1007,128 @@ export async function POST(request: Request) {
   const messages = characterVisionMessage
     ? [storyMessages[0], characterVisionMessage, ...storyMessages.slice(1)]
     : storyMessages;
+  const includeImageTool = body.settings.imageGenerationEnabled && body.settings.autoImages;
+
+  // Streaming path: only the custom OpenAI-compatible backend advertises SSE.
+  // The Ollama ("local") provider stays on the buffered path below.
+  if (provider === "custom") {
+    const { stream, error: streamError } = await requestCustomMessageStream(
+      body.settings.customBaseUrl,
+      body.settings.customModel,
+      body.settings.customApiKey,
+      messages,
+      includeImageTool,
+    );
+
+    if (streamError) {
+      return streamError;
+    }
+
+    const encoder = new TextEncoder();
+    const sse = (event: string, data: unknown) =>
+      encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const chatId = body.chatId;
+
+    const responseStream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let storyText = "";
+        const toolArgsByIndex = new Map<number, string>();
+        let sawImageTool = false;
+
+        try {
+          for await (const ev of stream) {
+            if (ev.type === "text") {
+              storyText += ev.text;
+              controller.enqueue(sse("delta", { text: ev.text }));
+            } else if (ev.type === "tool") {
+              if (ev.name === "generate_image") {
+                sawImageTool = true;
+              }
+              if (ev.argsFragment) {
+                toolArgsByIndex.set(
+                  ev.index,
+                  (toolArgsByIndex.get(ev.index) || "") + ev.argsFragment,
+                );
+              }
+            } else if (ev.type === "done") {
+              break;
+            }
+          }
+        } catch (streamReadError) {
+          controller.enqueue(
+            sse("error", {
+              error:
+                streamReadError instanceof Error
+                  ? streamReadError.message
+                  : "Поток истории прервался.",
+            }),
+          );
+          controller.close();
+          return;
+        }
+
+        // Reassemble the generate_image tool call from the streamed argument
+        // fragments and reuse the same parser the buffered path uses.
+        const reconstructedToolCalls = sawImageTool
+          ? Array.from(toolArgsByIndex.entries()).map(([, args]) => ({
+              function: { name: "generate_image", arguments: args },
+            }))
+          : [];
+        const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
+
+        const trimmedStory = extractStoryText(storyText);
+        const characterIds =
+          imageToolArgs?.characterIds
+            ?.filter((id) => knownCharacterIds.has(id))
+            .slice(0, MAX_IMAGE_REFERENCES) || [];
+        const assistantMessage: StoryMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: trimmedStory || "Момент повисает, ожидая твоего следующего действия.",
+          createdAt: new Date().toISOString(),
+          imageRequest:
+            includeImageTool && imageToolArgs?.prompt
+              ? {
+                  needed: true,
+                  prompt: imageToolArgs.prompt,
+                  mode: body.settings.imageMode,
+                  backend: body.settings.imageBackend,
+                  aspect: body.settings.aspect,
+                  reason: imageToolArgs.reason,
+                  characterIds,
+                }
+              : { needed: false },
+        };
+
+        if (chatId) {
+          addMessage(chatId, assistantMessage);
+        }
+
+        controller.enqueue(
+          sse("done", {
+            id: assistantMessage.id,
+            content: assistantMessage.content,
+            imageRequest: assistantMessage.imageRequest,
+          }),
+        );
+        controller.close();
+      },
+    });
+
+    return new Response(responseStream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
   const { message, error } = await requestStoryMessage(
     body.settings,
     messages,
-    body.settings.imageGenerationEnabled && body.settings.autoImages,
+    includeImageTool,
   );
 
   if (error) {
@@ -789,7 +1141,7 @@ export async function POST(request: Request) {
   if (!storyText && !imageToolArgs) {
     return Response.json(
       {
-        error: `${provider === "local" ? "The local model" : "The backend"} returned no story content.`,
+        error: `${provider === "local" ? "Локальная модель" : "Сервер"}: история не получена.`,
         detail: message,
       },
       { status: 502 },
@@ -803,7 +1155,7 @@ export async function POST(request: Request) {
   const assistantMessage: StoryMessage = {
     id: crypto.randomUUID(),
     role: "assistant",
-    content: storyText || "The moment hangs there, waiting for what you do next.",
+    content: storyText || "Момент повисает, ожидая твоего следующего действия.",
     createdAt: new Date().toISOString(),
     imageRequest:
       body.settings.imageGenerationEnabled && body.settings.autoImages && imageToolArgs?.prompt

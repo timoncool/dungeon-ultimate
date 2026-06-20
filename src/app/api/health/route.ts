@@ -38,10 +38,30 @@ export async function GET() {
     localText = { ok: false, installedModels: [] };
   }
 
+  // Probe the configured custom server so the default text path has a health
+  // signal even when Ollama is absent.
+  const customBaseUrl = serverEnv("OPENAI_COMPAT_BASE_URL", "http://127.0.0.1:8080/v1");
+  let customText = { ok: false, models: [] as string[] };
+  try {
+    const base = customBaseUrl.replace(/\/$/, "");
+    const modelsUrl = /\/v\d+$/.test(base) ? `${base}/models` : `${base}/v1/models`;
+    const response = await fetch(modelsUrl, { cache: "no-store" });
+    if (response.ok) {
+      const data = (await response.json()) as { data?: Array<{ id?: string }> };
+      customText = {
+        ok: true,
+        models: (data.data || []).map((m) => m.id || "").filter(Boolean),
+      };
+    }
+  } catch {
+    customText = { ok: false, models: [] };
+  }
+
   return Response.json({
     openRouterConfigured: Boolean(serverEnv("OPENROUTER_API_KEY")),
     model: serverEnv("OPENROUTER_MODEL", "google/gemini-3.5-flash"),
     maxTokens: Number.parseInt(serverEnv("OPENROUTER_MAX_TOKENS", "16384"), 10),
+    customText,
     localText,
     flux,
   });

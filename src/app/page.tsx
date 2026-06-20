@@ -26,6 +26,7 @@ import {
   Trash2,
   Type,
   UserRound,
+  Volume2,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import type {
   ImageBackend,
   ImageMode,
   ProseSize,
+  ResponseLength,
   StoryChat,
   StoryCharacter,
   StoryChatSummary,
@@ -62,10 +64,10 @@ const MAX_IMAGE_REFERENCES = 2;
 const STORY_REQUEST_TIMEOUT_MS = 7 * 60 * 1000;
 
 const KICKOFF_DIRECTIVE =
-  "Begin the story now. Write the opening passage: establish the scene, the player character, and the immediate situation in second person, ending on a beat that invites the player's first action. Do not ask the player any setup questions; the story has already started.";
+  "Начни историю прямо сейчас. Напиши вводный отрывок: установи сцену, персонажа игрока и немедленную ситуацию от второго лица, завершив на моменте, который приглашает первое действие игрока. Не задавай игроку вопросы по настройке; история уже началась.";
 
 const CONTINUE_DIRECTIVE =
-  "Continue the story from exactly where it left off. The player is not taking an action this turn — advance the scene naturally with narration, dialogue, or events, then pause on a beat that invites their next action.";
+  "Продолжи историю ровно там, где она прервалась. Игрок не совершает действия на этом ходу — развивай сцену естественно через повествование, диалог или события, затем сделай паузу на моменте, который приглашает его следующее действие.";
 
 const SIDEBAR_ICONS = {
   chats: "/sidebar-icons/chats.png",
@@ -80,9 +82,9 @@ const SIDEBAR_ICONS = {
 type InputMode = "do" | "say" | "story";
 
 const INPUT_MODES: Array<{ value: InputMode; label: string; placeholder: string }> = [
-  { value: "do", label: "Do", placeholder: "What do you do?" },
-  { value: "say", label: "Say", placeholder: "What do you say?" },
-  { value: "story", label: "Story", placeholder: "Write the next part of the story…" },
+  { value: "do", label: "Действие", placeholder: "Что ты делаешь?" },
+  { value: "say", label: "Речь", placeholder: "Что ты говоришь?" },
+  { value: "story", label: "История", placeholder: "Напиши следующую часть истории…" },
 ];
 
 const PROSE_SIZE_OPTIONS: Array<{ value: ProseSize; label: string; className: string }> = [
@@ -95,6 +97,13 @@ const PROSE_SIZE_OPTIONS: Array<{ value: ProseSize; label: string; className: st
   { value: "xxlarge", label: "24px", className: "text-2xl leading-10" },
   { value: "huge", label: "28px", className: "text-[1.75rem] leading-[2.75rem]" },
   { value: "giant", label: "32px", className: "text-[2rem] leading-[3rem]" },
+];
+
+const RESPONSE_LENGTH_OPTIONS: Array<{ value: ResponseLength; label: string }> = [
+  { value: "short", label: "Кратко" },
+  { value: "medium", label: "Средне" },
+  { value: "long", label: "Длинно" },
+  { value: "epic", label: "Эпик" },
 ];
 
 function formatPlayerInput(mode: InputMode, text: string): string {
@@ -112,45 +121,45 @@ function formatPlayerInput(mode: InputMode, text: string): string {
 const STORY_PRESETS = [
   {
     id: "fantasy",
-    label: "Fantasy",
-    flavor: "Knights, magic, old roads",
-    seed: "A high-fantasy realm of feuding kingdoms, old magic, and roads that stop being safe after dark.",
-    rolePlaceholder: "a wandering sellsword",
+    label: "Фэнтези",
+    flavor: "Рыцари, магия, старые дороги",
+    seed: "Высокое фэнтези: враждующие королевства, древняя магия и дороги, что перестают быть безопасными после заката.",
+    rolePlaceholder: "странствующий наёмник",
   },
   {
     id: "mystery",
-    label: "Mystery",
-    flavor: "Rain, secrets, loose threads",
-    seed: "A rain-slicked city full of secrets, where every case is a door somebody wants kept shut.",
-    rolePlaceholder: "a private investigator",
+    label: "Детектив",
+    flavor: "Дождь, секреты, незакрытые нити",
+    seed: "Залитый дождём город, полный секретов, где каждое дело — дверь, которую кто-то хочет держать закрытой.",
+    rolePlaceholder: "частный детектив",
   },
   {
     id: "cyberpunk",
-    label: "Cyberpunk",
-    flavor: "Neon, chrome, bad debts",
-    seed: "A neon-drenched megacity run by corporations, where memory is currency and everyone owes someone.",
-    rolePlaceholder: "a burned-out netrunner",
+    label: "Киберпанк",
+    flavor: "Неон, хром, дурные долги",
+    seed: "Залитый неоном мегаполис под властью корпораций, где память — валюта, и каждый кому-то должен.",
+    rolePlaceholder: "выгоревший нетраннер",
   },
   {
     id: "apocalyptic",
-    label: "Apocalyptic",
-    flavor: "After the end of everything",
-    seed: "Years after the collapse, scattered survivors scavenge, barter, and tell stories about how it used to be.",
-    rolePlaceholder: "a scavenger with a map",
+    label: "Постапокалипсис",
+    flavor: "После конца всего",
+    seed: "Спустя годы после краха разрозненные выжившие шарят по руинам, меняются и травят байки о том, как было раньше.",
+    rolePlaceholder: "сборщик хлама с картой",
   },
   {
     id: "horror",
-    label: "Horror",
-    flavor: "Something is wrong here",
-    seed: "A remote town where the nights run long and the locals don't talk about what happens in them.",
-    rolePlaceholder: "an out-of-town visitor",
+    label: "Хоррор",
+    flavor: "Здесь что-то не так",
+    seed: "Глухой городок, где ночи тянутся долго, а местные не говорят о том, что в них творится.",
+    rolePlaceholder: "приезжий",
   },
   {
     id: "romance",
-    label: "Romance",
-    flavor: "Sparks in unlikely places",
-    seed: "A close-knit coastal town in late summer, where chance meetings have a way of becoming something more.",
-    rolePlaceholder: "a newcomer with a past",
+    label: "Романтика",
+    flavor: "Искры в неожиданных местах",
+    seed: "Тесный приморский городок на исходе лета, где случайные встречи имеют свойство перерастать в нечто большее.",
+    rolePlaceholder: "новичок с прошлым",
   },
 ] as const;
 
@@ -169,7 +178,15 @@ type CharacterDraft = {
   portrait?: Attachment;
 };
 type MobileTool = "characters" | "story" | "images" | "data";
-type DesktopPanel = "chats" | "characters" | "textModel" | "story" | "images" | "localData" | "support";
+type DesktopPanel =
+  | "chats"
+  | "characters"
+  | "textModel"
+  | "story"
+  | "images"
+  | "voice"
+  | "localData"
+  | "support";
 type LocalTextStatus = { ok: boolean; installedModels: string[] };
 type ImageWorkerStatus = {
   ok: boolean;
@@ -204,6 +221,7 @@ const DESKTOP_PANEL_ORDER: DesktopPanel[] = [
   "textModel",
   "story",
   "images",
+  "voice",
   "localData",
   "support",
 ];
@@ -285,6 +303,13 @@ async function uploadImageFile(file: File) {
   return readApi<Attachment>(response);
 }
 
+// Some chat-template models leak control tokens such as <|im_end|> or
+// <|eot_id|>. Strip any complete <|...|> token, and also drop a trailing
+// unclosed '<|...' so a partially streamed token never flashes on screen.
+function stripModelMarkup(content: string): string {
+  return content.replace(/<\|[^>]*?\|>/g, "").replace(/<\|[^|]*$/, "");
+}
+
 // Narrator models often use markdown emphasis; render just *italic* and
 // **bold** inline without pulling in a full markdown pipeline.
 function renderStoryEmphasis(content: string): ReactNode[] {
@@ -337,6 +362,26 @@ function chatToSummary(chat: StoryChat): StoryChatSummary {
   };
 }
 
+// Split a passage into sentence-ish chunks so TTS can stream: play the first
+// while the next is still synthesizing. Russian punctuation aware; tiny
+// fragments merge into the neighbour so we don't synth two-word clips.
+function splitSentences(text: string): string[] {
+  const raw = text.replace(/\s+/g, " ").trim();
+  if (!raw) return [];
+  const parts = raw.match(/[^.!?…]+[.!?…]+(?:["”»)]*)|\S[^.!?…]*$/g) || [raw];
+  const out: string[] = [];
+  for (const part of parts) {
+    const s = part.trim();
+    if (!s) continue;
+    if (out.length && (s.length < 14 || out[out.length - 1].length < 14)) {
+      out[out.length - 1] = `${out[out.length - 1]} ${s}`;
+    } else {
+      out.push(s);
+    }
+  }
+  return out.length ? out : [raw];
+}
+
 export default function Home() {
   const [chats, setChats] = useState<StoryChatSummary[]>([]);
   const [selectedChatId, setSelectedChatId] = useState("");
@@ -370,6 +415,10 @@ export default function Home() {
   const defaultSettingsRef = useRef(DEFAULT_STORY_SETTINGS);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [speakingId, setSpeakingId] = useState("");
+  const audioCacheRef = useRef<Map<string, string>>(new Map());
+  const speakSeqRef = useRef(0);
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === selectedChatId),
@@ -419,7 +468,7 @@ export default function Home() {
         const payload = await readApi<ChatResponse>(response);
         applyChat(payload.chat);
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Chat failed to load.");
+        setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
       } finally {
         setLoadingChat(false);
       }
@@ -458,7 +507,7 @@ export default function Home() {
 
         clearSelectedChat();
       } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : "Delete failed.");
+        setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить.");
       }
     },
     [clearSelectedChat, loadChat, refreshChats, selectedChatId],
@@ -475,7 +524,7 @@ export default function Home() {
       setChats([]);
       clearSelectedChat();
     } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : "Local data clear failed.");
+      setError(clearError instanceof Error ? clearError.message : "Не удалось очистить локальные данные.");
     } finally {
       setClearingLocalData(false);
     }
@@ -517,7 +566,7 @@ export default function Home() {
         }
       } catch (bootError) {
         if (!cancelled) {
-          setError(bootError instanceof Error ? bootError.message : "Chat library failed to load.");
+          setError(bootError instanceof Error ? bootError.message : "Не удалось загрузить библиотеку историй.");
         }
       } finally {
         if (!cancelled) {
@@ -587,7 +636,7 @@ export default function Home() {
         );
       } catch (saveError) {
         if (!controller.signal.aborted) {
-          setError(saveError instanceof Error ? saveError.message : "Settings failed to save.");
+          setError(saveError instanceof Error ? saveError.message : "Не удалось сохранить настройки.");
         }
       }
     }, 500);
@@ -622,14 +671,14 @@ export default function Home() {
         body: JSON.stringify({ action: "start" }),
       });
       const payload = await readApi<ImageWorkerActionResponse>(response);
-      setImageWorkerMessage(payload.message || "Image worker start requested.");
+      setImageWorkerMessage(payload.message || "Запрошен запуск сервера изображений.");
       if (payload.health) {
         setImageWorkerStatus(payload.health);
       }
       await refreshRuntimeHealth();
     } catch (workerError) {
       const message =
-        workerError instanceof Error ? workerError.message : "Image worker failed to start.";
+        workerError instanceof Error ? workerError.message : "Не удалось запустить сервер изображений.";
       setImageWorkerMessage(message);
       setError(message);
     } finally {
@@ -650,11 +699,11 @@ export default function Home() {
       });
       const payload = await readApi<ImageWorkerActionResponse>(response);
       setImageWorkerMessage(
-        payload.path ? `Opened model folder: ${payload.path}` : "Opened model folder.",
+        payload.path ? `Папка модели открыта: ${payload.path}` : "Папка модели открыта.",
       );
     } catch (workerError) {
       const message =
-        workerError instanceof Error ? workerError.message : "Could not open the model folder.";
+        workerError instanceof Error ? workerError.message : "Не удалось открыть папку модели.";
       setImageWorkerMessage(message);
       setError(message);
     } finally {
@@ -677,7 +726,7 @@ export default function Home() {
       }
       setAttachments((current) => [...current, ...uploaded].slice(0, MAX_IMAGE_REFERENCES));
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Image upload failed.");
+      setError(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить изображение.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -738,7 +787,7 @@ export default function Home() {
       setCharacterDraft(emptyCharacterDraft());
       void refreshChats();
     } catch (characterError) {
-      setError(characterError instanceof Error ? characterError.message : "Character failed to save.");
+      setError(characterError instanceof Error ? characterError.message : "Не удалось сохранить персонажа.");
     } finally {
       setCharacterSaving(false);
     }
@@ -775,7 +824,7 @@ export default function Home() {
       );
       void refreshChats();
     } catch (characterError) {
-      setError(characterError instanceof Error ? characterError.message : "Character failed to update.");
+      setError(characterError instanceof Error ? characterError.message : "Не удалось обновить персонажа.");
     }
   }
 
@@ -794,7 +843,7 @@ export default function Home() {
 
       await updateCharacterById(characterId, { portrait });
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Character portrait upload failed.");
+      setError(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить портрет персонажа.");
     } finally {
       setCharacterUploadingId("");
     }
@@ -815,7 +864,7 @@ export default function Home() {
       setCharacters((current) => current.filter((character) => character.id !== characterId));
       void refreshChats();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Character delete failed.");
+      setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить персонажа.");
     }
   }
 
@@ -858,12 +907,94 @@ export default function Home() {
       });
       void refreshChats();
     } catch (imageError) {
-      setError(imageError instanceof Error ? imageError.message : "Image generation failed.");
+      setError(imageError instanceof Error ? imageError.message : "Не удалось сгенерировать изображение.");
       setImageStatus((current) => ({ ...current, [messageId]: "error" }));
     }
   }
 
   // Shared core for every narrator turn (new turn, kickoff, continue, retry).
+  function stopSpeaking() {
+    speakSeqRef.current += 1; // invalidate any in-flight streaming sequence
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setSpeakingId("");
+  }
+
+  async function fetchChunkUrl(
+    messageId: string,
+    chunkIndex: number,
+    chunkText: string,
+    voice: string,
+  ): Promise<string | null> {
+    const key = `${messageId}__c${chunkIndex}__${voice}`;
+    const cached = audioCacheRef.current.get(key);
+    if (cached) return cached;
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice }),
+      });
+      if (!response.ok) return null;
+      const data = (await response.json()) as { url?: string };
+      if (data.url) audioCacheRef.current.set(key, data.url);
+      return data.url || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function playUrl(audio: HTMLAudioElement, url: string): Promise<void> {
+    return new Promise((resolve) => {
+      audio.src = url;
+      audio.volume = Math.min(1, Math.max(0, settings.ttsVolume));
+      audio.playbackRate = settings.ttsSpeed;
+      const finish = () => {
+        audio.onended = null;
+        audio.onerror = null;
+        resolve();
+      };
+      audio.onended = finish;
+      audio.onerror = finish;
+      audio.play().catch(finish);
+    });
+  }
+
+  // Stream a passage: synthesize sentence-by-sentence, play each as soon as it
+  // is ready while prefetching the next. First audio starts in ~1-2s instead of
+  // waiting for the whole page; cached chunks replay instantly.
+  async function speakText(messageId: string, text: string) {
+    if (speakingId === messageId) {
+      stopSpeaking();
+      return;
+    }
+    stopSpeaking();
+    const seq = (speakSeqRef.current += 1);
+    setSpeakingId(messageId);
+    const voice = settings.voice;
+    const sentences = splitSentences(text);
+    if (!sentences.length) {
+      setSpeakingId("");
+      return;
+    }
+    const audio = audioRef.current ?? new Audio();
+    audioRef.current = audio;
+    let nextUrl = fetchChunkUrl(messageId, 0, sentences[0], voice);
+    for (let i = 0; i < sentences.length; i += 1) {
+      if (speakSeqRef.current !== seq) return;
+      const url = await nextUrl;
+      if (speakSeqRef.current !== seq) return;
+      nextUrl =
+        i + 1 < sentences.length
+          ? fetchChunkUrl(messageId, i + 1, sentences[i + 1], voice)
+          : Promise.resolve(null);
+      if (!url) continue;
+      await playUrl(audio, url);
+    }
+    if (speakSeqRef.current === seq) setSpeakingId("");
+  }
+
   async function runTurn(opts: {
     chatId: string;
     mode: "turn" | "kickoff" | "continue" | "retry" | "opening";
@@ -894,42 +1025,202 @@ export default function Home() {
           settings: opts.settings,
         }),
       });
-      const payload = await readApi<{
-        id?: string;
-        content: string;
-        imageRequest?: StoryMessage["imageRequest"];
-      }>(response);
 
-      const assistantMessage: StoryMessage = {
-        id: payload.id || makeId(),
-        role: "assistant",
-        content: payload.content,
-        createdAt: new Date().toISOString(),
-        imageRequest: payload.imageRequest,
+      const contentType = response.headers.get("content-type") || "";
+      const isStream = contentType.includes("text/event-stream");
+
+      let streamMessageId = "";
+
+      const finalize = (final: {
+        id?: string;
+        content?: string;
+        imageRequest?: StoryMessage["imageRequest"];
+      }) => {
+        const text = (final.content ?? "").trim();
+        if (opts.settings.autoplay && text) {
+          void speakText(final.id || streamMessageId || makeId(), text);
+        }
+        void refreshChats();
+        if (
+          opts.settings.imageGenerationEnabled &&
+          final.imageRequest?.needed &&
+          final.imageRequest.prompt &&
+          (final.id || streamMessageId)
+        ) {
+          void requestGeneratedImage(
+            final.id || streamMessageId,
+            final.imageRequest.prompt,
+            referencesForImage(final.imageRequest.characterIds, opts.attachments || []),
+            final.imageRequest,
+          );
+        }
       };
 
-      setMessages((current) => [...current, assistantMessage]);
-      void refreshChats();
+      if (isStream && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let assembled = "";
+        let streamErrorMessage = "";
+        let done = false;
 
-      if (
-        opts.settings.imageGenerationEnabled &&
-        payload.imageRequest?.needed &&
-        payload.imageRequest.prompt
-      ) {
-        void requestGeneratedImage(
-          assistantMessage.id,
-          payload.imageRequest.prompt,
-          referencesForImage(payload.imageRequest.characterIds, opts.attachments || []),
-          payload.imageRequest,
-        );
+        // Create the assistant bubble lazily on the first text delta, then
+        // append every subsequent fragment in place.
+        const pushDelta = (text: string) => {
+          if (!text) {
+            return;
+          }
+          assembled += text;
+          if (!streamMessageId) {
+            streamMessageId = makeId();
+            const created = streamMessageId;
+            setMessages((current) => [
+              ...current,
+              {
+                id: created,
+                role: "assistant",
+                content: text,
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+          } else {
+            const target = streamMessageId;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === target
+                  ? { ...message, content: message.content + text }
+                  : message,
+              ),
+            );
+          }
+        };
+
+        const handleEvent = (eventName: string, dataRaw: string) => {
+          if (!dataRaw) {
+            return;
+          }
+          let data: {
+            text?: string;
+            id?: string;
+            content?: string;
+            error?: string;
+            imageRequest?: StoryMessage["imageRequest"];
+          };
+          try {
+            data = JSON.parse(dataRaw);
+          } catch {
+            return;
+          }
+          if (eventName === "delta") {
+            pushDelta(data.text || "");
+          } else if (eventName === "error") {
+            streamErrorMessage = data.error || "Поток истории прервался.";
+            done = true;
+          } else if (eventName === "done") {
+            done = true;
+            // Reconcile the id (server-authoritative) and final content so a
+            // reload matches, and trigger autoplay + auto image.
+            if (streamMessageId) {
+              const fromId = streamMessageId;
+              streamMessageId = data.id || streamMessageId;
+              const toId = streamMessageId;
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === fromId
+                    ? {
+                        ...message,
+                        id: toId,
+                        content: data.content ?? message.content,
+                        imageRequest: data.imageRequest,
+                      }
+                    : message,
+                ),
+              );
+            } else if (data.content) {
+              // No deltas arrived (e.g. tool-only turn) — add the passage now.
+              streamMessageId = data.id || makeId();
+              const created = streamMessageId;
+              setMessages((current) => [
+                ...current,
+                {
+                  id: created,
+                  role: "assistant",
+                  content: data.content || "",
+                  createdAt: new Date().toISOString(),
+                  imageRequest: data.imageRequest,
+                },
+              ]);
+            }
+            finalize({
+              id: streamMessageId,
+              content: data.content ?? assembled,
+              imageRequest: data.imageRequest,
+            });
+          }
+        };
+
+        // Drain the SSE body: split on the blank-line frame separator, then
+        // read each frame's `event:` and (possibly multiline) `data:` fields.
+        while (!done) {
+          const { value, done: streamDone } = await reader.read();
+          if (streamDone) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          let sep = buffer.indexOf("\n\n");
+          while (sep !== -1) {
+            const frame = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            let eventName = "message";
+            const dataLines: string[] = [];
+            for (const rawLine of frame.split("\n")) {
+              const line = rawLine.replace(/\r$/, "");
+              if (line.startsWith("event:")) {
+                eventName = line.slice(6).trim();
+              } else if (line.startsWith("data:")) {
+                dataLines.push(line.slice(5).replace(/^ /, ""));
+              }
+            }
+            handleEvent(eventName, dataLines.join("\n"));
+            sep = buffer.indexOf("\n\n");
+          }
+        }
+
+        if (streamErrorMessage) {
+          throw new Error(streamErrorMessage);
+        }
+      } else {
+        // Buffered fallback: Ollama provider, the 'opening' mode, or a JSON
+        // error response. readApi throws on non-2xx with the server message.
+        const payload = await readApi<{
+          id?: string;
+          content: string;
+          imageRequest?: StoryMessage["imageRequest"];
+        }>(response);
+
+        const assistantMessage: StoryMessage = {
+          id: payload.id || makeId(),
+          role: "assistant",
+          content: payload.content,
+          createdAt: new Date().toISOString(),
+          imageRequest: payload.imageRequest,
+        };
+        streamMessageId = assistantMessage.id;
+
+        setMessages((current) => [...current, assistantMessage]);
+        finalize({
+          id: assistantMessage.id,
+          content: assistantMessage.content,
+          imageRequest: payload.imageRequest,
+        });
       }
     } catch (storyError) {
       setError(
         isAbortError(storyError)
-          ? "The narrator took too long to answer. The model may still be busy in the background; wait a moment, then retry or restart the local model if your system stays under load."
+          ? "Рассказчик слишком долго отвечал. Модель ещё может работать в фоне; подожди немного, затем повтори или перезапусти локальную модель, если система под нагрузкой."
           : storyError instanceof Error
             ? storyError.message
-            : "Story request failed.",
+            : "Не удалось выполнить запрос истории.",
       );
       void refreshChats();
     } finally {
@@ -941,7 +1232,7 @@ export default function Home() {
   async function kickoffStory(chat: StoryChat, hint?: string) {
     const trimmedHint = hint?.trim();
     const input = trimmedHint
-      ? `${KICKOFF_DIRECTIVE} Opening direction from the player (shape the scene around this): ${trimmedHint}`
+      ? `${KICKOFF_DIRECTIVE} Направление начала от игрока (выстрой сцену вокруг этого): ${trimmedHint}`
       : KICKOFF_DIRECTIVE;
     await runTurn({
       chatId: chat.id,
@@ -1072,7 +1363,7 @@ export default function Home() {
         });
         void refreshChats();
       } catch (editError) {
-        setError(editError instanceof Error ? editError.message : "Edit failed to save.");
+        setError(editError instanceof Error ? editError.message : "Не удалось сохранить изменения.");
       }
     }
   }
@@ -1113,7 +1404,7 @@ export default function Home() {
         await kickoffStory(payload.chat, options.opening.hint);
       }
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "New story failed.");
+      setError(createError instanceof Error ? createError.message : "Не удалось создать историю.");
     }
   }
 
@@ -1180,6 +1471,8 @@ export default function Home() {
       return (
         <CharacterPanel
           key={panel}
+          settings={settings}
+          setSettings={setSettings}
           characters={characters}
           draft={characterDraft}
           creating={characterSaving}
@@ -1251,6 +1544,17 @@ export default function Home() {
       );
     }
 
+    if (panel === "voice") {
+      return (
+        <VoicePanel
+          key={panel}
+          settings={settings}
+          setSettings={setSettings}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
     if (panel === "localData") {
       return (
         <LocalDataPanel
@@ -1278,16 +1582,16 @@ export default function Home() {
                 {settings.textProvider === "local"
                   ? `${
                       LOCAL_TEXT_MODELS.find((model) => model.id === settings.localTextModel)
-                        ?.label ?? "Local model"
+                        ?.label ?? "Локальная модель"
                     } · on-device`
-                  : `${settings.customModel || "Connected server"} · your server`}
+                  : `${settings.customModel || "Подключённый сервер"} · ваш сервер`}
               </p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              aria-label="Open story tools"
+              aria-label="Открыть инструменты истории"
               onClick={() => setMobileToolsOpen(true)}
               className="inline-flex size-10 items-center justify-center rounded border border-stone-700 text-stone-300 hover:bg-stone-900 lg:hidden"
             >
@@ -1299,8 +1603,8 @@ export default function Home() {
               className="inline-flex h-10 items-center gap-2 rounded border border-stone-700 px-3 text-sm text-stone-300 hover:bg-stone-900"
             >
               <Plus className="size-4" aria-hidden="true" />
-              <span className="hidden sm:inline">New story</span>
-              <span className="sm:hidden">New</span>
+              <span className="hidden sm:inline">Новая история</span>
+              <span className="sm:hidden">Новая</span>
             </button>
           </div>
         </header>
@@ -1377,11 +1681,11 @@ export default function Home() {
                     </div>
                     <div className="max-w-sm">
                       <p className="text-balance font-serif text-2xl text-stone-200">
-                        Every story starts with a single line.
+                        Каждая история начинается с одной строки.
                       </p>
                       <p className="mt-2 text-pretty text-sm text-stone-500">
-                        Begin a story and describe what you do — the narrator takes it from
-                        there, scenes and all.
+                        Начни историю и опиши, что ты делаешь — дальше рассказчик
+                        подхватит, со сценами и всем остальным.
                       </p>
                     </div>
                     <button
@@ -1390,7 +1694,7 @@ export default function Home() {
                       className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-200 px-4 text-sm font-medium text-stone-950 hover:bg-amber-100"
                     >
                       <Plus className="size-4" aria-hidden="true" />
-                      Begin a new story
+                      Начать новую историю
                     </button>
                   </div>
                 ) : (
@@ -1426,7 +1730,7 @@ export default function Home() {
                           )}
                         >
                           <p className="text-pretty whitespace-pre-wrap">
-                            {renderStoryEmphasis(message.content)}
+                            {renderStoryEmphasis(stripModelMarkup(message.content))}
                           </p>
                           {(message.generatedImage ||
                             (settings.imageGenerationEnabled && message.imageRequest?.needed)) && (
@@ -1451,6 +1755,8 @@ export default function Home() {
                             align="start"
                             disabled={busy}
                             onEdit={() => startEditing(message)}
+                            onSpeak={() => void speakText(message.id, message.content)}
+                            speaking={speakingId === message.id}
                           />
                         </div>
                       )}
@@ -1461,7 +1767,7 @@ export default function Home() {
                 {busy && (
                   <div className="flex items-center gap-3 font-serif text-base italic text-stone-500">
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    The next passage is forming…
+                    Формируется следующий отрывок…
                   </div>
                 )}
                 <div ref={endRef} />
@@ -1491,22 +1797,22 @@ export default function Home() {
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <StoryActionButton
                       icon={ChevronRight}
-                      label="Continue"
-                      title="Let the narrator continue without you"
+                      label="Продолжить"
+                      title="Пусть рассказчик продолжит без тебя"
                       disabled={busy || !selectedChatId}
                       onClick={() => void continueStory()}
                     />
                     <StoryActionButton
                       icon={RotateCcw}
-                      label="Retry"
-                      title="Regenerate the last passage"
+                      label="Повторить"
+                      title="Перегенерировать последний отрывок"
                       disabled={busy || !selectedChatId}
                       onClick={() => void retryLastTurn()}
                     />
                     <StoryActionButton
                       icon={Eraser}
-                      label="Erase"
-                      title="Remove the last exchange"
+                      label="Стереть"
+                      title="Убрать последний обмен"
                       disabled={busy || !selectedChatId}
                       onClick={() => void eraseLastTurn()}
                     />
@@ -1536,7 +1842,7 @@ export default function Home() {
                     }}
                     rows={2}
                     placeholder={
-                      INPUT_MODES.find((m) => m.value === inputMode)?.placeholder ?? "What do you do?"
+                      INPUT_MODES.find((m) => m.value === inputMode)?.placeholder ?? "Что ты делаешь?"
                     }
                     className="max-h-40 min-h-16 w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base text-stone-100 outline-none placeholder:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-600 sm:min-h-20"
                     disabled={libraryLoading || loadingChat}
@@ -1561,7 +1867,7 @@ export default function Home() {
                       </div>
                       <button
                         type="button"
-                        aria-label="Attach image references"
+                        aria-label="Прикрепить референсы"
                         onClick={() => fileInputRef.current?.click()}
                         className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
                         disabled={uploading || libraryLoading}
@@ -1574,15 +1880,15 @@ export default function Home() {
                       </button>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="hidden text-xs text-stone-600 sm:inline">⌘↵ to send</span>
+                      <span className="hidden text-xs text-stone-600 sm:inline">⌘↵ отправить</span>
                       <button
                         type="submit"
-                        aria-label="Send"
+                        aria-label="Отправить"
                         disabled={busy || !input.trim() || !selectedChatId || libraryLoading}
                         className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-amber-200 px-4 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
                       >
                         <Send className="size-4" aria-hidden="true" />
-                        <span className="hidden sm:inline">Send</span>
+                        <span className="hidden sm:inline">Отправить</span>
                       </button>
                     </div>
                   </div>
@@ -1602,11 +1908,18 @@ export default function Home() {
             >
               {orderedDesktopPanels.map((panel) => renderDesktopPanel(panel))}
               {!activeDesktopPanel && (
-                <FontSizeSlider
-                  settings={settings}
-                  setSettings={setSettings}
-                  idPrefix="desktop-rail"
-                />
+                <>
+                  <FontSizeSlider
+                    settings={settings}
+                    setSettings={setSettings}
+                    idPrefix="desktop-rail"
+                  />
+                  <ResponseLengthControl
+                    settings={settings}
+                    setSettings={setSettings}
+                    idPrefix="desktop-rail"
+                  />
+                </>
               )}
             </div>
           </aside>
@@ -1675,16 +1988,16 @@ function NewStoryDialog({
           <div className="flex items-start justify-between gap-3">
             <div>
               <Dialog.Title className="text-balance text-base font-semibold text-stone-100">
-                New story
+                Новая история
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-pretty text-sm text-stone-500">
-                Pick a setting, say who you are, and choose how the story opens.
+                Выбери сеттинг, скажи кто ты, и выбери как начнётся история.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <button
                 type="button"
-                aria-label="Close"
+                aria-label="Закрыть"
                 className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-stone-800 text-stone-400 hover:bg-stone-900 hover:text-stone-100"
               >
                 <X className="size-4" aria-hidden="true" />
@@ -1695,7 +2008,7 @@ function NewStoryDialog({
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[
               ...STORY_PRESETS,
-              { id: "custom" as const, label: "Custom", flavor: "Describe your own opening" },
+              { id: "custom" as const, label: "Custom", flavor: "Опиши своё начало" },
             ].map((item) => {
               const selected = item.id === presetId;
               return (
@@ -1721,7 +2034,7 @@ function NewStoryDialog({
           {isCustom ? (
             <label className="mt-4 block">
               <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                What is this story about?
+                О чём эта история?
               </span>
               <textarea
                 id="new-story-custom"
@@ -1737,7 +2050,7 @@ function NewStoryDialog({
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                  Who are you?
+                  Кто ты?
                 </span>
                 <input
                   id="new-story-role"
@@ -1750,7 +2063,7 @@ function NewStoryDialog({
               </label>
               <label className="block">
                 <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                  Name <span className="normal-case text-stone-600">(optional)</span>
+                  Имя <span className="normal-case text-stone-600">(optional)</span>
                 </span>
                 <input
                   id="new-story-name"
@@ -1766,13 +2079,13 @@ function NewStoryDialog({
 
           <div className="mt-5 border-t border-stone-800 pt-4">
             <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-              Opening
+              Начало
             </span>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  { value: "narrator", label: "Narrator sets the scene" },
-                  { value: "self", label: "Write the opening myself" },
+                  { value: "narrator", label: "Рассказчик задаёт сцену" },
+                  { value: "self", label: "Написать начало самому" },
                 ] as const
               ).map((option) => {
                 const selected = option.value === openingMode;
@@ -1798,7 +2111,7 @@ function NewStoryDialog({
             {openingMode === "narrator" ? (
               <label className="mt-3 block">
                 <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">
-                  Opening hint <span className="normal-case text-stone-600">(optional)</span>
+                  Подсказка начала <span className="normal-case text-stone-600">(optional)</span>
                 </span>
                 <textarea
                   id="new-story-opening-hint"
@@ -1806,14 +2119,14 @@ function NewStoryDialog({
                   value={openingHint}
                   onChange={(event) => setOpeningHint(event.target.value)}
                   rows={2}
-                  placeholder="e.g. start me waking up in a cell with no memory of the night before"
+                  placeholder="напр. начни с моего пробуждения в камере без памяти о прошлой ночи"
                   className="w-full resize-none rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
                 />
               </label>
             ) : (
               <label className="mt-3 block">
                 <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">
-                  Your opening passage
+                  Твой вводный отрывок
                 </span>
                 <textarea
                   id="new-story-opening-text"
@@ -1838,7 +2151,7 @@ function NewStoryDialog({
                 type="button"
                 className="rounded-lg border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
               >
-                Cancel
+                Отмена
               </button>
             </Dialog.Close>
             <button
@@ -1848,7 +2161,7 @@ function NewStoryDialog({
               className="inline-flex items-center gap-2 rounded-lg bg-amber-200 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
             >
               <Sparkles className="size-4" aria-hidden="true" />
-              Begin story
+              Начать историю
             </button>
           </div>
         </Dialog.Content>
@@ -1923,8 +2236,8 @@ function MobileToolsSheet({
 
   const tools: Array<{ value: MobileTool; label: string }> = [
     { value: "characters", label: "Chars" },
-    { value: "story", label: "Story" },
-    { value: "images", label: "Images" },
+    { value: "story", label: "История" },
+    { value: "images", label: "Изображения" },
     { value: "data", label: "Data" },
   ];
 
@@ -1932,21 +2245,21 @@ function MobileToolsSheet({
     <div className="fixed inset-0 z-30 lg:hidden">
       <button
         type="button"
-        aria-label="Close story tools"
+        aria-label="Закрыть инструменты истории"
         onClick={onClose}
         className="absolute inset-0 bg-stone-950/70"
       />
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Story tools"
+        aria-label="Инструменты истории"
         className="absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col rounded-t-2xl border border-stone-700 bg-[#130d09] shadow-2xl"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800 px-4 py-3">
-          <PanelTitle icon={Settings2} title="Tools" />
+          <PanelTitle icon={Settings2} title="Инструменты" />
           <button
             type="button"
-            aria-label="Close story tools"
+            aria-label="Закрыть инструменты истории"
             onClick={onClose}
             className="flex size-9 items-center justify-center rounded border border-stone-800 text-stone-400 hover:bg-stone-900 hover:text-stone-100"
           >
@@ -1977,6 +2290,8 @@ function MobileToolsSheet({
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {activeTool === "characters" && (
             <CharacterPanel
+              settings={settings}
+              setSettings={setSettings}
               characters={characters}
               draft={draft}
               creating={creating}
@@ -2067,7 +2382,7 @@ function MobileChatBar({
         <DeleteChatDialog chat={selectedChat} onConfirm={() => onDelete(selectedChat.id)}>
           <button
             type="button"
-            aria-label="Delete current story"
+            aria-label="Удалить текущую историю"
             className="flex size-10 items-center justify-center rounded border border-stone-800 text-stone-400 hover:bg-stone-900 hover:text-red-200"
           >
             <Trash2 className="size-4" aria-hidden="true" />
@@ -2108,7 +2423,7 @@ function ChatLibrary({
     <PanelSection
       icon={Library}
       iconSrc={SIDEBAR_ICONS.chats}
-      title="Chats"
+      title="Истории"
       defaultOpen
       open={open}
       onOpenChange={onOpenChange}
@@ -2117,7 +2432,7 @@ function ChatLibrary({
       action={
         <button
           type="button"
-          aria-label="Create new story"
+          aria-label="Создать новую историю"
           onClick={onCreate}
           className="flex size-10 shrink-0 items-center justify-center rounded border border-stone-800 text-stone-300 hover:bg-stone-900"
         >
@@ -2180,7 +2495,7 @@ function ChatLibrary({
               onClick={onCreate}
               className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-4 text-left text-sm text-stone-400 hover:bg-stone-900"
             >
-              Start a story
+              Начать историю
             </button>
           )}
         </div>
@@ -2190,6 +2505,8 @@ function ChatLibrary({
 }
 
 function CharacterPanel({
+  settings,
+  setSettings,
   characters,
   draft,
   creating,
@@ -2207,6 +2524,8 @@ function CharacterPanel({
   onOpenChange,
   divided,
 }: {
+  settings: StorySettings;
+  setSettings: Dispatch<SetStateAction<StorySettings>>;
   characters: StoryCharacter[];
   draft: CharacterDraft;
   creating: boolean;
@@ -2228,16 +2547,35 @@ function CharacterPanel({
     <PanelSection
       icon={UserRound}
       iconSrc={SIDEBAR_ICONS.characters}
-      title="Characters"
+      title="Персонажи"
       compact={compact}
       defaultOpen={compact}
       open={open}
       onOpenChange={onOpenChange}
       divided={divided}
     >
+      <label className="block">
+        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
+          Промпт рассказчика
+        </span>
+        <textarea
+          id={`${compact ? "mobile" : "desktop"}-narrator-prompt`}
+          name={`${compact ? "mobile" : "desktop"}-narrator-prompt`}
+          value={settings.narratorPrompt}
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, narratorPrompt: event.target.value }))
+          }
+          rows={compact ? 6 : 10}
+          spellCheck={false}
+          className="w-full resize-y rounded border border-stone-800 bg-stone-950 px-3 py-2 font-mono text-xs leading-relaxed text-stone-200 outline-none focus:border-amber-300"
+        />
+        <span className="mt-1 block text-[11px] text-stone-600">
+          Системный промпт рассказчика. Пусто — встроенный по умолчанию.
+        </span>
+      </label>
       <div className="space-y-3 rounded border border-stone-800 bg-stone-950/70 p-3">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Name</span>
+          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Имя</span>
           <input
             id="new-character-name"
             name="new-character-name"
@@ -2251,7 +2589,7 @@ function CharacterPanel({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Details</span>
+          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Детали</span>
           <textarea
             id="new-character-details"
             name="new-character-details"
@@ -2261,7 +2599,7 @@ function CharacterPanel({
             }
             rows={3}
             className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-            placeholder="Short black hair, tomboy, dry humor..."
+            placeholder="Короткие чёрные волосы, пацанка, сухой юмор..."
           />
         </label>
 
@@ -2269,7 +2607,7 @@ function CharacterPanel({
           <label className="block">
             <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
               <Backpack className="size-3.5" aria-hidden="true" />
-              Inventory
+              Инвентарь
             </span>
             <textarea
               id="new-character-inventory"
@@ -2280,14 +2618,14 @@ function CharacterPanel({
               }
               rows={2}
               className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-              placeholder="Iron dagger, lantern, 12 silver..."
+              placeholder="Железный кинжал, фонарь, 12 серебра..."
             />
           </label>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                 <Sparkles className="size-3.5" aria-hidden="true" />
-                Skills
+                Навыки
               </span>
               <textarea
                 id="new-character-skills"
@@ -2298,13 +2636,13 @@ function CharacterPanel({
                 }
                 rows={2}
                 className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-                placeholder="Lockpicking, herbalism..."
+                placeholder="Взлом замков, травничество..."
               />
             </label>
             <label className="block">
               <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                 <WandSparkles className="size-3.5" aria-hidden="true" />
-                Spells
+                Заклинания
               </span>
               <textarea
                 id="new-character-spells"
@@ -2315,7 +2653,7 @@ function CharacterPanel({
                 }
                 rows={2}
                 className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-                placeholder="Mending, mage hand..."
+                placeholder="Починка, рука мага..."
               />
             </label>
           </div>
@@ -2330,7 +2668,7 @@ function CharacterPanel({
             </span>
             <button
               type="button"
-              aria-label="Remove draft character picture"
+              aria-label="Убрать черновой портрет"
               onClick={() => onDraftChange((current) => ({ ...current, portrait: undefined }))}
               className="flex size-7 items-center justify-center rounded text-stone-500 hover:bg-stone-900 hover:text-stone-100"
             >
@@ -2422,7 +2760,7 @@ function CharacterPanel({
                     onBlur={() => onSave(character)}
                     rows={3}
                     className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                    placeholder="Details the narrator should preserve..."
+                    placeholder="Детали, которые рассказчик должен сохранить..."
                   />
                 </div>
 
@@ -2441,7 +2779,7 @@ function CharacterPanel({
                 <label className="block">
                   <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                     <Backpack className="size-3.5" aria-hidden="true" />
-                    Inventory
+                    Инвентарь
                   </span>
                   <textarea
                     value={character.inventory || ""}
@@ -2451,14 +2789,14 @@ function CharacterPanel({
                     onBlur={() => onSave(character)}
                     rows={2}
                     className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                    placeholder="Items, gear, money, quest objects..."
+                    placeholder="Предметы, снаряжение, деньги, квестовые объекты..."
                   />
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                       <Sparkles className="size-3.5" aria-hidden="true" />
-                      Skills
+                      Навыки
                     </span>
                     <textarea
                       value={character.skills || ""}
@@ -2468,13 +2806,13 @@ function CharacterPanel({
                       onBlur={() => onSave(character)}
                       rows={2}
                       className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                      placeholder="Talents, proficiencies, class features..."
+                      placeholder="Таланты, умения, классовые особенности..."
                     />
                   </label>
                   <label className="block">
                     <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                       <WandSparkles className="size-3.5" aria-hidden="true" />
-                      Spells
+                      Заклинания
                     </span>
                     <textarea
                       value={character.spells || ""}
@@ -2484,7 +2822,7 @@ function CharacterPanel({
                       onBlur={() => onSave(character)}
                       rows={2}
                       className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                      placeholder="Prepared spells, powers, cooldown notes..."
+                      placeholder="Подготовленные заклинания, способности, заметки о перезарядке..."
                     />
                   </label>
                 </div>
@@ -2522,7 +2860,7 @@ function CharacterPanel({
                     onClick={() => onClearPortrait(character.id)}
                     className="h-8 rounded border border-stone-800 px-2 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200"
                   >
-                    Clear
+                    Очистить
                   </button>
                 )}
               </div>
@@ -2532,7 +2870,7 @@ function CharacterPanel({
 
         {!characters.length && (
           <p className="rounded border border-dashed border-stone-800 px-3 py-4 text-sm text-stone-500">
-            Saved characters will appear here.
+            Сохранённые персонажи появятся здесь.
           </p>
         )}
       </div>
@@ -2556,10 +2894,10 @@ function DeleteCharacterDialog({
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-stone-950/80" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-stone-700 bg-[#130d09] p-5 shadow-xl">
           <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">
-            Delete this character?
+            Удалить этого персонажа?
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            {characterName || "This character"} will be removed from this story.
+            {characterName || "Этот персонаж"} будет удалён из этой истории.
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
@@ -2567,7 +2905,7 @@ function DeleteCharacterDialog({
                 type="button"
                 className="rounded border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
               >
-                Cancel
+                Отмена
               </button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
@@ -2576,7 +2914,7 @@ function DeleteCharacterDialog({
                 onClick={onConfirm}
                 className="rounded bg-red-300 px-3 py-2 text-sm font-medium text-red-950 hover:bg-red-200"
               >
-                Delete
+                Удалить
               </button>
             </AlertDialog.Action>
           </div>
@@ -2588,10 +2926,10 @@ function DeleteCharacterDialog({
 
 // One-tap URL fills for the most common OpenAI-compatible servers.
 const SERVER_PRESETS: Array<{ label: string; url: string }> = [
-  { label: "OpenRouter", url: "https://openrouter.ai/api/v1" },
+  { label: "Этот компьютер", url: "http://127.0.0.1:8080/v1" },
   { label: "LM Studio", url: "http://localhost:1234/v1" },
-  { label: "llama.cpp", url: "http://127.0.0.1:8080/v1" },
   { label: "Ollama", url: "http://127.0.0.1:11434/v1" },
+  { label: "OpenRouter", url: "https://openrouter.ai/api/v1" },
 ];
 
 function TextModelPanel({
@@ -2612,11 +2950,80 @@ function TextModelPanel({
   const selectedMissing =
     localTextStatus?.ok && !localTextStatus.installedModels.includes(settings.localTextModel);
 
+  // Live model list from the custom OpenAI-compatible server's /models endpoint.
+  // ok=true once a fetch returns >=1 model; lets us show a <select> instead of
+  // only the free-text field. Refetched (debounced, abortable) when the URL or
+  // key changes, but only while the custom provider is active.
+  const [customModels, setCustomModels] = useState<Array<{ id: string; label: string }>>([]);
+  const [customModelsError, setCustomModelsError] = useState(false);
+  const customBaseUrl = settings.customBaseUrl;
+  const customApiKey = settings.customApiKey;
+  const isCustom = settings.textProvider === "custom";
+
+  useEffect(() => {
+    if (!isCustom) {
+      setCustomModels([]);
+      setCustomModelsError(false);
+      return;
+    }
+    const trimmed = customBaseUrl.trim();
+    if (!trimmed) {
+      setCustomModels([]);
+      setCustomModelsError(false);
+      return;
+    }
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      const url = `${trimmed.replace(/\/+$/, "")}/models`;
+      fetch(url, {
+        signal: controller.signal,
+        headers: customApiKey.trim()
+          ? { Authorization: `Bearer ${customApiKey.trim()}` }
+          : undefined,
+      })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((body: unknown) => {
+          const rawList = Array.isArray(body)
+            ? body
+            : Array.isArray((body as { data?: unknown })?.data)
+              ? (body as { data: unknown[] }).data
+              : [];
+          const parsed = rawList
+            .map((item) => {
+              const rec = item as { id?: unknown; label?: unknown; name?: unknown };
+              const id = typeof rec.id === "string" ? rec.id : "";
+              const label =
+                typeof rec.label === "string" && rec.label
+                  ? rec.label
+                  : typeof rec.name === "string" && rec.name
+                    ? rec.name
+                    : id;
+              return { id, label };
+            })
+            .filter((m) => m.id);
+          setCustomModels(parsed);
+          setCustomModelsError(false);
+        })
+        .catch((err: unknown) => {
+          if ((err as { name?: string })?.name === "AbortError") return;
+          setCustomModels([]);
+          setCustomModelsError(true);
+        });
+    }, 400);
+    return () => {
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [isCustom, customBaseUrl, customApiKey]);
+
+  const customModelInList =
+    customModels.length > 0 && customModels.some((m) => m.id === settings.customModel);
+
   return (
     <PanelSection
       icon={Cpu}
       iconSrc={SIDEBAR_ICONS.textModel}
-      title="Text Model"
+      title="Текстовая модель"
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -2624,12 +3031,12 @@ function TextModelPanel({
       divided={divided}
     >
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Provider</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">Провайдер</span>
         <Segmented<TextProvider>
           value={settings.textProvider}
           options={[
-            { value: "local", label: "Local" },
-            { value: "custom", label: "Connect a server" },
+            { value: "custom", label: "Локальный сервер" },
+            { value: "local", label: "Ollama" },
           ]}
           onChange={(textProvider) =>
             setSettings((current) => ({ ...current, textProvider }))
@@ -2665,7 +3072,9 @@ function TextModelPanel({
           </select>
           {localTextStatus && !localTextStatus.ok && (
             <p className="text-xs text-amber-200/80">
-              Ollama is not reachable. Start the Ollama app, then reload this page.
+              Ollama недоступна. Это необязательный провайдер Ollama — основной
+              путь «Локальный сервер» в ней не нуждается. Запусти Ollama, если
+              хочешь её использовать, затем перезагрузи страницу.
             </p>
           )}
           {selectedMissing && (
@@ -2681,7 +3090,7 @@ function TextModelPanel({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <span className="block text-xs font-medium uppercase text-stone-500">
-              Quick fill
+              Быстрое заполнение
             </span>
             <div className="flex flex-wrap gap-1.5">
               {SERVER_PRESETS.map((preset) => (
@@ -2703,7 +3112,7 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-base-url`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              Backend URL
+              URL сервера
             </label>
             <input
               id={`${idPrefix}-custom-base-url`}
@@ -2727,8 +3136,34 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-model`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              Model
+              Модель
             </label>
+            {customModels.length > 0 && (
+              <select
+                id={`${idPrefix}-custom-model-select`}
+                name={`${idPrefix}-custom-model-select`}
+                value={customModelInList ? settings.customModel : ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) return;
+                  setSettings((current) => ({ ...current, customModel: value }));
+                }}
+                className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
+              >
+                {!customModelInList && (
+                  <option value="">
+                    {settings.customModel
+                      ? `${settings.customModel} (вручную)`
+                      : "— выбери модель —"}
+                  </option>
+                )}
+                {customModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label || model.id}
+                  </option>
+                ))}
+              </select>
+            )}
             <input
               id={`${idPrefix}-custom-model`}
               name={`${idPrefix}-custom-model`}
@@ -2737,20 +3172,27 @@ function TextModelPanel({
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              placeholder="e.g. llama-3.3-70b-instruct"
+              placeholder={
+                customModels.length > 0 ? "или впиши id вручную" : "e.g. llama-3.3-70b-instruct"
+              }
               value={settings.customModel}
               onChange={(event) =>
                 setSettings((current) => ({ ...current, customModel: event.target.value }))
               }
               className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
             />
+            {customModelsError && (
+              <p className="text-xs text-stone-500">
+                Не удалось получить список моделей с сервера — впиши id вручную.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <label
               htmlFor={`${idPrefix}-custom-api-key`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              API key <span className="normal-case text-stone-600">(optional)</span>
+              API-ключ <span className="normal-case text-stone-600">(optional)</span>
             </label>
             <input
               id={`${idPrefix}-custom-api-key`}
@@ -2760,7 +3202,7 @@ function TextModelPanel({
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              placeholder="only if your server requires one"
+              placeholder="только если сервер этого требует"
               value={settings.customApiKey}
               onChange={(event) =>
                 setSettings((current) => ({ ...current, customApiKey: event.target.value }))
@@ -2812,7 +3254,7 @@ function FontSizeSlider({
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
           <Type className="size-3.5" aria-hidden="true" />
-          Font size
+          Размер шрифта
         </span>
         <span className="text-xs font-medium text-amber-100">{proseSizeLabel}</span>
       </div>
@@ -2824,7 +3266,7 @@ function FontSizeSlider({
         max={PROSE_SIZE_OPTIONS.length - 1}
         step={1}
         value={proseSizeValue}
-        aria-label="Font size"
+        aria-label="Размер шрифта"
         onChange={(event) => {
           const option =
             PROSE_SIZE_OPTIONS[Number(event.target.value)] ?? PROSE_SIZE_OPTIONS[3];
@@ -2838,6 +3280,241 @@ function FontSizeSlider({
         ))}
       </div>
     </div>
+  );
+}
+
+function ResponseLengthControl({
+  settings,
+  setSettings,
+  idPrefix,
+  className,
+}: {
+  settings: StorySettings;
+  setSettings: Dispatch<SetStateAction<StorySettings>>;
+  idPrefix: string;
+  className?: string;
+}) {
+  const value = Math.max(
+    0,
+    RESPONSE_LENGTH_OPTIONS.findIndex((option) => option.value === settings.responseLength),
+  );
+  const label = RESPONSE_LENGTH_OPTIONS[value]?.label ?? "Средне";
+
+  return (
+    <div
+      className={cn(
+        "space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-2",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium uppercase text-stone-500">Длина ответа</span>
+        <span className="text-xs font-medium text-amber-100">{label}</span>
+      </div>
+      <input
+        id={`${idPrefix}-response-length`}
+        name={`${idPrefix}-response-length`}
+        type="range"
+        min={0}
+        max={RESPONSE_LENGTH_OPTIONS.length - 1}
+        step={1}
+        value={value}
+        aria-label="Длина ответа"
+        onChange={(event) => {
+          const option =
+            RESPONSE_LENGTH_OPTIONS[Number(event.target.value)] ?? RESPONSE_LENGTH_OPTIONS[1];
+          setSettings((current) => ({ ...current, responseLength: option.value }));
+        }}
+        className="w-full accent-amber-200"
+      />
+      <div className="flex justify-between text-[0.65rem] font-medium uppercase text-stone-600">
+        {RESPONSE_LENGTH_OPTIONS.map((option) => (
+          <span key={option.value}>{option.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VoiceControl({
+  settings,
+  setSettings,
+  className,
+}: {
+  settings: StorySettings;
+  setSettings: Dispatch<SetStateAction<StorySettings>>;
+  className?: string;
+}) {
+  const [voices, setVoices] = useState<string[]>([]);
+  const [uploaded, setUploaded] = useState<string[]>([]);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceFileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/voices")
+      .then((response) => (response.ok ? response.json() : { voices: [] }))
+      .then((data: { voices?: string[] }) => {
+        if (active && Array.isArray(data.voices)) {
+          setVoices(data.voices);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function uploadVoice(file: File) {
+    setVoiceError(null);
+    setUploadingVoice(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/tts-voice", { method: "POST", body: form });
+      const data = (await response.json().catch(() => ({}))) as {
+        voice?: string;
+        error?: string;
+      };
+      if (!response.ok || !data.voice) {
+        setVoiceError(data.error || "Не удалось загрузить голос.");
+        return;
+      }
+      const id = data.voice;
+      setUploaded((current) => (current.includes(id) ? current : [...current, id]));
+      setSettings((current) => ({ ...current, voice: id }));
+    } catch {
+      setVoiceError("Сервер озвучки не запущен (порт 8081).");
+    } finally {
+      setUploadingVoice(false);
+    }
+  }
+
+  const merged = [...voices, ...uploaded.filter((v) => !voices.includes(v))];
+  const list = merged.length ? merged : [settings.voice];
+
+  return (
+    <div
+      className={cn(
+        "space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-2",
+        className,
+      )}
+    >
+      <label className="flex items-center justify-between text-sm text-stone-300">
+        Автоозвучка
+        <input
+          type="checkbox"
+          checked={settings.autoplay}
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, autoplay: event.target.checked }))
+          }
+          className="size-4 accent-amber-200"
+        />
+      </label>
+      <div>
+        <span className="mb-1 block text-xs font-medium uppercase text-stone-500">
+          Голос озвучки
+        </span>
+        <select
+          value={settings.voice}
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, voice: event.target.value }))
+          }
+          className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-sm text-stone-200"
+        >
+          {list.map((voice) => (
+            <option key={voice} value={voice}>
+              {voice}
+            </option>
+          ))}
+        </select>
+        <input
+          ref={voiceFileRef}
+          type="file"
+          accept="audio/mpeg,.mp3"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) {
+              void uploadVoice(file);
+            }
+          }}
+        />
+        <button
+          type="button"
+          disabled={uploadingVoice}
+          onClick={() => voiceFileRef.current?.click()}
+          className="mt-2 w-full rounded border border-stone-800 bg-stone-900 px-2 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 disabled:opacity-50"
+        >
+          {uploadingVoice ? "Загрузка…" : "Загрузить свой голос (.mp3)"}
+        </button>
+        {voiceError && <p className="mt-1 text-xs text-red-400">{voiceError}</p>}
+      </div>
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase text-stone-500">Громкость</span>
+          <span className="text-xs font-medium text-amber-100">{Math.round(settings.ttsVolume * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={settings.ttsVolume}
+          aria-label="Громкость"
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, ttsVolume: Number(event.target.value) }))
+          }
+          className="w-full accent-amber-200"
+        />
+      </div>
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase text-stone-500">Скорость</span>
+          <span className="text-xs font-medium text-amber-100">{settings.ttsSpeed.toFixed(2)}×</span>
+        </div>
+        <input
+          type="range"
+          min={0.5}
+          max={2}
+          step={0.05}
+          value={settings.ttsSpeed}
+          aria-label="Скорость"
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, ttsSpeed: Number(event.target.value) }))
+          }
+          className="w-full accent-amber-200"
+        />
+      </div>
+    </div>
+  );
+}
+
+function VoicePanel({
+  settings,
+  setSettings,
+  compact = false,
+  open,
+  onOpenChange,
+  divided,
+}: {
+  settings: StorySettings;
+  setSettings: Dispatch<SetStateAction<StorySettings>>;
+  compact?: boolean;
+} & PanelControlProps) {
+  return (
+    <PanelSection
+      icon={Volume2}
+      title="Озвучка"
+      compact={compact}
+      defaultOpen={compact}
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided}
+    >
+      <VoiceControl settings={settings} setSettings={setSettings} />
+    </PanelSection>
   );
 }
 
@@ -2859,7 +3536,7 @@ function StorySettingsPanel({
     <PanelSection
       icon={Settings2}
       iconSrc={SIDEBAR_ICONS.story}
-      title="Story"
+      title="История"
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -2867,11 +3544,15 @@ function StorySettingsPanel({
       divided={divided}
     >
       {compact && (
-        <FontSizeSlider settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
+        <>
+          <FontSizeSlider settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
+          <ResponseLengthControl settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
+          <VoiceControl settings={settings} setSettings={setSettings} />
+        </>
       )}
       <label className="block">
         <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-          World
+          Мир
         </span>
         <textarea
           id={`${idPrefix}-story-world`}
@@ -2886,7 +3567,7 @@ function StorySettingsPanel({
       </label>
       <label className="block">
         <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-          Style
+          Стиль
         </span>
         <textarea
           id={`${idPrefix}-story-style`}
@@ -2930,18 +3611,18 @@ function ImageSettingsPanel({
   const idPrefix = compact ? "mobile" : "desktop";
   const imageControlsDisabled = !settings.imageGenerationEnabled;
   const workerRunning = Boolean(imageWorkerStatus?.ok);
-  const workerStatusLabel = workerRunning ? "Worker running" : "Worker stopped";
+  const workerStatusLabel = workerRunning ? "Сервер работает" : "Сервер остановлен";
   const workerDetail = workerRunning
     ? imageWorkerStatus?.defaultBackend
       ? `Default backend: ${imageWorkerStatus.defaultBackend}`
-      : "Ready for local generations"
-    : "Start it from here if images fail to generate.";
+      : "Готов к локальной генерации"
+    : "Запусти отсюда, если картинки не сгенерировались.";
 
   return (
     <PanelSection
       icon={Aperture}
       iconSrc={SIDEBAR_ICONS.images}
-      title="Images"
+      title="Изображения"
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -2949,7 +3630,7 @@ function ImageSettingsPanel({
       divided={divided}
     >
       <label className="flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300">
-        Image generation
+        Генерация изображений
         <input
           id={`${idPrefix}-image-generation-enabled`}
           name={`${idPrefix}-image-generation-enabled`}
@@ -2985,7 +3666,7 @@ function ImageSettingsPanel({
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/50 px-2 text-sm text-stone-200 hover:border-amber-700/60 hover:bg-stone-900 disabled:cursor-not-allowed disabled:border-stone-800 disabled:text-stone-600"
           >
             <FolderOpen className="size-4" aria-hidden="true" />
-            Models
+            Модели
           </button>
         </div>
         {imageWorkerMessage && (
@@ -2993,7 +3674,7 @@ function ImageSettingsPanel({
         )}
       </div>
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Backend</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">Бэкенд</span>
         <Segmented<ImageBackend>
           value={settings.imageBackend}
           options={[
@@ -3010,7 +3691,7 @@ function ImageSettingsPanel({
         />
       </div>
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Size</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">Размер</span>
         <Segmented<ImageMode>
           value={settings.imageMode}
           options={[
@@ -3022,7 +3703,7 @@ function ImageSettingsPanel({
         />
       </div>
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Aspect</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">Соотношение</span>
         <Segmented<AspectPreset>
           value={settings.aspect}
           options={[
@@ -3040,7 +3721,7 @@ function ImageSettingsPanel({
           imageControlsDisabled && "text-stone-600",
         )}
       >
-        Auto images
+        Авто-картинки
         <input
           id={`${idPrefix}-auto-images`}
           name={`${idPrefix}-auto-images`}
@@ -3052,6 +3733,26 @@ function ImageSettingsPanel({
           }
           className="size-4 accent-amber-200 disabled:accent-stone-700"
         />
+      </label>
+      <label className="block">
+        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
+          Промпт изображений
+        </span>
+        <textarea
+          id={`${idPrefix}-image-prompt`}
+          name={`${idPrefix}-image-prompt`}
+          value={settings.imagePrompt}
+          disabled={imageControlsDisabled}
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, imagePrompt: event.target.value }))
+          }
+          rows={compact ? 6 : 10}
+          spellCheck={false}
+          className="w-full resize-y rounded border border-stone-800 bg-stone-950 px-3 py-2 font-mono text-xs leading-relaxed text-stone-200 outline-none focus:border-amber-300 disabled:cursor-not-allowed disabled:text-stone-600"
+        />
+        <span className="mt-1 block text-[11px] text-stone-600">
+          Инструкция модели по генерации изображений (FLUX-промпт остаётся на английском). Пусто — встроенный по умолчанию.
+        </span>
       </label>
     </PanelSection>
   );
@@ -3073,7 +3774,7 @@ function LocalDataPanel({
     <PanelSection
       icon={Trash2}
       iconSrc={SIDEBAR_ICONS.localData}
-      title="Local Data"
+      title="Локальные данные"
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -3103,7 +3804,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
     <PanelSection
       icon={Heart}
       iconSrc={SIDEBAR_ICONS.support}
-      title="Support"
+      title="Поддержка"
       open={open}
       onOpenChange={onOpenChange}
       divided={divided}
@@ -3120,7 +3821,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           className="inline-flex w-full items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/40 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-700/60 hover:bg-stone-900"
         >
           <Heart className="size-4 text-amber-200" aria-hidden="true" />
-          Sponsor on GitHub
+          Поддержать на GitHub
         </a>
         <a
           href="https://ko-fi.com/opendungeon"
@@ -3128,7 +3829,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           rel="noreferrer noopener"
           className="inline-flex w-full items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/40 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-700/60 hover:bg-stone-900"
         >
-          Buy me a coffee on Ko-fi
+          Поддержать на Ko-fi
         </a>
       </div>
     </PanelSection>
@@ -3149,7 +3850,7 @@ function ClearLocalDataDialog({
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-stone-950/80" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),440px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-red-900/80 bg-[#130d09] p-5 shadow-xl">
           <AlertDialog.Title className="text-balance text-base font-semibold text-red-100">
-            Permanently clear this app?
+            Полностью очистить приложение?
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
             This deletes all local stories, messages, characters, uploaded photos, generated images,
@@ -3161,7 +3862,7 @@ function ClearLocalDataDialog({
                 type="button"
                 className="rounded border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
               >
-                Cancel
+                Отмена
               </button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
@@ -3170,7 +3871,7 @@ function ClearLocalDataDialog({
                 onClick={onConfirm}
                 className="rounded bg-red-300 px-3 py-2 text-sm font-medium text-red-950 hover:bg-red-200"
               >
-                Delete everything
+                Удалить всё
               </button>
             </AlertDialog.Action>
           </div>
@@ -3196,10 +3897,10 @@ function DeleteChatDialog({
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-stone-950/80" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-stone-700 bg-[#130d09] p-5 shadow-xl">
           <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">
-            Delete this story?
+            Удалить эту историю?
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            {chat.title} and its saved messages will be removed from the local database.
+            {chat.title} и его сохранённые сообщения будут удалены из локальной базы.
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
@@ -3207,7 +3908,7 @@ function DeleteChatDialog({
                 type="button"
                 className="rounded border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
               >
-                Cancel
+                Отмена
               </button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
@@ -3216,7 +3917,7 @@ function DeleteChatDialog({
                 onClick={onConfirm}
                 className="rounded bg-red-300 px-3 py-2 text-sm font-medium text-red-950 hover:bg-red-200"
               >
-                Delete
+                Удалить
               </button>
             </AlertDialog.Action>
           </div>
@@ -3257,10 +3958,14 @@ function MessageActions({
   align,
   disabled,
   onEdit,
+  onSpeak,
+  speaking,
 }: {
   align: "start" | "end";
   disabled?: boolean;
   onEdit: () => void;
+  onSpeak?: () => void;
+  speaking?: boolean;
 }) {
   return (
     <div
@@ -3269,16 +3974,32 @@ function MessageActions({
         align === "end" ? "justify-end" : "justify-start",
       )}
     >
+      {onSpeak && (
+        <button
+          type="button"
+          onClick={onSpeak}
+          aria-label={speaking ? "Остановить озвучку" : "Озвучить"}
+          title={speaking ? "Остановить озвучку" : "Озвучить"}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200"
+        >
+          {speaking ? (
+            <X className="size-3.5" aria-hidden="true" />
+          ) : (
+            <Play className="size-3.5" aria-hidden="true" />
+          )}
+          {speaking ? "Стоп" : "Озвучить"}
+        </button>
+      )}
       <button
         type="button"
         onClick={onEdit}
         disabled={disabled}
-        aria-label="Edit"
-        title="Edit"
+        aria-label="Изменить"
+        title="Изменить"
         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed"
       >
         <Pencil className="size-3.5" aria-hidden="true" />
-        Edit
+        Изменить
       </button>
     </div>
   );
@@ -3320,7 +4041,7 @@ function MessageEditor({
           onClick={onCancel}
           className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-300 hover:bg-stone-900"
         >
-          Cancel
+          Отмена
         </button>
         <button
           type="button"
@@ -3328,7 +4049,7 @@ function MessageEditor({
           className="inline-flex items-center gap-1.5 rounded-lg bg-amber-200 px-3 py-1.5 text-xs font-medium text-stone-950 hover:bg-amber-100"
         >
           <Check className="size-3.5" aria-hidden="true" />
-          Save
+          Сохранить
         </button>
       </div>
     </div>
@@ -3421,7 +4142,7 @@ function ImageBeat({
               onClick={() => setPromptExpanded((value) => !value)}
               className="mt-1 text-xs text-amber-200 hover:text-amber-100"
             >
-              {promptExpanded ? "Show less" : "See more"}
+              {promptExpanded ? "Свернуть" : "Показать больше"}
             </button>
           )}
         </figcaption>
@@ -3443,10 +4164,10 @@ function ImageBeat({
         )}
         <span>
           {isError
-            ? "Image tool failed."
+            ? "Ошибка инструмента изображений."
             : isLoading
-              ? "Generating image beat..."
-              : "Image tool requested."}
+              ? "Генерирую сцену..."
+              : "Запрошен инструмент изображений."}
         </span>
         {!isLoading && (
           <button
@@ -3454,7 +4175,7 @@ function ImageBeat({
             onClick={onRetry}
             className="ml-auto rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:bg-stone-900"
           >
-            {isError ? "Retry" : "Generate"}
+            {isError ? "Повторить" : "Сгенерировать"}
           </button>
         )}
       </div>
@@ -3469,7 +4190,7 @@ function ImageBeat({
               onClick={() => setPromptExpanded((value) => !value)}
               className="mt-1 text-xs text-amber-200 hover:text-amber-100"
             >
-              {promptExpanded ? "Show less" : "See more"}
+              {promptExpanded ? "Свернуть" : "Показать больше"}
             </button>
           )}
         </div>

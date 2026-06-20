@@ -1,0 +1,30 @@
+# Windows-портативка: .bat должны иметь CRLF, иначе на Windows
+# ломается парсинг команд ('cho' is not recognized ...). Обязательно.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# PowerShell-лаунчеры тоже держим в CRLF для нативного Windows-запуска
+*.ps1   text eol=crlf
+
+# Скрипты для macOS/Linux держим в LF
+*.command  text eol=lf
+*.sh       text eol=lf
+
+# Остальной текст/код — LF (Node/Next/TS)
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf
+*.py    text eol=lf
+
+# Бинарь — не трогать переводы строк
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gguf  binary
+*.safetensors binary
+*.node  binary

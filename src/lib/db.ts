@@ -4,7 +4,7 @@ import path from "node:path";
 import { DEFAULT_CHAT_TITLE, titleFromInput } from "@/lib/defaults";
 import { configuredDefaultStorySettings } from "@/lib/runtime-defaults";
 import { isLocalTextModelId, isTextProvider } from "@/lib/text-models";
-import { isProseSize } from "@/lib/types";
+import { isProseSize, isResponseLength } from "@/lib/types";
 import type {
   Attachment,
   GeneratedImage,
@@ -198,6 +198,35 @@ function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
 
   if (!isProseSize(merged.proseSize)) {
     merged.proseSize = defaultSettings.proseSize;
+  }
+
+  if (!isResponseLength(merged.responseLength)) {
+    merged.responseLength = defaultSettings.responseLength;
+  }
+
+  if (typeof merged.voice !== "string") {
+    merged.voice = defaultSettings.voice;
+  }
+
+  merged.narratorPrompt =
+    typeof merged.narratorPrompt === "string"
+      ? merged.narratorPrompt.slice(0, 20_000)
+      : defaultSettings.narratorPrompt;
+  merged.imagePrompt =
+    typeof merged.imagePrompt === "string"
+      ? merged.imagePrompt.slice(0, 20_000)
+      : defaultSettings.imagePrompt;
+
+  if (typeof merged.autoplay !== "boolean") {
+    merged.autoplay = defaultSettings.autoplay;
+  }
+
+  if (typeof merged.ttsVolume !== "number") {
+    merged.ttsVolume = defaultSettings.ttsVolume;
+  }
+
+  if (typeof merged.ttsSpeed !== "number") {
+    merged.ttsSpeed = defaultSettings.ttsSpeed;
   }
 
   if (!isTextProvider(merged.textProvider)) {

@@ -12,7 +12,7 @@ const requestSchema = z.object({
   messageId: z.string().optional(),
   prompt: z.string().min(1),
   mode: z.enum(["fast", "slow"]).default("slow"),
-  backend: z.enum(["mflux-hs", "sdnq-hs"]).default("mflux-hs"),
+  backend: z.enum(["mflux-hs", "sdnq-hs", "flux-uncensored"]).default("flux-uncensored"),
   aspect: z.enum(["square", "portrait", "landscape"]).default("square"),
   seed: z.number().int().optional(),
   references: z
@@ -33,6 +33,12 @@ export async function POST(request: Request) {
   const references = body.references.slice(0, MAX_IMAGE_REFERENCES);
   const workerUrl = serverEnv("FLUX_WORKER_URL", "http://127.0.0.1:7869");
   const dimensions = dimensionsForImage(body.mode, body.aspect);
+  // MFLUX is Apple-Silicon only; on Windows/Linux use the uncensored FLUX.2-klein CUDA backend.
+  // Both the Mac default (mflux-hs) and the stock censored SDNQ (sdnq-hs) resolve to it so this
+  // NSFW app always runs the uncensored text encoder unless flux-uncensored is sent explicitly.
+  const defaultBackend = serverEnv("IMAGE_SERVER_DEFAULT_BACKEND", "flux-uncensored");
+  const backend =
+    body.backend === "mflux-hs" || body.backend === "sdnq-hs" ? defaultBackend : body.backend;
 
   try {
     const upstream = await fetch(`${workerUrl.replace(/\/$/, "")}/generate`, {
@@ -41,7 +47,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         prompt: body.prompt,
         mode: body.mode,
-        backend: body.backend,
+        backend,
         aspect: body.aspect,
         width: dimensions.width,
         height: dimensions.height,
@@ -76,7 +82,7 @@ export async function POST(request: Request) {
       {
         error: "Flux worker is not running.",
         detail: error instanceof Error ? error.message : String(error),
-        expected: "Open Images and click Start, or run npm run image:server from the Open Dungeon folder.",
+        expected: "Откройте Images и нажмите Start, или запустите npm run image:server из папки Open Dungeon.",
       },
       { status: 503 },
     );
