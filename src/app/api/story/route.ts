@@ -977,6 +977,20 @@ export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
   const characters = body.chatId ? listCharacters(body.chatId) : [];
   const knownCharacterIds = new Set(characters.map((character) => character.id));
+  // The protagonist = the first character created (oldest row). listCharacters
+  // orders by updated_at DESC, so sort a copy by createdAt to find them.
+  const heroId =
+    [...characters].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]?.id;
+  // Ensure the player character rides along as a visual reference whenever a
+  // scene is illustrated, so the evolving-hero image2image reference attaches
+  // and refreshes even if the narrator didn't name them. Keeps within the
+  // reference cap and only adds a known id once.
+  const withHeroReference = (ids: string[]): string[] => {
+    if (!heroId || ids.includes(heroId) || ids.length >= MAX_IMAGE_REFERENCES) {
+      return ids;
+    }
+    return [heroId, ...ids].slice(0, MAX_IMAGE_REFERENCES);
+  };
   const rpgEnabled = body.settings.rpgEnabled;
   const rpgActors: ActorMap =
     rpgEnabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
@@ -1141,10 +1155,11 @@ export async function POST(request: Request) {
 
         const trimmedStory = extractStoryText(storyText);
         const rpg = resolveRpgTurn(chatId, rpgEnabled, rpgActors, rpgEnemies, trimmedStory);
-        const characterIds =
+        const characterIds = withHeroReference(
           imageToolArgs?.characterIds
             ?.filter((id) => knownCharacterIds.has(id))
-            .slice(0, MAX_IMAGE_REFERENCES) || [];
+            .slice(0, MAX_IMAGE_REFERENCES) || [],
+        );
         const assistantMessage: StoryMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -1214,10 +1229,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const characterIds =
+  const characterIds = withHeroReference(
     imageToolArgs?.characterIds
       ?.filter((id) => knownCharacterIds.has(id))
-      .slice(0, MAX_IMAGE_REFERENCES) || [];
+      .slice(0, MAX_IMAGE_REFERENCES) || [],
+  );
   const assistantMessage: StoryMessage = {
     id: crypto.randomUUID(),
     role: "assistant",

@@ -1781,7 +1781,41 @@ export default function Home() {
           />
         )}
 
-        <div className="grid min-h-0 flex-1 overflow-hidden gap-4 py-3 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6 lg:py-6">
+        <div
+          className={cn(
+            "grid min-h-0 flex-1 overflow-hidden gap-4 py-3 lg:gap-6 lg:py-6",
+            settings.rpgEnabled && heroRpg
+              ? "lg:grid-cols-[300px_minmax(0,1fr)_340px]"
+              : "lg:grid-cols-[minmax(0,1fr)_340px]",
+          )}
+        >
+          {settings.rpgEnabled && heroRpg && (
+            <aside className="hidden min-h-0 flex-col gap-2 overflow-y-auto pr-1 lg:flex">
+              <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} />
+              {items.length > 0 && (
+                <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
+              )}
+              {journal.length > 0 && (
+                <div className="space-y-1 rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
+                  <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
+                    Журнал
+                  </div>
+                  {journal.slice(-40).map((event) => {
+                    const rollResult =
+                      event.kind === "roll"
+                        ? (event.data as { result?: RollResult } | undefined)?.result
+                        : undefined;
+                    return (
+                      <div key={event.id} className="journal-in flex items-center gap-2">
+                        {rollResult ? <DiceRollBadge result={rollResult} /> : null}
+                        <span>{event.text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </aside>
+          )}
           <section className="flex h-full min-h-0 flex-col">
             <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-1 flex-col">
               <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain pr-1 pb-3 sm:space-y-10">
@@ -1887,7 +1921,7 @@ export default function Home() {
               </div>
 
               {settings.rpgEnabled && (heroRpg || items.length > 0) && (
-                <div className="mb-2 shrink-0 space-y-2">
+                <div className="mb-2 shrink-0 space-y-2 lg:hidden">
                   {heroRpg && <HudBar hero={heroRpg} name={characters[0]?.name || "Герой"} />}
                   {items.length > 0 && (
                     <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
@@ -1895,7 +1929,7 @@ export default function Home() {
                 </div>
               )}
               {settings.rpgEnabled && journal.length > 0 && (
-                <div className="mb-2 max-h-28 shrink-0 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
+                <div className="mb-2 max-h-28 shrink-0 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90 lg:hidden">
                   <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
                     Журнал
                   </div>
@@ -1920,10 +1954,10 @@ export default function Home() {
                       key={`${index}-${action.label}`}
                       type="button"
                       onClick={() => void playInput(action.label)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-amber-900/60 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-100 transition hover:border-amber-300 hover:bg-amber-900/30"
+                      className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-full border border-amber-900/60 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-100 transition hover:border-amber-300 hover:bg-amber-900/30"
                     >
                       {action.emoji && <span aria-hidden="true">{action.emoji}</span>}
-                      {action.label}
+                      <span className="truncate">{action.label}</span>
                     </button>
                   ))}
                 </div>

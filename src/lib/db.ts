@@ -126,6 +126,15 @@ function ensureSchema(db: Database.Database) {
   if (!characterColumns.some((column) => column.name === "rpg_json")) {
     db.exec(`ALTER TABLE characters ADD COLUMN rpg_json TEXT NOT NULL DEFAULT ''`);
   }
+
+  // img2img entity reuse (additive): an evolving reference image for the
+  // character, refreshed by the latest illustrated scene and re-attached as an
+  // init/reference on later scene generations so the protagonist stays visually
+  // consistent. Distinct from `portrait_json` (the user-set, static portrait):
+  // the portrait seeds the look; this tracks how the character currently looks.
+  if (!characterColumns.some((column) => column.name === "reference_json")) {
+    db.exec(`ALTER TABLE characters ADD COLUMN reference_json TEXT`);
+  }
   if (!chatColumns.some((column) => column.name === "rpg_state_json")) {
     db.exec(`ALTER TABLE chats ADD COLUMN rpg_state_json TEXT NOT NULL DEFAULT ''`);
   }
@@ -538,6 +547,24 @@ export function addMessage(chatId: string, message: StoryMessage) {
   insert();
 }
 
+// Chat id + the persisted image request for a message, so the images route can
+// recover img2img context (which characters/items the scene is about) from just
+// the messageId it was handed.
+export function getMessageContext(
+  messageId: string,
+): { chatId: string; imageRequest: ImageRequest | undefined } | null {
+  const row = getDatabase()
+    .prepare("SELECT chat_id, image_request_json FROM messages WHERE id = ?")
+    .get(messageId) as { chat_id: string; image_request_json: string | null } | undefined;
+  if (!row) {
+    return null;
+  }
+  return {
+    chatId: row.chat_id,
+    imageRequest: parseJson<ImageRequest | undefined>(row.image_request_json, undefined),
+  };
+}
+
 export function updateMessageGeneratedImage(messageId: string, generatedImage: GeneratedImage) {
   const db = getDatabase();
   const row = db
@@ -803,6 +830,66 @@ export function deleteCharacter(chatId: string, characterId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// img2img entity reuse: an evolving per-character reference image.
+// ---------------------------------------------------------------------------
+
+// The protagonist of a chat: the first character created (oldest row). The
+// roleplay seeds the player character before any NPC, so this is a stable
+// "who is the hero" heuristic without coupling to the RPG layer.
+export function getHeroCharacter(chatId: string): StoryCharacter | null {
+  const row = getDatabase()
+    .prepare(
+      `
+        SELECT id, chat_id, name, details, inventory, skills, spells, portrait_json, created_at, updated_at
+        FROM characters
+        WHERE chat_id = ?
+        ORDER BY created_at ASC, rowid ASC
+        LIMIT 1
+      `,
+    )
+    .get(chatId) as CharacterRow | undefined;
+
+  return row ? mapCharacter(row) : null;
+}
+
+// The character's current evolving reference image, if one has been captured.
+// Falls back to the static portrait so a brand-new character still has a seed.
+export function getCharacterReference(
+  chatId: string,
+  characterId: string,
+): Attachment | null {
+  const row = getDatabase()
+    .prepare("SELECT reference_json, portrait_json FROM characters WHERE id = ? AND chat_id = ?")
+    .get(characterId, chatId) as
+    | { reference_json?: string | null; portrait_json?: string | null }
+    | undefined;
+  if (!row) {
+    return null;
+  }
+  return (
+    parseJson<Attachment | null>(row.reference_json, null) ||
+    parseJson<Attachment | null>(row.portrait_json, null)
+  );
+}
+
+// Refresh the evolving reference to the latest illustrated scene of this
+// character. Stored separately from the portrait so clearing the portrait
+// (or never setting one) doesn't wipe the learned look, and vice-versa.
+export function setCharacterReference(
+  chatId: string,
+  characterId: string,
+  reference: Attachment,
+): boolean {
+  const db = getDatabase();
+  const result = db
+    .prepare(
+      "UPDATE characters SET reference_json = ?, updated_at = ? WHERE id = ? AND chat_id = ?",
+    )
+    .run(JSON.stringify(reference), new Date().toISOString(), characterId, chatId);
+  return result.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
 // RPG layer: per-character stats/HP, chat game state, and the adventure log.
 // ---------------------------------------------------------------------------
 
@@ -956,6 +1043,64 @@ export function setItemEquipped(chatId: string, itemId: string, equipped: boolea
     db.prepare("UPDATE items SET data_json = ? WHERE id = ? AND chat_id = ?").run(
       JSON.stringify(item),
       itemId,
+      chatId,
+    );
+    db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), chatId);
+  })();
+  return item;
+}
+
+// Persist a generated portrait onto a named item so recurring mentions of it
+// can be illustrated consistently via image2image. Matches by id when known,
+// otherwise by the most recent item with that name (case-insensitive) that has
+// no image yet — the drop the narrator just illustrated.
+export function setItemImage(
+  chatId: string,
+  match: { id?: string; name?: string },
+  imageUrl: string,
+  options: { overwrite?: boolean } = {},
+): Item | null {
+  const db = getDatabase();
+  const rows = db
+    .prepare("SELECT id, data_json FROM items WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC")
+    .all(chatId) as Array<{ id: string; data_json: string }>;
+
+  let targetId: string | null = null;
+  if (match.id) {
+    targetId = rows.some((row) => row.id === match.id) ? match.id : null;
+  } else if (match.name) {
+    const wanted = match.name.trim().toLowerCase();
+    // Target the most recent same-named item that has no portrait yet — the drop
+    // just illustrated. With overwrite, fall back to any match (re-illustrate).
+    let fallbackId: string | null = null;
+    for (const row of rows) {
+      const item = safeJsonParse(row.data_json) as Item | undefined;
+      if (!item || item.name.trim().toLowerCase() !== wanted) continue;
+      if (fallbackId === null) fallbackId = row.id;
+      if (!item.imageUrl) {
+        targetId = row.id;
+        break;
+      }
+    }
+    // Once an item has a canonical portrait we keep it (it becomes the reuse
+    // reference); only an explicit overwrite replaces it.
+    if (targetId === null && options.overwrite) targetId = fallbackId;
+  }
+
+  if (!targetId) return null;
+
+  const row = db
+    .prepare("SELECT data_json FROM items WHERE id = ? AND chat_id = ?")
+    .get(targetId, chatId) as { data_json: string } | undefined;
+  if (!row) return null;
+  const item = safeJsonParse(row.data_json) as Item | undefined;
+  if (!item) return null;
+
+  item.imageUrl = imageUrl;
+  db.transaction(() => {
+    db.prepare("UPDATE items SET data_json = ? WHERE id = ? AND chat_id = ?").run(
+      JSON.stringify(item),
+      targetId,
       chatId,
     );
     db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), chatId);

@@ -28,20 +28,35 @@ function customChatEndpoint(baseUrl: string): string {
 
 // Parse "emoji | action text" lines (lenient: also accepts plain lines and
 // numbered/bulleted lists). Returns up to four {emoji,label} actions.
+const META_NOISE =
+  /[*#]{2,}|представляет собой|вариант\s*\d|трансформир|метафор|абсурдизм|^\s*(если|чтобы|судя)\b/i;
+
 function parseActions(raw: string): Array<{ emoji?: string; label: string }> {
   const out: Array<{ emoji?: string; label: string }> = [];
   for (const line of raw.split(/\r?\n/)) {
-    const cleaned = line.replace(/^[\s\-*•\d.)]+/, "").trim();
+    if (META_NOISE.test(line)) continue; // drop analysis/markdown, never render it
+    let cleaned = line.replace(/^[\s\-*•>#\d.)]+/, "").trim();
     if (!cleaned) continue;
-    const [maybeEmoji, ...rest] = cleaned.split("|");
-    if (rest.length) {
-      out.push({ emoji: maybeEmoji.trim() || undefined, label: rest.join("|").trim() });
+    let emoji: string | undefined;
+    if (cleaned.includes("|")) {
+      const [head, ...rest] = cleaned.split("|");
+      emoji = head.trim() || undefined;
+      cleaned = rest.join("|").trim();
     } else {
-      out.push({ label: cleaned });
+      const lead = cleaned.match(/^(\p{Extended_Pictographic})\s*/u);
+      if (lead) {
+        emoji = lead[1];
+        cleaned = cleaned.slice(lead[0].length).trim();
+      }
     }
+    // A quick action is one short clause — reject sentences/paragraphs outright.
+    if (!cleaned || cleaned.length > 48 || cleaned.split(/\s+/).length > 8) continue;
+    if (!/[а-яёa-z]/i.test(cleaned)) continue;
+    if (emoji && emoji.length > 4) emoji = undefined;
+    out.push({ emoji, label: cleaned });
     if (out.length >= 4) break;
   }
-  return out.filter((action) => action.label.length > 0);
+  return out;
 }
 
 export async function POST(request: Request) {
@@ -59,7 +74,7 @@ export async function POST(request: Request) {
     {
       role: "system" as const,
       content:
-        "Ты предлагаешь игроку варианты действий в текстовой ролевой игре (стиль D&D). По-русски. Дай РОВНО 3–4 коротких, разных, конкретных варианта действия от первого лица (3–7 слов каждый). Каждый на отдельной строке в формате «эмодзи | текст действия». Без нумерации, без пояснений, только строки.",
+        "Ты — генератор быстрых действий для текстовой ролевой игры (D&D). НЕ анализируй, НЕ комментируй и НЕ пересказывай текст. Прочитай последнюю сцену и предложи РОВНО 3–4 коротких, конкретных и РАЗНЫХ действия, которые герой-игрок может совершить прямо сейчас (повелительно, 3–6 слов). Каждое — на отдельной строке СТРОГО в формате: эмодзи | действие. Никаких заголовков, нумерации, пояснений, разбора — ТОЛЬКО 3–4 такие строки.\n\nПример:\n⚔️ | Атаковать ближайшую тварь\n🛡️ | Закрыться и отступить к стене\n👁️ | Осмотреть тёмный проход\n🗣️ | Крикнуть, чтобы спугнуть их",
     },
     {
       role: "user" as const,
@@ -76,7 +91,7 @@ export async function POST(request: Request) {
         "Content-Type": "application/json",
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
-      body: JSON.stringify({ model, messages, temperature: 0.9, max_tokens: 220 }),
+      body: JSON.stringify({ model, messages, temperature: 0.5, max_tokens: 200 }),
       signal: controller.signal,
     });
 

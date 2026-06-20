@@ -154,6 +154,28 @@ def slug(value: str) -> str:
     return cleaned[:42] or "image"
 
 
+def resolve_public_reference(url: str) -> Path | None:
+    """Map an app-served public URL to a file under ./public, sandboxed.
+
+    Accepts any path the Next app serves from its public/ root — both player
+    uploads (/uploads/...) and generated scenes/items (/generated/...). Earlier
+    this only matched /uploads/, so reusing a GENERATED image (the evolving hero
+    reference or an item portrait) as an init image was silently dropped. The
+    resolved path is confined to public/ to block traversal (e.g. /../).
+    """
+    if not url.startswith("/"):
+        return None
+    public_root = (APP_ROOT / "public").resolve()
+    # Strip any query/hash a URL might carry before hitting the filesystem.
+    clean_url = url.split("?", 1)[0].split("#", 1)[0]
+    candidate = (public_root / clean_url.lstrip("/")).resolve()
+    if public_root not in candidate.parents and candidate != public_root:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
 def prepare_reference_paths(references: list[dict[str, Any]], image_id: str) -> tuple[list[Path], list[str]]:
     reference_paths: list[Path] = []
     warnings: list[str] = []
@@ -171,6 +193,7 @@ def prepare_reference_paths(references: list[dict[str, Any]], image_id: str) -> 
                 "image/png": "png",
                 "image/jpeg": "jpg",
                 "image/webp": "webp",
+                "image/gif": "gif",
             }.get(mime)
             if not extension or not encoded:
                 warnings.append(f"Reference {index} was skipped because its data URL was invalid.")
@@ -181,11 +204,11 @@ def prepare_reference_paths(references: list[dict[str, Any]], image_id: str) -> 
             reference_paths.append(path)
             continue
 
-        if url.startswith("/uploads/"):
-            path = APP_ROOT / "public" / url.lstrip("/")
-            if path.exists():
-                reference_paths.append(path)
-                continue
+        # Any local public path (uploads OR generated), not just /uploads/.
+        local_path = resolve_public_reference(url)
+        if local_path is not None:
+            reference_paths.append(local_path)
+            continue
 
         warnings.append(f"Reference {index} was skipped because no local image data was available.")
 
