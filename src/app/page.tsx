@@ -1821,9 +1821,18 @@ export default function Home() {
                   <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
                     Журнал
                   </div>
-                  {journal.slice(-8).map((event) => (
-                    <div key={event.id}>{event.text}</div>
-                  ))}
+                  {journal.slice(-8).map((event) => {
+                    const rollResult =
+                      event.kind === "roll"
+                        ? (event.data as { result?: RollResult } | undefined)?.result
+                        : undefined;
+                    return (
+                      <div key={event.id} className="journal-in flex items-center gap-2">
+                        {rollResult ? <DiceRollBadge result={rollResult} /> : null}
+                        <span>{event.text}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {suggestedActions.length > 0 && !busy && (
@@ -3736,6 +3745,56 @@ function MicButton({
         <Mic size={18} className={recording ? "animate-pulse text-red-400" : ""} />
       )}
     </button>
+  );
+}
+
+type RollResult = {
+  d20: number;
+  total: number;
+  dc: number;
+  success: boolean;
+  crit: "success" | "fail" | null;
+  modifier: number;
+};
+
+// Animated d20: the number tumbles for a beat, then lands on the real roll and
+// pops, tinted by the outcome (gold crit, green success, red fail).
+function DiceRollBadge({ result }: { result: RollResult }) {
+  const [display, setDisplay] = useState(result.d20);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    let frame = 0;
+    const id = window.setInterval(() => {
+      frame += 1;
+      if (frame > 11) {
+        window.clearInterval(id);
+        setDisplay(result.d20);
+        setSettled(true);
+      } else {
+        setDisplay(1 + Math.floor(Math.random() * 20));
+      }
+    }, 55);
+    return () => window.clearInterval(id);
+  }, [result.d20]);
+  const tone =
+    result.crit === "success"
+      ? "border-amber-300 text-amber-300"
+      : result.crit === "fail"
+        ? "border-red-500 text-red-400"
+        : result.success
+          ? "border-emerald-600 text-emerald-300"
+          : "border-stone-600 text-stone-300";
+  return (
+    <span
+      className={cn(
+        "inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-stone-950 text-sm font-bold tabular-nums",
+        tone,
+        settled ? "dice-pop" : "opacity-90",
+      )}
+    >
+      {display}
+    </span>
   );
 }
 
