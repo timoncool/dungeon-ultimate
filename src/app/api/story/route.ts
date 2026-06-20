@@ -3,10 +3,12 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   addEvents,
+  addItems,
   addMessage,
   getCharacterRpgMap,
   getStorySummary,
   listCharacters,
+  listItems,
   saveCharacterRpg,
   setStorySummary,
   updateChatTitleFromInput,
@@ -942,13 +944,14 @@ function resolveRpgTurn(
   if (!update) {
     return { clean, events: [] };
   }
-  const { events, changed } = applyGameUpdate(update, actors);
+  const { events, changed, items } = applyGameUpdate(update, actors);
   if (chatId) {
     for (const id of changed) {
       const actor = actors.get(id);
       if (actor) saveCharacterRpg(id, actor.rpg);
     }
     addEvents(chatId, events);
+    addItems(chatId, items);
   }
   return { clean, events };
 }
@@ -960,7 +963,9 @@ export async function POST(request: Request) {
   const rpgEnabled = body.settings.rpgEnabled;
   const rpgActors: ActorMap =
     rpgEnabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
-  const rpgSection = rpgEnabled ? buildRpgSection(rpgActors) : "";
+  const rpgSection = rpgEnabled
+    ? buildRpgSection(rpgActors, body.chatId ? listItems(body.chatId) : [])
+    : "";
   const userMessage: StoryMessage = {
     id: body.userMessageId || crypto.randomUUID(),
     role: "user",

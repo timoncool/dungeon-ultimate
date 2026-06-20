@@ -34,8 +34,28 @@ export type GameEvent = {
   createdAt: string;
 };
 
-// The narrator's mechanical declaration for a turn (the `game_update` tool args).
-// v1 resolves rolls + hpDelta + note; later phases add items/equip/combat/xp.
+export type ItemSlot = "weapon" | "armor" | "shield" | "trinket" | "consumable" | "misc";
+export type ItemRarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
+
+// An inventory item. `image` (a generated portrait of the item) is filled in by
+// the image pipeline when the drop is illustrated, then reused via image2image.
+export type Item = {
+  id: string;
+  ownerId?: string;
+  name: string;
+  slot: ItemSlot;
+  rarity: ItemRarity;
+  description?: string;
+  damage?: string; // dice notation, e.g. "1d8+1"
+  modifiers?: Partial<Record<Ability | "ac" | "maxHp", number>>;
+  equipped: boolean;
+  qty: number;
+  imageUrl?: string;
+  createdAt: string;
+};
+
+// The narrator's mechanical declaration for a turn (the `[[GAME]]` block). v1
+// resolves rolls + hpDelta + note + item drops; later phases add combat/xp.
 export type GameUpdate = {
   rolls?: Array<{
     ability: Ability;
@@ -46,6 +66,18 @@ export type GameUpdate = {
     targetId?: string;
   }>;
   hpDelta?: Array<{ characterId: string; amount: number; reason?: string }>;
+  grantItems?: Array<{
+    ownerId?: string;
+    name: string;
+    slot?: ItemSlot;
+    rarity?: ItemRarity;
+    description?: string;
+    damage?: string;
+    modifiers?: Partial<Record<Ability | "ac" | "maxHp", number>>;
+    qty?: number;
+    withImage?: boolean;
+    imagePromptEn?: string;
+  }>;
   note?: string;
 };
 

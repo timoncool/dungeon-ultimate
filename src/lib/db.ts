@@ -16,7 +16,7 @@ import type {
   StorySettings,
 } from "@/lib/types";
 import { coerceCharacterRpg, DEFAULT_RPG_STATE } from "@/lib/rpg/types";
-import type { CharacterRpg, GameEvent, RpgState } from "@/lib/rpg/types";
+import type { CharacterRpg, GameEvent, Item, RpgState } from "@/lib/rpg/types";
 
 const dbPath =
   process.env.SQLITE_DB_PATH || path.join(process.cwd(), "data", "local-roleplay.sqlite");
@@ -139,6 +139,13 @@ function ensureSchema(db: Database.Database) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_events_chat_created ON events(chat_id, created_at);
+    CREATE TABLE IF NOT EXISTS items (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+      data_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_items_chat_created ON items(chat_id, created_at);
   `);
 }
 
@@ -902,4 +909,28 @@ function safeJsonParse(value: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+export function addItems(chatId: string, items: Item[]) {
+  if (!items.length) return;
+  const db = getDatabase();
+  const insert = db.prepare(
+    "INSERT INTO items (id, chat_id, data_json, created_at) VALUES (?, ?, ?, ?)",
+  );
+  const run = db.transaction(() => {
+    for (const item of items) {
+      insert.run(item.id, chatId, JSON.stringify(item), item.createdAt);
+    }
+  });
+  run();
+}
+
+export function listItems(chatId: string): Item[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare("SELECT data_json FROM items WHERE chat_id = ? ORDER BY created_at ASC")
+    .all(chatId) as Array<{ data_json: string }>;
+  return rows
+    .map((row) => safeJsonParse(row.data_json) as Item | undefined)
+    .filter((item): item is Item => Boolean(item));
 }

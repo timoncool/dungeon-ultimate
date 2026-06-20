@@ -1,12 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { ABILITY_LABELS_RU, clampStat, rollCheck } from "./dice";
-import type { CharacterRpg, GameEvent, GameUpdate } from "./types";
+import type { CharacterRpg, GameEvent, GameUpdate, Item, ItemRarity, ItemSlot } from "./types";
+
+const RARITY_RU: Record<string, string> = {
+  common: "обычный",
+  uncommon: "необычный",
+  rare: "редкий",
+  epic: "эпический",
+  legendary: "легендарный",
+};
 
 export type ActorMap = Map<string, { name: string; rpg: CharacterRpg }>;
 
 export type ApplyResult = {
   events: GameEvent[];
   changed: Set<string>; // character ids whose rpg state was mutated
+  items: Item[]; // new items to persist into the inventory
 };
 
 function makeEvent(kind: GameEvent["kind"], text: string, data?: unknown): GameEvent {
@@ -24,6 +33,7 @@ function firstActorId(actors: ActorMap): string | undefined {
 export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResult {
   const events: GameEvent[] = [];
   const changed = new Set<string>();
+  const items: Item[] = [];
 
   for (const roll of update.rolls ?? []) {
     const actorId = roll.actorId && actors.has(roll.actorId) ? roll.actorId : firstActorId(actors);
@@ -70,9 +80,36 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
     }
   }
 
+  for (const grant of update.grantItems ?? []) {
+    const ownerId =
+      grant.ownerId && actors.has(grant.ownerId) ? grant.ownerId : firstActorId(actors);
+    const item: Item = {
+      id: randomUUID(),
+      ownerId,
+      name: grant.name,
+      slot: (grant.slot as ItemSlot | undefined) ?? "misc",
+      rarity: (grant.rarity as ItemRarity | undefined) ?? "common",
+      description: grant.description,
+      damage: grant.damage,
+      modifiers: grant.modifiers as Item["modifiers"],
+      equipped: false,
+      qty: grant.qty && grant.qty > 0 ? Math.round(grant.qty) : 1,
+      createdAt: new Date().toISOString(),
+    };
+    items.push(item);
+    const rarity = RARITY_RU[item.rarity] ?? item.rarity;
+    events.push(
+      makeEvent(
+        "item",
+        `📦 Получен предмет: ${item.name} (${rarity}${item.qty > 1 ? `, ×${item.qty}` : ""})`,
+        { item },
+      ),
+    );
+  }
+
   if (update.note && update.note.trim()) {
     events.push(makeEvent("note", update.note.trim()));
   }
 
-  return { events, changed };
+  return { events, changed, items };
 }

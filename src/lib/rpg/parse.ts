@@ -22,6 +22,24 @@ const gameUpdateSchema = z
         z.object({ characterId: z.string(), amount: z.number(), reason: z.string().optional() }),
       )
       .optional(),
+    grantItems: z
+      .array(
+        z.object({
+          ownerId: z.string().optional(),
+          name: z.string(),
+          slot: z
+            .enum(["weapon", "armor", "shield", "trinket", "consumable", "misc"])
+            .optional(),
+          rarity: z.enum(["common", "uncommon", "rare", "epic", "legendary"]).optional(),
+          description: z.string().optional(),
+          damage: z.string().optional(),
+          modifiers: z.record(z.string(), z.number()).optional(),
+          qty: z.number().optional(),
+          withImage: z.boolean().optional(),
+          imagePromptEn: z.string().optional(),
+        }),
+      )
+      .optional(),
     note: z.string().optional(),
   })
   .strip();
