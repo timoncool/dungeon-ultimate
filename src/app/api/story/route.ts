@@ -2,12 +2,20 @@ import { z } from "zod";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  addEvents,
   addMessage,
+  getCharacterRpgMap,
+  getRpgState,
   getStorySummary,
   listCharacters,
+  saveCharacterRpg,
   setStorySummary,
   updateChatTitleFromInput,
 } from "@/lib/db";
+import { applyGameUpdate, type ActorMap } from "@/lib/rpg/apply";
+import { extractGameUpdate } from "@/lib/rpg/parse";
+import { buildRpgSection } from "@/lib/rpg/prompt";
+import type { GameEvent } from "@/lib/rpg/types";
 import { serverEnv } from "@/lib/server-env";
 import { buildStoryMessages, extractStoryText, packStoryHistory } from "@/lib/story-prompt";
 import {
@@ -918,10 +926,41 @@ async function summarizeEvictedPassages(
   return summary ? summary.slice(0, 8_000) : null;
 }
 
+// Resolve the narrator's [[GAME]] block (when RPG is on): roll dice server-side,
+// apply HP/death, persist character state + journal events, and return the prose
+// with the block stripped plus the events to surface to the client.
+function resolveRpgTurn(
+  chatId: string | undefined,
+  enabled: boolean,
+  actors: ActorMap,
+  storyText: string,
+): { clean: string; events: GameEvent[] } {
+  if (!enabled) {
+    return { clean: storyText, events: [] };
+  }
+  const { clean, update } = extractGameUpdate(storyText);
+  if (!update) {
+    return { clean, events: [] };
+  }
+  const { events, changed } = applyGameUpdate(update, actors);
+  if (chatId) {
+    for (const id of changed) {
+      const actor = actors.get(id);
+      if (actor) saveCharacterRpg(id, actor.rpg);
+    }
+    addEvents(chatId, events);
+  }
+  return { clean, events };
+}
+
 export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
   const characters = body.chatId ? listCharacters(body.chatId) : [];
   const knownCharacterIds = new Set(characters.map((character) => character.id));
+  const rpgState = body.chatId ? getRpgState(body.chatId) : { enabled: false };
+  const rpgActors: ActorMap =
+    rpgState.enabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
+  const rpgSection = rpgState.enabled ? buildRpgSection(rpgActors) : "";
   const userMessage: StoryMessage = {
     id: body.userMessageId || crypto.randomUUID(),
     role: "user",
@@ -1002,6 +1041,7 @@ export async function POST(request: Request) {
     body.settings,
     characters,
     storySummary,
+    rpgSection,
   ) as OpenRouterMessage[];
   const characterVisionMessage = buildCharacterVisionMessage(characters);
   const messages = characterVisionMessage
@@ -1077,6 +1117,7 @@ export async function POST(request: Request) {
         const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
 
         const trimmedStory = extractStoryText(storyText);
+        const rpg = resolveRpgTurn(chatId, rpgState.enabled, rpgActors, trimmedStory);
         const characterIds =
           imageToolArgs?.characterIds
             ?.filter((id) => knownCharacterIds.has(id))
@@ -1084,7 +1125,7 @@ export async function POST(request: Request) {
         const assistantMessage: StoryMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: trimmedStory || "Момент повисает, ожидая твоего следующего действия.",
+          content: rpg.clean || "Момент повисает, ожидая твоего следующего действия.",
           createdAt: new Date().toISOString(),
           imageRequest:
             includeImageTool && imageToolArgs?.prompt
@@ -1109,6 +1150,7 @@ export async function POST(request: Request) {
             id: assistantMessage.id,
             content: assistantMessage.content,
             imageRequest: assistantMessage.imageRequest,
+            events: rpg.events,
           }),
         );
         controller.close();
@@ -1136,6 +1178,7 @@ export async function POST(request: Request) {
   }
 
   const storyText = extractStoryText(message?.content);
+  const rpg = resolveRpgTurn(body.chatId, rpgState.enabled, rpgActors, storyText);
   const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
 
   if (!storyText && !imageToolArgs) {
@@ -1155,7 +1198,7 @@ export async function POST(request: Request) {
   const assistantMessage: StoryMessage = {
     id: crypto.randomUUID(),
     role: "assistant",
-    content: storyText || "Момент повисает, ожидая твоего следующего действия.",
+    content: rpg.clean || "Момент повисает, ожидая твоего следующего действия.",
     createdAt: new Date().toISOString(),
     imageRequest:
       body.settings.imageGenerationEnabled && body.settings.autoImages && imageToolArgs?.prompt
@@ -1179,5 +1222,6 @@ export async function POST(request: Request) {
     id: assistantMessage.id,
     content: assistantMessage.content,
     imageRequest: assistantMessage.imageRequest,
+    events: rpg.events,
   });
 }

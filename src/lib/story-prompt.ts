@@ -82,6 +82,7 @@ export function buildStoryMessages(
   settings: StorySettings,
   characters: StoryCharacter[] = [],
   storySummary = "",
+  rpgSection = "",
 ) {
   const recent = messages.map((message) => {
     const attachmentLine = message.attachments?.length
@@ -127,6 +128,7 @@ export function buildStoryMessages(
           ? `История до сих пор (более ранние события, уже сжатые — считай установленным каноном):\n${storySummary}`
           : "",
         `Сохранённые персонажи:\n${characterRoster}`,
+        rpgSection,
         settings.imageGenerationEnabled
           ? `Параметры изображений по умолчанию: бэкенд ${settings.imageBackend}, длинная сторона ${
               settings.imageMode === "slow" ? "2048" : "1024"
