@@ -6,6 +6,8 @@ import {
   Aperture,
   Backpack,
   BookOpen,
+  PanelLeft,
+  PanelRight,
   Check,
   ChevronRight,
   Cpu,
@@ -438,6 +440,11 @@ export default function Home() {
   // for the HUD name + portrait so they don't flip to a recently-edited companion.
   const heroChar = characters.find((character) => character.id === heroId) ?? characters[0] ?? null;
   const [bookMode, setBookMode] = useState(false);
+  // Both side panels are collapsible sidebars, toggled independently in ANY mode.
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  const showLeft = settings.rpgEnabled && !!heroRpg && leftOpen;
+  const showRight = rightOpen;
   // DEV-only manual dice trigger (stripped from production builds):
   //   window.__odRollDie(20, "critSuccess", "Сила · d20 20 +4 = 24 ≥ 15 → крит. успех")
   useEffect(() => {
@@ -1865,6 +1872,32 @@ export default function Home() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {settings.rpgEnabled && heroRpg && (
+              <button
+                type="button"
+                aria-label={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
+                title={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
+                onClick={() => setLeftOpen((value) => !value)}
+                className={cn(
+                  "hidden size-10 items-center justify-center rounded border text-stone-300 hover:bg-stone-900 lg:inline-flex",
+                  leftOpen ? "border-amber-300/60 text-amber-200" : "border-stone-700",
+                )}
+              >
+                <PanelLeft className="size-4" aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label={rightOpen ? "Скрыть меню" : "Показать меню"}
+              title={rightOpen ? "Скрыть меню" : "Показать меню"}
+              onClick={() => setRightOpen((value) => !value)}
+              className={cn(
+                "hidden size-10 items-center justify-center rounded border text-stone-300 hover:bg-stone-900 lg:inline-flex",
+                rightOpen ? "border-amber-300/60 text-amber-200" : "border-stone-700",
+              )}
+            >
+              <PanelRight className="size-4" aria-hidden="true" />
+            </button>
             <button
               type="button"
               aria-label="Открыть инструменты истории"
@@ -1947,12 +1980,16 @@ export default function Home() {
         <div
           className={cn(
             "grid min-h-0 flex-1 overflow-hidden gap-4 py-3 lg:gap-6 lg:py-6 2xl:gap-8",
-            settings.rpgEnabled && heroRpg
+            showLeft && showRight
               ? "lg:grid-cols-[clamp(280px,22vw,340px)_minmax(0,1fr)_clamp(320px,24vw,400px)]"
-              : "lg:grid-cols-[minmax(0,1fr)_clamp(320px,24vw,400px)]",
+              : showLeft
+                ? "lg:grid-cols-[clamp(280px,22vw,340px)_minmax(0,1fr)]"
+                : showRight
+                  ? "lg:grid-cols-[minmax(0,1fr)_clamp(320px,24vw,400px)]"
+                  : "lg:grid-cols-[minmax(0,1fr)]",
           )}
         >
-          {settings.rpgEnabled && heroRpg && (
+          {showLeft && (
             <aside className="hidden min-h-0 flex-col gap-3 overflow-y-auto pr-1 lg:flex">
               <CharacterSheet
                 hero={heroRpg}
@@ -1988,7 +2025,7 @@ export default function Home() {
             <div
               className={cn(
                 "mx-auto flex h-full min-h-0 w-full flex-1 flex-col",
-                bookMode ? "max-w-6xl" : "max-w-3xl",
+                bookMode ? "max-w-[1080px]" : "max-w-3xl",
               )}
             >
               {messages.length > 0 && (
@@ -2303,7 +2340,8 @@ export default function Home() {
             </div>
           </section>
 
-          <aside className="hidden min-h-0 border-l border-stone-800 pl-6 lg:block">
+          {showRight && (
+            <aside className="hidden min-h-0 border-l border-stone-800 pl-6 lg:block">
             <div
               className={cn(
                 "sticky top-4 overflow-y-auto pr-1 pb-4",
@@ -2328,7 +2366,8 @@ export default function Home() {
                 </>
               )}
             </div>
-          </aside>
+            </aside>
+          )}
         </div>
       </section>
     </main>
