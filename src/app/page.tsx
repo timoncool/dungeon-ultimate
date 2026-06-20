@@ -4382,7 +4382,7 @@ function ImageBeat({
         <img
           src={message.generatedImage.url}
           alt={message.generatedImage.prompt}
-          className="max-h-[720px] w-full object-contain"
+          className="ken-burns max-h-[720px] w-full object-contain"
         />
         <figcaption className="border-t border-stone-800 px-3 py-2 font-sans text-xs text-stone-500">
           <div className="flex items-start justify-between gap-3">

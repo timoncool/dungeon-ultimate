@@ -6,7 +6,7 @@ export type AspectPreset = "square" | "portrait" | "landscape";
 
 export type ImageMode = "fast" | "slow";
 
-export type ImageBackend = "mflux-hs" | "sdnq-hs";
+export type ImageBackend = "mflux-hs" | "sdnq-hs" | "flux-uncensored";
 
 export const PROSE_SIZE_VALUES = [
   "tiny",

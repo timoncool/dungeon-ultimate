@@ -71,3 +71,25 @@ input {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Ken Burns: subtle living-still drift on generated scene images */
+@keyframes ken-burns {
+  0% {
+    transform: scale(1) translate(0, 0);
+  }
+  100% {
+    transform: scale(1.08) translate(-1.5%, -1%);
+  }
+}
+
+.ken-burns {
+  animation: ken-burns 26s ease-in-out infinite alternate;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ken-burns {
+    animation: none;
+  }
+}
