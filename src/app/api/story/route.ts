@@ -979,10 +979,12 @@ function resolveRpgTurn(
         // then compound every turn as gear is re-folded on top).
         const base = getCharacterRpg(chatId, id);
         if (base) {
-          // actor.rpg.hp.current was clamped to the DERIVED max (which may include a
-          // +maxHp item). Clamp to the BASE max here so the stored row is never
-          // self-inconsistent (current > max) once gear is folded back out.
-          base.hp.current = Math.min(actor.rpg.hp.current, base.hp.max);
+          // Persist the post-turn current HP at the DERIVED cap (incl. any +maxHp
+          // gear) so HP healed into that headroom isn't lost. The stored base row may
+          // then hold current > base.hp.max while the gear is worn — that's fine: every
+          // reader re-derives and re-clamps (deriveRpg / the HUD), and unequipping folds
+          // current back down to base max on the next derive.
+          base.hp.current = Math.min(actor.rpg.hp.current, actor.rpg.hp.max);
           base.dead = actor.rpg.dead;
           saveCharacterRpg(id, base);
         }
@@ -1134,14 +1136,34 @@ export async function POST(request: Request) {
     const responseStream = new ReadableStream<Uint8Array>({
       async start(controller) {
         let storyText = "";
+        let flushedLen = 0; // chars of storyText already streamed to the client
         const toolArgsByIndex = new Map<number, string>();
         let sawImageTool = false;
+
+        // The narrator appends the [[GAME:{...}]] mechanics block as plain text at the
+        // very end of the passage. Stream everything EXCEPT a trailing run that could be
+        // that block, so the raw JSON never flashes in the bubble (the `done` event
+        // reconciles with the cleaned content anyway). A "[[" that turns out not to be
+        // the marker is released as normal prose.
+        const flushSafe = () => {
+          let safeLen = storyText.length;
+          if (rpgEnabled) {
+            const cut = storyText.indexOf("[[");
+            if (cut !== -1 && /^\[\[G?A?M?E?(:[\s\S]*)?$/.test(storyText.slice(cut))) {
+              safeLen = cut;
+            }
+          }
+          if (safeLen > flushedLen) {
+            controller.enqueue(sse("delta", { text: storyText.slice(flushedLen, safeLen) }));
+            flushedLen = safeLen;
+          }
+        };
 
         try {
           for await (const ev of stream) {
             if (ev.type === "text") {
               storyText += ev.text;
-              controller.enqueue(sse("delta", { text: ev.text }));
+              flushSafe();
             } else if (ev.type === "tool") {
               if (ev.name === "generate_image") {
                 sawImageTool = true;

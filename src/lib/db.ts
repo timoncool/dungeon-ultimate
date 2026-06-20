@@ -1044,7 +1044,9 @@ export function listEvents(chatId: string, limit = 200): GameEvent[] {
   const db = getDatabase();
   const rows = db
     .prepare(
-      "SELECT id, kind, text, data_json, created_at FROM events WHERE chat_id = ? ORDER BY created_at ASC LIMIT ?",
+      // rowid tiebreaker: a combat burst stamps roll/hp/death with the same ms, so
+      // without it the reloaded journal can show a death before the hit that caused it.
+      "SELECT id, kind, text, data_json, created_at FROM events WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC LIMIT ?",
     )
     .all(chatId, limit) as Array<{
     id: string;
