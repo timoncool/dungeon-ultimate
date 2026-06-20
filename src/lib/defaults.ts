@@ -31,6 +31,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   imageGenerationEnabled: true,
   autoImages: true,
   rpgEnabled: false,
+  randomEvents: true,
   diceEnabled: true,
   diceSound: true,
   diceVolume: 75,

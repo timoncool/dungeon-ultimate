@@ -34,6 +34,15 @@ export function deriveRpg(base: CharacterRpg, items: Item[]): DerivedRpg {
       }
     }
   }
+  // Active temporary effects (buffs/debuffs) fold in exactly like gear.
+  for (const effect of base.effects ?? []) {
+    if (effect.turns <= 0) continue;
+    for (const [key, value] of Object.entries(effect.modifiers ?? {})) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        bonus[key] = (bonus[key] ?? 0) + value;
+      }
+    }
+  }
 
   const rpg = structuredClone(base);
   for (const ability of ABILITIES) {

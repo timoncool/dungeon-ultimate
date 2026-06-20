@@ -126,6 +126,7 @@ const requestSchema = z.object({
     imageGenerationEnabled: z.boolean().default(true),
     autoImages: z.boolean().default(true),
     rpgEnabled: z.boolean().default(false),
+    randomEvents: z.boolean().default(true),
     diceEnabled: z.boolean().default(true),
     diceSound: z.boolean().default(true),
     diceVolume: z.number().default(55),
@@ -953,6 +954,7 @@ function resolveRpgTurn(
   characterActors: ActorMap,
   enemies: Enemy[],
   storyText: string,
+  randomEvents = false,
 ): { clean: string; events: GameEvent[] } {
   if (!enabled) {
     return { clean: storyText, events: [] };
@@ -967,7 +969,13 @@ function resolveRpgTurn(
   const enemyIds = new Set(enemies.map((enemy) => enemy.id));
   for (const enemy of enemies) actors.set(enemy.id, { name: enemy.name, rpg: enemy.rpg });
 
-  const { events, changed, items, spawnedEnemies } = applyGameUpdate(update, actors);
+  // The protagonist is the first character actor (getCharacterRpgMap orders by
+  // created_at ASC); random events and effect fallbacks target them.
+  const heroId = characterActors.keys().next().value as string | undefined;
+  const { events, changed, items, spawnedEnemies } = applyGameUpdate(update, actors, {
+    heroId,
+    randomEvents,
+  });
   if (chatId) {
     for (const id of changed) {
       if (enemyIds.has(id)) continue; // enemies are persisted together below
@@ -986,6 +994,9 @@ function resolveRpgTurn(
           // current back down to base max on the next derive.
           base.hp.current = Math.min(actor.rpg.hp.current, actor.rpg.hp.max);
           base.dead = actor.rpg.dead;
+          // Persist the ticked/applied effects (they live on the base rpg, folded
+          // into the derived stats just like gear).
+          base.effects = actor.rpg.effects;
           saveCharacterRpg(id, base);
         }
       }
@@ -1201,7 +1212,14 @@ export async function POST(request: Request) {
         const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
 
         const trimmedStory = extractStoryText(storyText);
-        const rpg = resolveRpgTurn(chatId, rpgEnabled, rpgActors, rpgEnemies, trimmedStory);
+        const rpg = resolveRpgTurn(
+          chatId,
+          rpgEnabled,
+          rpgActors,
+          rpgEnemies,
+          trimmedStory,
+          body.settings.randomEvents,
+        );
         const characterIds = withHeroReference(
           imageToolArgs?.characterIds
             ?.filter((id) => knownCharacterIds.has(id))
@@ -1266,7 +1284,14 @@ export async function POST(request: Request) {
   }
 
   const storyText = extractStoryText(message?.content);
-  const rpg = resolveRpgTurn(body.chatId, rpgEnabled, rpgActors, rpgEnemies, storyText);
+  const rpg = resolveRpgTurn(
+    body.chatId,
+    rpgEnabled,
+    rpgActors,
+    rpgEnemies,
+    storyText,
+    body.settings.randomEvents,
+  );
   const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
 
   if (!storyText && !imageToolArgs) {

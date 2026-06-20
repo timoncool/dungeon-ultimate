@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { ABILITIES, ABILITY_LABELS_RU, clampStat, rollCheck, rollNotation } from "./dice";
-import { DEFAULT_RPG } from "./types";
-import type { CharacterRpg, Enemy, GameEvent, GameUpdate, Item, ItemRarity, ItemSlot } from "./types";
+import { ABILITIES, ABILITY_LABELS_RU, clampStat, rollCheck, rollDie, rollNotation } from "./dice";
+import { coerceEffect, DEFAULT_RPG } from "./types";
+import type {
+  CharacterRpg,
+  Effect,
+  EffectModifiers,
+  Enemy,
+  GameEvent,
+  GameUpdate,
+  Item,
+  ItemRarity,
+  ItemSlot,
+} from "./types";
 
 const RARITY_RU: Record<string, string> = {
   common: "обычный",
@@ -33,14 +43,106 @@ function fmtMod(mod: number): string {
   return `${mod >= 0 ? "+" : ""}${mod}`;
 }
 
+// ── Effects (buffs / debuffs / blessings / curses) ──────────────────────────
+const EFFECT_CAP = 8; // keep the active-effect list from growing without bound
+const RANDOM_EVENT_CHANCE = 15; // percent chance of a random event per resolved turn
+
+const EFFECT_STAT_RU: Record<string, string> = {
+  str: "СИЛ", dex: "ЛОВ", con: "ВЫН", int: "ИНТ", wis: "МУД", cha: "ХАР", ac: "КЗ", maxHp: "макс.HP",
+};
+
+function pluralTurns(n: number): string {
+  const a = Math.abs(n) % 100;
+  if (a >= 11 && a <= 14) return "ходов";
+  const b = a % 10;
+  if (b === 1) return "ход";
+  if (b >= 2 && b <= 4) return "хода";
+  return "ходов";
+}
+
+function effectSummary(name: string, modifiers: EffectModifiers, turns: number): string {
+  const mods = Object.entries(modifiers)
+    .filter(([, v]) => typeof v === "number" && v !== 0)
+    .map(([k, v]) => `${EFFECT_STAT_RU[k] ?? k} ${(v as number) >= 0 ? "+" : ""}${v}`)
+    .join(", ");
+  return `${name}${mods ? ` (${mods})` : ""} — ${turns} ${pluralTurns(turns)}`;
+}
+
+// Add or refresh an effect (same name replaces, resetting duration); cap the list.
+function mergeEffect(rpg: CharacterRpg, effect: Effect) {
+  rpg.effects = (rpg.effects ?? []).filter(
+    (e) => e.name.trim().toLowerCase() !== effect.name.trim().toLowerCase(),
+  );
+  rpg.effects.push(effect);
+  if (rpg.effects.length > EFFECT_CAP) rpg.effects = rpg.effects.slice(-EFFECT_CAP);
+}
+
+// Decrement every effect by one turn and drop the expired; returns worn-off names.
+function tickEffects(rpg: CharacterRpg): string[] {
+  const expired: string[] = [];
+  const kept: Effect[] = [];
+  for (const e of rpg.effects ?? []) {
+    const turns = e.turns - 1;
+    if (turns <= 0) expired.push(e.name);
+    else kept.push({ ...e, turns });
+  }
+  rpg.effects = kept;
+  return expired;
+}
+
+// Curated blessings/curses for the per-turn random event (deterministic crypto RNG).
+const RANDOM_EVENTS: Array<{ name: string; kind: Effect["kind"]; modifiers: EffectModifiers; turns: number; note: string }> = [
+  { name: "Благословение силы", kind: "buff", modifiers: { str: 2 }, turns: 3, note: "Тело наливается мощью." },
+  { name: "Кошачья ловкость", kind: "buff", modifiers: { dex: 2 }, turns: 3, note: "Движения становятся текучими." },
+  { name: "Каменная кожа", kind: "buff", modifiers: { ac: 2 }, turns: 2, note: "Кожа твердеет, словно камень." },
+  { name: "Прилив жизни", kind: "buff", modifiers: { maxHp: 4 }, turns: 3, note: "Запас сил прибывает." },
+  { name: "Ясность ума", kind: "buff", modifiers: { int: 2, wis: 1 }, turns: 3, note: "Мысли становятся острее." },
+  { name: "Воодушевление", kind: "buff", modifiers: { cha: 2 }, turns: 3, note: "Слова звучат убедительнее." },
+  { name: "Проклятье слабости", kind: "debuff", modifiers: { str: -2 }, turns: 3, note: "Мышцы наливаются свинцом." },
+  { name: "Дрожь в руках", kind: "debuff", modifiers: { dex: -2 }, turns: 2, note: "Пальцы не слушаются." },
+  { name: "Лихорадка", kind: "debuff", modifiers: { con: -1, str: -1 }, turns: 3, note: "Жар туманит тело." },
+  { name: "Сглаз", kind: "debuff", modifiers: { ac: -2 }, turns: 2, note: "Удача отворачивается." },
+  { name: "Смятение", kind: "debuff", modifiers: { int: -2 }, turns: 2, note: "Мысли путаются." },
+];
+
+function rollRandomEvent(rpg: CharacterRpg): Effect | null {
+  if (rollDie(100) > RANDOM_EVENT_CHANCE) return null;
+  const pick = RANDOM_EVENTS[rollDie(RANDOM_EVENTS.length) - 1];
+  if (!pick) return null;
+  const effect: Effect = { id: randomUUID(), ...pick };
+  mergeEffect(rpg, effect);
+  return effect;
+}
+
+export type ApplyOptions = { heroId?: string; randomEvents?: boolean };
+
 // Resolve the narrator's declared mechanics deterministically. The LLM proposes
 // (a check + DC, an HP delta); the engine rolls + clamps + decides death here so
 // the model can never invent a total or a survival.
-export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResult {
+export function applyGameUpdate(
+  update: GameUpdate,
+  actors: ActorMap,
+  opts: ApplyOptions = {},
+): ApplyResult {
   const events: GameEvent[] = [];
   const changed = new Set<string>();
   const items: Item[] = [];
   const spawnedEnemies: Enemy[] = [];
+
+  const resolveActorId = (preferred?: string): string | undefined => {
+    if (preferred && actors.has(preferred)) return preferred;
+    if (opts.heroId && actors.has(opts.heroId)) return opts.heroId;
+    return firstActorId(actors);
+  };
+
+  // Tick active effects down a turn (one resolved turn = one tick) and drop the
+  // expired — done first so an effect applied below keeps its full duration.
+  for (const [id, actor] of actors) {
+    for (const name of tickEffects(actor.rpg)) {
+      changed.add(id);
+      events.push(makeEvent("note", `⏳ Эффект развеялся: ${name}.`));
+    }
+  }
 
   // Foes arrive first so the same turn's attacks can target them by id.
   for (const spawn of update.spawnEnemies ?? []) {
@@ -189,6 +291,52 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
         { item, withImage: grant.withImage === true },
       ),
     );
+  }
+
+  // Narrator-declared effects: clear first, then apply fresh buffs/debuffs.
+  for (const clear of update.clearEffects ?? []) {
+    const id = resolveActorId(clear.characterId);
+    const actor = id ? actors.get(id) : undefined;
+    if (!actor || !id) continue;
+    const before = actor.rpg.effects?.length ?? 0;
+    actor.rpg.effects =
+      clear.name.trim() === "*"
+        ? []
+        : (actor.rpg.effects ?? []).filter(
+            (e) => e.name.trim().toLowerCase() !== clear.name.trim().toLowerCase(),
+          );
+    if ((actor.rpg.effects?.length ?? 0) !== before) changed.add(id);
+  }
+  for (const decl of update.applyEffects ?? []) {
+    const id = resolveActorId(decl.characterId);
+    const actor = id ? actors.get(id) : undefined;
+    if (!actor || !id) continue;
+    const turns = decl.turns && decl.turns > 0 ? Math.round(decl.turns) : 3;
+    const effect = coerceEffect({ ...decl, id: randomUUID(), turns });
+    if (!effect) continue;
+    mergeEffect(actor.rpg, effect);
+    changed.add(id);
+    const icon = effect.kind === "debuff" ? "🔻" : "✨";
+    events.push(makeEvent("note", `${icon} ${effectSummary(effect.name, effect.modifiers, effect.turns)}`));
+  }
+
+  // A random blessing/curse may strike the hero each turn (toggleable).
+  if (opts.randomEvents) {
+    const id = opts.heroId && actors.has(opts.heroId) ? opts.heroId : firstActorId(actors);
+    const actor = id ? actors.get(id) : undefined;
+    if (actor && id) {
+      const event = rollRandomEvent(actor.rpg);
+      if (event) {
+        changed.add(id);
+        const icon = event.kind === "debuff" ? "🌑" : "🌟";
+        events.push(
+          makeEvent(
+            "note",
+            `${icon} Случайное событие: ${effectSummary(event.name, event.modifiers, event.turns)}. ${event.note}`,
+          ),
+        );
+      }
+    }
   }
 
   if (update.note && update.note.trim()) {

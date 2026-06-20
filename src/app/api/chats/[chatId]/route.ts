@@ -39,6 +39,7 @@ const settingsSchema = z.object({
   imageGenerationEnabled: z.boolean().optional(),
   autoImages: z.boolean().optional(),
   rpgEnabled: z.boolean().optional(),
+  randomEvents: z.boolean().optional(),
   diceEnabled: z.boolean().optional(),
   diceSound: z.boolean().optional(),
   diceVolume: z.number().optional(),

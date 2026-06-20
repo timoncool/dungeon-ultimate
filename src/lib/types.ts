@@ -116,6 +116,7 @@ export type StorySettings = {
   imageGenerationEnabled: boolean;
   autoImages: boolean;
   rpgEnabled: boolean;
+  randomEvents: boolean;
   diceEnabled: boolean;
   diceSound: boolean;
   diceVolume: number;

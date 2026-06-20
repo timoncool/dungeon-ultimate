@@ -1815,7 +1815,7 @@ export default function Home() {
           volume={settings.diceVolume}
         />
       )}
-      <section className="mx-auto flex h-dvh min-h-0 w-full max-w-7xl flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4">
+      <section className="mx-auto flex h-dvh min-h-0 w-full max-w-[1700px] flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4 2xl:px-12">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="min-w-0">
@@ -1914,14 +1914,14 @@ export default function Home() {
 
         <div
           className={cn(
-            "grid min-h-0 flex-1 overflow-hidden gap-4 py-3 lg:gap-6 lg:py-6",
+            "grid min-h-0 flex-1 overflow-hidden gap-4 py-3 lg:gap-6 lg:py-6 2xl:gap-8",
             settings.rpgEnabled && heroRpg
-              ? "lg:grid-cols-[300px_minmax(0,1fr)_340px]"
-              : "lg:grid-cols-[minmax(0,1fr)_340px]",
+              ? "lg:grid-cols-[clamp(280px,22vw,340px)_minmax(0,1fr)_clamp(320px,24vw,400px)]"
+              : "lg:grid-cols-[minmax(0,1fr)_clamp(320px,24vw,400px)]",
           )}
         >
           {settings.rpgEnabled && heroRpg && (
-            <aside className="hidden min-h-0 flex-col gap-2 overflow-y-auto pr-1 lg:flex">
+            <aside className="hidden min-h-0 flex-col gap-3 overflow-y-auto pr-1 lg:flex">
               <CharacterSheet
                 hero={heroRpg}
                 heroId={heroId}
@@ -2243,7 +2243,9 @@ export default function Home() {
                       />
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="hidden text-xs text-stone-600 sm:inline">⌘↵ отправить</span>
+                      <span className="hidden whitespace-nowrap text-xs text-stone-600 md:inline">
+                        Ctrl + ↵
+                      </span>
                       <button
                         type="submit"
                         aria-label="Отправить"
@@ -4254,7 +4256,9 @@ function CharacterSheet({
   onToggle: (itemId: string, equipped: boolean) => void;
   busy?: boolean;
 }) {
-  const equipped = items.filter((item) => item.equipped);
+  // One inventory: worn gear sorted to the front (and amber-highlighted in the
+  // grid) instead of a separate "equipped" list that duplicated the same items.
+  const orderedItems = [...items].sort((a, b) => Number(b.equipped) - Number(a.equipped));
   // Fold equipped-gear modifiers into the displayed stats / AC / max-HP via the
   // SAME deriveForOwner the combat resolver uses on the server — scoped to the
   // hero's OWN items — so the sheet can never disagree with the numbers the engine
@@ -4350,27 +4354,27 @@ function CharacterSheet({
         })}
       </div>
 
-      {equipped.length > 0 && (
+      {hero.effects.length > 0 && (
         <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 px-3 py-2">
           <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
-            Снаряжение
+            Эффекты
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {equipped.map((item) => {
-              const Icon = SLOT_ICON[item.slot];
-              return (
-                <span
-                  key={item.id}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded border border-amber-300/40 bg-amber-300/5 px-2 py-1 text-[11px]",
-                    RARITY_TONE[item.rarity],
-                  )}
-                >
-                  <Icon className="size-3" aria-hidden="true" />
-                  {item.name}
-                </span>
-              );
-            })}
+            {hero.effects.map((effect) => (
+              <span
+                key={effect.id}
+                title={effect.note}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px]",
+                  effect.kind === "debuff"
+                    ? "border-red-500/40 bg-red-950/20 text-red-200"
+                    : "border-emerald-500/40 bg-emerald-950/20 text-emerald-200",
+                )}
+              >
+                {effect.kind === "debuff" ? "🔻" : "✨"} {effect.name}
+                <span className="tabular-nums opacity-70">{effect.turns}х</span>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -4384,7 +4388,7 @@ function CharacterSheet({
           <p className="py-2 text-center text-[11px] text-stone-600">Пусто — добыча появится в бою</p>
         ) : (
           <div className="grid grid-cols-4 gap-1.5">
-            {items.map((item) => {
+            {orderedItems.map((item) => {
               const Icon = SLOT_ICON[item.slot];
               const equippable = item.slot !== "consumable" && item.slot !== "misc";
               const label = `${item.name}${item.damage ? ` · ${item.damage}` : ""}${
@@ -4765,6 +4769,17 @@ function StorySettingsPanel({
       </label>
       {settings.rpgEnabled && (
         <div className="mb-1 space-y-2 rounded border border-stone-800 bg-stone-950/60 px-3 py-2">
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-xs text-stone-300">✨ Случайные события (баффы/проклятья)</span>
+            <input
+              type="checkbox"
+              checked={settings.randomEvents}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, randomEvents: event.target.checked }))
+              }
+              className="size-4 accent-amber-300"
+            />
+          </label>
           <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">🎲 Кубики</div>
           <label className="flex cursor-pointer items-center justify-between gap-3">
             <span className="text-xs text-stone-300">3D-бросок</span>

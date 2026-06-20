@@ -66,6 +66,23 @@ const gameUpdateSchema = z
         }),
       )
       .optional(),
+    // Temporary buffs/debuffs (blessing, curse, poison …). Loose modifiers record
+    // for the same reason as grantItems above.
+    applyEffects: z
+      .array(
+        z.object({
+          characterId: z.string().optional(),
+          name: z.string(),
+          kind: z.enum(["buff", "debuff"]).optional(),
+          modifiers: z.record(z.string(), z.number()).optional(),
+          turns: z.number().optional(),
+          note: z.string().optional(),
+        }),
+      )
+      .optional(),
+    clearEffects: z
+      .array(z.object({ characterId: z.string().optional(), name: z.string() }))
+      .optional(),
     note: z.string().optional(),
   })
   .strip();
