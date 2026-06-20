@@ -8,7 +8,7 @@
 [![Stars](https://img.shields.io/github/stars/timoncool/dungeon-ultimate?style=flat-square)](https://github.com/timoncool/dungeon-ultimate/stargazers)
 [![Last Commit](https://img.shields.io/github/last-commit/timoncool/dungeon-ultimate?style=flat-square)](https://github.com/timoncool/dungeon-ultimate/commits)
 
-**[English](README.md)** · **[Русский](README.portable.ru.md)**
+**[English](README.md)** · **[Русский](README_RU.md)**
 
 ![Dungeon Ultimate](docs/screenshots/hero.png)
 
