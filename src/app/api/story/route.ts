@@ -5,7 +5,6 @@ import {
   addEvents,
   addMessage,
   getCharacterRpgMap,
-  getRpgState,
   getStorySummary,
   listCharacters,
   saveCharacterRpg,
@@ -111,6 +110,7 @@ const requestSchema = z.object({
     aspect: z.enum(["square", "portrait", "landscape"]).default("square"),
     imageGenerationEnabled: z.boolean().default(true),
     autoImages: z.boolean().default(true),
+    rpgEnabled: z.boolean().default(false),
     proseSize: z.enum(PROSE_SIZE_VALUES).default("medium"),
     responseLength: z.enum(RESPONSE_LENGTH_VALUES).default("medium"),
     voice: z.string().default("RU_Male_Gabidullin_ruslan"),
@@ -957,10 +957,10 @@ export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
   const characters = body.chatId ? listCharacters(body.chatId) : [];
   const knownCharacterIds = new Set(characters.map((character) => character.id));
-  const rpgState = body.chatId ? getRpgState(body.chatId) : { enabled: false };
+  const rpgEnabled = body.settings.rpgEnabled;
   const rpgActors: ActorMap =
-    rpgState.enabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
-  const rpgSection = rpgState.enabled ? buildRpgSection(rpgActors) : "";
+    rpgEnabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
+  const rpgSection = rpgEnabled ? buildRpgSection(rpgActors) : "";
   const userMessage: StoryMessage = {
     id: body.userMessageId || crypto.randomUUID(),
     role: "user",
@@ -1117,7 +1117,7 @@ export async function POST(request: Request) {
         const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
 
         const trimmedStory = extractStoryText(storyText);
-        const rpg = resolveRpgTurn(chatId, rpgState.enabled, rpgActors, trimmedStory);
+        const rpg = resolveRpgTurn(chatId, rpgEnabled, rpgActors, trimmedStory);
         const characterIds =
           imageToolArgs?.characterIds
             ?.filter((id) => knownCharacterIds.has(id))
@@ -1178,7 +1178,7 @@ export async function POST(request: Request) {
   }
 
   const storyText = extractStoryText(message?.content);
-  const rpg = resolveRpgTurn(body.chatId, rpgState.enabled, rpgActors, storyText);
+  const rpg = resolveRpgTurn(body.chatId, rpgEnabled, rpgActors, storyText);
   const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
 
   if (!storyText && !imageToolArgs) {

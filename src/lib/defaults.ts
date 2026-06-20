@@ -25,6 +25,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   aspect: "square",
   imageGenerationEnabled: true,
   autoImages: true,
+  rpgEnabled: false,
   proseSize: "medium",
   responseLength: "medium",
   voice: "RU_Male_Gabidullin_ruslan",

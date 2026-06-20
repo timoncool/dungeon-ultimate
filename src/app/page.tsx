@@ -60,6 +60,7 @@ import type {
   StoryMessage,
   StorySettings,
 } from "@/lib/types";
+import type { GameEvent } from "@/lib/rpg/types";
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
@@ -412,6 +413,7 @@ export default function Home() {
   const [newStoryOpen, setNewStoryOpen] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>("do");
   const [suggestedActions, setSuggestedActions] = useState<Array<{ emoji?: string; label: string }>>([]);
+  const [journal, setJournal] = useState<GameEvent[]>([]);
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState("");
   const lastSavedSettingsRef = useRef(JSON.stringify(DEFAULT_STORY_SETTINGS));
@@ -1109,6 +1111,7 @@ export default function Home() {
             content?: string;
             error?: string;
             imageRequest?: StoryMessage["imageRequest"];
+            events?: GameEvent[];
           };
           try {
             data = JSON.parse(dataRaw);
@@ -1160,6 +1163,9 @@ export default function Home() {
               content: data.content ?? assembled,
               imageRequest: data.imageRequest,
             });
+            if (Array.isArray(data.events) && data.events.length) {
+              setJournal((current) => [...current, ...(data.events as GameEvent[])]);
+            }
           }
         };
 
@@ -1200,6 +1206,7 @@ export default function Home() {
           id?: string;
           content: string;
           imageRequest?: StoryMessage["imageRequest"];
+          events?: GameEvent[];
         }>(response);
 
         const assistantMessage: StoryMessage = {
@@ -1217,6 +1224,9 @@ export default function Home() {
           content: assistantMessage.content,
           imageRequest: payload.imageRequest,
         });
+        if (payload.events?.length) {
+          setJournal((current) => [...current, ...payload.events!]);
+        }
       }
     } catch (storyError) {
       setError(
@@ -1806,6 +1816,16 @@ export default function Home() {
                 <div ref={endRef} />
               </div>
 
+              {settings.rpgEnabled && journal.length > 0 && (
+                <div className="mb-2 max-h-28 shrink-0 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
+                  <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
+                    Журнал
+                  </div>
+                  {journal.slice(-8).map((event) => (
+                    <div key={event.id}>{event.text}</div>
+                  ))}
+                </div>
+              )}
               {suggestedActions.length > 0 && !busy && (
                 <div className="flex shrink-0 flex-wrap gap-2 px-1 pb-2">
                   {suggestedActions.map((action, index) => (
@@ -3796,6 +3816,17 @@ function StorySettingsPanel({
           <VoiceControl settings={settings} setSettings={setSettings} />
         </>
       )}
+      <label className="mb-1 flex cursor-pointer items-center justify-between gap-3 rounded border border-stone-800 bg-stone-950 px-3 py-2">
+        <span className="text-xs font-medium uppercase text-stone-400">⚔️ Режим D&D (статы, кубик, журнал)</span>
+        <input
+          type="checkbox"
+          checked={settings.rpgEnabled}
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, rpgEnabled: event.target.checked }))
+          }
+          className="size-4 accent-amber-300"
+        />
+      </label>
       <label className="block">
         <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
           Мир

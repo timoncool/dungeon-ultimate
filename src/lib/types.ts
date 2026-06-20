@@ -96,6 +96,7 @@ export type StorySettings = {
   aspect: AspectPreset;
   imageGenerationEnabled: boolean;
   autoImages: boolean;
+  rpgEnabled: boolean;
   proseSize: ProseSize;
   responseLength: ResponseLength;
   voice: string;
