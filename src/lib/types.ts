@@ -100,6 +100,8 @@ export type StorySettings = {
   // Opt-in: let dialogue lines map to per-character voices for TTS. The default
   // single-voice narration path (settings.voice) is unaffected when this is off.
   multiVoice: boolean;
+  // A recurring snarky in-world companion who adds a short aside each passage.
+  companion: boolean;
   textProvider: TextProvider;
   localTextModel: LocalTextModelId;
   // Any OpenAI-compatible backend (llama.cpp, LM Studio, vLLM, OpenRouter, a

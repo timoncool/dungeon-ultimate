@@ -113,6 +113,7 @@ const requestSchema = z.object({
     antiRepetition: z.boolean().default(true),
     causeAwareEnding: z.boolean().default(true),
     multiVoice: z.boolean().default(false),
+    companion: z.boolean().default(false),
     textProvider: z.enum(["local", "custom"]).default("custom"),
     localTextModel: z.enum(LOCAL_TEXT_MODEL_IDS).default(DEFAULT_LOCAL_TEXT_MODEL),
     customBaseUrl: z.string().trim().max(500).default(""),

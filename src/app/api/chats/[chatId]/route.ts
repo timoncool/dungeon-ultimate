@@ -26,6 +26,7 @@ const settingsSchema = z.object({
   antiRepetition: z.boolean().optional(),
   causeAwareEnding: z.boolean().optional(),
   multiVoice: z.boolean().optional(),
+  companion: z.boolean().optional(),
   textProvider: z.enum(["local", "custom"]).optional(),
   localTextModel: z.enum(LOCAL_TEXT_MODEL_IDS).optional(),
   customBaseUrl: z.string().optional(),

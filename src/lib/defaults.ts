@@ -15,6 +15,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   antiRepetition: true,
   causeAwareEnding: true,
   multiVoice: false,
+  companion: false,
   // Custom (OpenAI-compatible) is the primary text path; the bundled local
   // OpenAI-compatible Gemma server makes Ollama unnecessary. The env-driven
   // configuredDefaultStorySettings() still overrides these at boot, but this

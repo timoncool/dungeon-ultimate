@@ -262,6 +262,13 @@ const RESPONSE_LENGTH_HINT: Record<string, string> = {
   epic: "Длина ответа: МАКСИМАЛЬНО — развёрнутая детальная сцена, столько, сколько нужно.",
 };
 
+// A recurring in-world companion (the best idea ported from gulag2034's "ПИН"):
+// a second voice that reacts to each beat, so the run isn't a lone narrator.
+const COMPANION_SYSTEM = `СПУТНИК-КОММЕНТАТОР
+— У героя есть постоянный спутник — циничный, остроумный, с чёрным юмором (придумай ему имя один раз и держись его). Это отдельный персонаж мира, не рассказчик.
+— В КОНЦЕ почти каждого отрывка добавляй ОДНУ короткую реплику спутника от его лица (прямая речь в кавычках или курсивом), реагирующую на произошедшее: подколка, мрачная шутка, неуместный совет, сарказм. Он комментирует, но не действует за игрока.
+— Одна меткая фраза, а не диалог на полстраницы. В по-настоящему тяжёлые моменты он может промолчать или сказать что-то неожиданно искреннее.`;
+
 export function buildStoryMessages(
   messages: StoryMessage[],
   input: string,
@@ -309,6 +316,7 @@ export function buildStoryMessages(
         narratorSystem,
         RESPONSE_LENGTH_HINT[settings.responseLength] || RESPONSE_LENGTH_HINT.medium,
         settings.causeAwareEnding ? ENDING_SYSTEM : "",
+        settings.companion ? COMPANION_SYSTEM : "",
         antiRepetitionNudge,
         settings.imageGenerationEnabled ? imageSystem : IMAGE_DISABLED_SYSTEM,
         `Мир / сценарий:\n${settings.world || "Реалистичная современная ролевая сцена с простором для импровизации."}`,

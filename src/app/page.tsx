@@ -576,6 +576,34 @@ export default function Home() {
     }
   }, []);
 
+  // When the narrator marks a loot drop as illustrated (withImage), generate a
+  // dedicated portrait for each new item, then refresh so the inventory shows it.
+  // Sequential on purpose: one image worker, one GPU. Best-effort.
+  const illustrateDroppedItems = useCallback(
+    async (chatId: string, events: GameEvent[]) => {
+      if (!settings.imageGenerationEnabled) return;
+      const itemIds = events
+        .filter((event) => event.kind === "item")
+        .map((event) => event.data as { item?: Item; withImage?: boolean } | undefined)
+        .filter((data) => data?.withImage && data.item?.id)
+        .map((data) => data!.item!.id);
+      if (!itemIds.length) return;
+      for (const itemId of itemIds) {
+        try {
+          await fetch(`/api/chats/${chatId}/items/${itemId}/image`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          });
+        } catch {
+          // best-effort item illustration
+        }
+      }
+      void refreshRpg(chatId);
+    },
+    [settings.imageGenerationEnabled, refreshRpg],
+  );
+
   // Abort the in-flight turn when the player presses Stop (a turn can run for
   // minutes on a loaded GPU); flagged so the catch treats it as a stop, not an error.
   const stopTurn = useCallback(() => {
@@ -1309,6 +1337,7 @@ export default function Home() {
               ) {
                 void refreshRpg(selectedChatId);
               }
+              if (selectedChatId) void illustrateDroppedItems(selectedChatId, incoming);
             }
           }
         };
@@ -1378,6 +1407,7 @@ export default function Home() {
           ) {
             void refreshRpg(selectedChatId);
           }
+          if (selectedChatId) void illustrateDroppedItems(selectedChatId, payload.events);
         }
       }
     } catch (storyError) {
@@ -4763,6 +4793,17 @@ function StorySettingsPanel({
             checked={settings.multiVoice}
             onChange={(event) =>
               setSettings((current) => ({ ...current, multiVoice: event.target.checked }))
+            }
+            className="size-4 accent-amber-300"
+          />
+        </label>
+        <label className="flex cursor-pointer items-center justify-between gap-3">
+          <span className="text-xs text-stone-300">Спутник-комментатор</span>
+          <input
+            type="checkbox"
+            checked={settings.companion}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, companion: event.target.checked }))
             }
             className="size-4 accent-amber-300"
           />

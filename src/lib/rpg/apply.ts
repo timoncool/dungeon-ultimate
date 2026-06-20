@@ -172,7 +172,9 @@ export function applyGameUpdate(update: GameUpdate, actors: ActorMap): ApplyResu
       makeEvent(
         "item",
         `📦 Получен предмет: ${item.name} (${rarity}${item.qty > 1 ? `, ×${item.qty}` : ""})`,
-        { item },
+        // withImage tells the client to generate a dedicated portrait for this
+        // drop; the picture then becomes the item's image2img reference.
+        { item, withImage: grant.withImage === true },
       ),
     );
   }
