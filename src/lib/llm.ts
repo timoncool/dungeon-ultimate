@@ -42,39 +42,72 @@ export async function requestChatCompletion(opts: {
   const model =
     opts.settings.customModel?.trim() || serverEnv("OPENAI_COMPAT_MODEL", "gemma-4-12b-uncensored");
   const apiKey = opts.settings.customApiKey?.trim() || serverEnv("OPENAI_COMPAT_API_KEY");
+  const endpoint = customChatEndpoint(baseUrl);
+  const payload = JSON.stringify({
+    model,
+    messages: opts.messages,
+    temperature: opts.temperature,
+    max_tokens: opts.maxTokens,
+    ...(opts.responseFormat ? { response_format: opts.responseFormat } : {}),
+  });
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
-  try {
-    const upstream = await fetch(customChatEndpoint(baseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model,
-        messages: opts.messages,
-        temperature: opts.temperature,
-        max_tokens: opts.maxTokens,
-        ...(opts.responseFormat ? { response_format: opts.responseFormat } : {}),
-      }),
-      signal: controller.signal,
-    });
-    if (!upstream.ok) {
-      const detail = await upstream.text();
-      return { ok: false, status: upstream.status, detail: detail.slice(0, 500) };
+  // The local model server (llama.cpp) is single-slot: when two helper calls
+  // (a turn's event + image pass, the chips, the new-story autofill) land at once,
+  // the loser gets a connection reset or a momentary 5xx. Retry those transient
+  // failures a couple of times with a short backoff so one collision doesn't surface
+  // as "it did nothing". A genuine timeout (the model is just slow) is NOT retried.
+  const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
+  const MAX_ATTEMPTS = 3;
+  let last: ChatCompletionResult = { ok: false, status: 0, detail: "no attempt made" };
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, opts.timeoutMs);
+    try {
+      const upstream = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: payload,
+        signal: controller.signal,
+      });
+      if (!upstream.ok) {
+        const detail = await upstream.text();
+        last = { ok: false, status: upstream.status, detail: detail.slice(0, 500) };
+        if (TRANSIENT_STATUS.has(upstream.status) && attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+          continue;
+        }
+        return last;
+      }
+      const data = (await upstream.json()) as {
+        choices?: Array<{ message?: { content?: unknown } }>;
+      };
+      const raw = data?.choices?.[0]?.message?.content;
+      return { ok: true, content: typeof raw === "string" ? raw : "" };
+    } catch (error) {
+      last = {
+        ok: false,
+        status: 0,
+        detail: error instanceof Error ? error.message : String(error),
+      };
+      // A real timeout means the model is busy/slow — retrying piles on; bail. Any
+      // other network error (reset/refused under contention) is worth one more try.
+      if (timedOut || attempt >= MAX_ATTEMPTS - 1) {
+        return last;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+    } finally {
+      clearTimeout(timeout);
     }
-    const data = (await upstream.json()) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
-    const raw = data?.choices?.[0]?.message?.content;
-    return { ok: true, content: typeof raw === "string" ? raw : "" };
-  } catch (error) {
-    return { ok: false, status: 0, detail: error instanceof Error ? error.message : String(error) };
-  } finally {
-    clearTimeout(timeout);
   }
+  return last;
 }
 
 export type StructuredJsonResult<T> =

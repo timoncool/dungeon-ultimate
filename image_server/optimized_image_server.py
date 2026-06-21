@@ -554,7 +554,11 @@ def free_text_server_vram() -> None:
         return
     try:
         req = urllib.request.Request(f"{TEXT_SERVER_URL}/unload", data=b"", method="POST")
-        urllib.request.urlopen(req, timeout=20).read()
+        # /unload waits on the text server's generation lock, so this call blocks
+        # until any in-flight LLM turn finishes AND its VRAM is freed. Give it a long
+        # window (a slow turn can take minutes) — loading FLUX before the LLM frees
+        # VRAM is exactly what wedges the shared GPU, so we must not time out early.
+        urllib.request.urlopen(req, timeout=180).read()
     except Exception:
         pass
 

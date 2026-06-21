@@ -129,24 +129,7 @@ def _bool_field(blob, name):
     return (m.group(1).lower() == "true") if m else None
 
 
-def _extract_image_call(content):
-    """Pull a generate_image call out of the model's literal markup into OpenAI
-    tool_calls (or None). Carries prompt/location/shot/reason/sameLocation."""
-    m = _TOOL_RE.search(content)
-    if not m:
-        return None
-    inner = m.group(1)
-    prompt = _field(inner, "prompt")
-    if not prompt:
-        return None
-    args = {"prompt": prompt}
-    for f in ("location", "shot", "reason"):
-        v = _field(inner, f)
-        if v:
-            args[f] = v
-    same = _bool_field(inner, "sameLocation")
-    if same is not None:
-        args["sameLocation"] = same
+def _img_tool_calls(args):
     return [{
         "id": "call_genimg",
         "type": "function",
@@ -154,10 +137,99 @@ def _extract_image_call(content):
     }]
 
 
+def _find_json_obj(content, needle):
+    """The smallest balanced {...} span that contains `needle` and parses as JSON."""
+    idx = content.find(needle)
+    if idx < 0:
+        return None
+    start = content.rfind("{", 0, idx + len(needle))
+    while start >= 0:
+        depth = 0
+        for i in range(start, len(content)):
+            ch = content[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return _json.loads(content[start:i + 1])
+                    except Exception:
+                        break
+        start = content.rfind("{", 0, start)
+    return None
+
+
+def _extract_image_call(content):
+    """Pull a generate_image call out of the model's literal output into OpenAI
+    tool_calls (or None). Handles BOTH the <|">/[..] markup form AND a plain JSON
+    object {"action":"generate_image","action_params":{...}} the GGUF also emits."""
+    m = _TOOL_RE.search(content)
+    if m:
+        inner = m.group(1)
+        prompt = _field(inner, "prompt")
+        if prompt:
+            args = {"prompt": prompt}
+            for f in ("location", "shot", "reason"):
+                v = _field(inner, f)
+                if v:
+                    args[f] = v
+            same = _bool_field(inner, "sameLocation")
+            if same is not None:
+                args["sameLocation"] = same
+            return _img_tool_calls(args)
+    if "generate_image" in content:
+        obj = _find_json_obj(content, "generate_image")
+        if isinstance(obj, dict):
+            params = obj.get("action_params") or obj.get("parameters") or obj.get("arguments") or obj
+            if isinstance(params, dict) and isinstance(params.get("prompt"), str) and params["prompt"].strip():
+                args = {"prompt": params["prompt"].strip()}
+                for f in ("location", "shot", "reason"):
+                    v = params.get(f)
+                    if isinstance(v, str) and v.strip():
+                        args[f] = v.strip()
+                if isinstance(params.get("sameLocation"), bool):
+                    args["sameLocation"] = params["sameLocation"]
+                ids = params.get("characterIds")
+                if isinstance(ids, list):
+                    args["characterIds"] = [i for i in ids if isinstance(i, str)]
+                return _img_tool_calls(args)
+    return None
+
+
+def _strip_json_obj(content, needle):
+    """Remove balanced {...} span(s) containing `needle` (a leaked JSON tool call)."""
+    guard = 0
+    while needle in content and guard < 6:
+        guard += 1
+        idx = content.find(needle)
+        start = content.rfind("{", 0, idx + len(needle))
+        if start < 0:
+            break
+        depth, end = 0, -1
+        for i in range(start, len(content)):
+            ch = content[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end < 0:
+            break
+        content = content[:start] + content[end:]
+    return content
+
+
 def _clean_content(content):
     """Strip ALL of the model's literal control markup (thinking channel + inline
     tool call) so the visible story text stays clean."""
     content = re.sub(r"(?:call:)?generate_image\s*[\[{].*?[\]}]", "", content, flags=re.S)
+    # JSON-object tool calls the model sometimes emits instead of a real tool_call,
+    # optionally inside a ```json fence — strip the fence and the bare {...} object.
+    content = re.sub(r"```[a-zA-Z]*\s*\{[\s\S]*?\}\s*```", "", content)
+    content = _strip_json_obj(content, "generate_image")
     content = re.sub(r"<\|?channel\|?>\s*\w*", "", content)   # <|channel>thought / <channel|>
     content = re.sub(r"<\|?tool_call\|?>", "", content)         # <|tool_call|> / <tool_call|>
     content = re.sub(r"<\|?[^<>]*?\|?>", "", content)           # any leftover <|...|>/<|...>/<...|>/<|">
