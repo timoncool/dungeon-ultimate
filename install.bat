@@ -33,6 +33,9 @@ set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
 set "TEMP=%SCRIPT_DIR%temp"
 set "TMP=%SCRIPT_DIR%temp"
+REM Embedded Python version — used for both the embed download and the matching
+REM dev headers (patch_triton_headers). Keep these in one place.
+set "PY_EMBED_VER=3.11.9"
 
 REM === Create directories (servers\models\mt + servers\voices are where you
 REM     drop the user-supplied Gemma weights and voice clips) ===
@@ -91,8 +94,8 @@ REM ============================================================
 REM  Step 2: Python 3.11.9 embedded x2  (python-text, python-image)
 REM ============================================================
 if not exist "downloads\python.zip" (
-    echo [1/9] Downloading Python 3.11.9 embed...
-    powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip' -OutFile 'downloads\python.zip'}"
+    echo [1/9] Downloading Python %PY_EMBED_VER% embed...
+    powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/%PY_EMBED_VER%/python-%PY_EMBED_VER%-embed-amd64.zip' -OutFile 'downloads\python.zip'}"
 )
 if not exist "downloads\python.zip" ( echo ERROR: Python download failed & pause & exit /b 1 )
 
@@ -221,7 +224,10 @@ REM ============================================================
 :patch_triton_headers
 set "PYDIR=%~1"
 if exist "%PYDIR%\Include\Python.h" goto :eof
-for /f "tokens=*" %%v in ('"%PYDIR%\python.exe" -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"') do set "PY_VER=%%v"
+REM PY_VER matches the embedded Python (single source of truth: PY_EMBED_VER).
+REM Don't probe it via for/f: the nested cmd mangles a quoted-exe + quoted-arg
+REM command (strips the outer quotes), so PY_VER came back empty.
+set "PY_VER=%PY_EMBED_VER%"
 powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/!PY_VER!/amd64/dev.msi' -OutFile 'downloads\pydev.msi'}"
 if exist "downloads\pydev.msi" (
     msiexec /a "downloads\pydev.msi" /qn TARGETDIR="%SCRIPT_DIR%downloads\pydev_extract"
