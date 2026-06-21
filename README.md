@@ -31,7 +31,7 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 - **It runs on your hardware.** The story model, the image model and the speech model all load on your GPU. Pull the network cable and it still works.
 - **There are real rules.** A deterministic D&D 5e engine resolves checks, combat and damage with a server-side CSPRNG — the narrator declares the action, the engine decides the outcome, so the AI can't cheat.
 - **The dice are real.** A genuine 3D physics die tumbles across the scene (three.js + cannon-es) and is forced to land on exactly the number the engine already rolled.
-- **It's uncensored.** Local text model plus an abliterated FLUX image pipeline means unrestricted, adult storytelling and art — entirely your call, entirely private.
+- **It's uncensored.** A local, unfiltered text model plus a local FLUX image pipeline — with an optional abliterated text encoder for the images — mean unrestricted, adult storytelling and art, entirely your call and entirely private.
 
 ## Features
 
@@ -47,12 +47,12 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 - **Turn-based combat** — the narrator can spawn enemies, resolve attack rolls against AC and apply damage; foes are tracked per-encounter.
 - **Adventure journal** — every roll, hit, drop and death is appended to a player-facing log that doubles as the engine's audit trail.
 - **Loot drops** — enemies and chests grant inventory items with slots, rarity tiers and stat modifiers; each drop can be illustrated and the portrait reused via image2image.
-- Game mode is per-chat — toggle it on for a full RPG session, or leave it off for freeform narrative play.
+- Game mode is per-chat and **on by default** — keep it on for a full RPG session, or toggle it off for freeform narrative play.
 
 ### Uncensored on-device image generation
 - Scenes are illustrated **locally** by a quantized **FLUX.2-klein-4B** pipeline — no cloud, no key, no filter.
 - The narrator calls an image tool mid-story and the picture renders right inside the passage.
-- An abliterated text encoder removes the content guard for unrestricted 18+ art.
+- Runs out of the box on the ungated FLUX.2-klein SDNQ weights (no token, no filter); an optional **abliterated text encoder** (opt-in, gated) drops the last content guard for fully unrestricted 18+ art.
 - Ken-Burns animation on rendered images plus one-click retry.
 
 ### Voice input
@@ -70,11 +70,11 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 ## Requirements
 
 - **OS:** Windows 10/11 (`install.bat` + `run.bat` set up a fully portable, self-contained install)
-- **GPU:** NVIDIA, 12+ GB VRAM (RTX 40xx/50xx fully supported; 20xx/30xx/Pascal selectable in the installer). The installer pins matching CUDA wheels (cu118 / cu126 / cu128) per GPU.
+- **GPU:** NVIDIA, 12+ GB VRAM (RTX 40xx/50xx fully supported; 20xx/30xx/Pascal selectable in the installer). The installer pins matching CUDA wheels (cu126 / cu128) per GPU.
 - **Node.js:** bundled — `install.bat` downloads a portable Node 22 runtime into the project folder
 - **Python:** bundled — `install.bat` creates two embedded Python 3.11 environments (text/TTS and image)
 - **Disk:** ~30+ GB for the embedded runtimes plus model weights
-- **Model weights — all auto-downloaded on first run:** nothing to provide by hand. `install.bat` also clones the two backend checkouts (TTS, image); on the first launch every model pulls itself from Hugging Face — the Gemma 4 12B GGUFs (text), the FLUX.2 SDNQ image weights + uncensored text encoder, and the Parakeet ASR model. A TTS voice pack is the only optional extra — drop `.mp3` clips in `servers/voices/` for read-aloud.
+- **Model weights — all auto-downloaded, nothing to provide by hand.** `install.bat` clones the two backend checkouts (TTS, image) and downloads a reference voice pack into `servers/voices/`; on first launch every model pulls itself from Hugging Face — the Gemma 4 12B GGUFs (text), the FLUX.2-klein SDNQ image weights, the Qwen3-TTS voice model, and the Parakeet ASR model. All of those are ungated. The fully-abliterated FLUX text encoder lives in a **gated** HF repo, so it stays opt-in: point `IMAGE_SERVER_DEFAULT_BACKEND=flux-uncensored` at it once you have repo access + an HF token. You can also drop your own `.mp3` reference clips into `servers/voices/`.
 
 > The app is engineered to stay self-contained: temp files, Hugging Face caches, Torch caches and model stores are all redirected onto the project drive — nothing is written to `C:` or the registry.
 
