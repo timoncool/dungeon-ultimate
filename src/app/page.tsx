@@ -2089,6 +2089,12 @@ export default function Home() {
           <NewStoryDialog
             onClose={() => setNewStoryOpen(false)}
             onBegin={(options) => void beginStory(options)}
+            llm={{
+              customBaseUrl: settings.customBaseUrl,
+              customModel: settings.customModel,
+              customApiKey: settings.customApiKey,
+              language: settings.language,
+            }}
           />
         )}
 
@@ -2541,6 +2547,7 @@ export default function Home() {
 function NewStoryDialog({
   onClose,
   onBegin,
+  llm,
 }: {
   onClose: () => void;
   onBegin: (options: {
@@ -2549,6 +2556,7 @@ function NewStoryDialog({
     hero: { name: string; persona: string };
     opening: { mode: "narrator"; hint: string } | { mode: "self"; text: string };
   }) => void;
+  llm: { customBaseUrl: string; customModel: string; customApiKey: string; language: string };
 }) {
   const [presetId, setPresetId] = useState<StoryPresetId>("fantasy");
   const [name, setName] = useState("");
@@ -2557,6 +2565,39 @@ function NewStoryDialog({
   const [openingMode, setOpeningMode] = useState<"narrator" | "self">("narrator");
   const [openingHint, setOpeningHint] = useState("");
   const [openingText, setOpeningText] = useState("");
+  const [autofilling, setAutofilling] = useState(false);
+
+  // "Fill it for me": one structured call invents name + persona + a first-scene
+  // hint for the chosen setting and drops them into the fields.
+  async function autofill() {
+    setAutofilling(true);
+    try {
+      const setting = isCustom ? customWorld.trim() : `${preset.label}: ${preset.seed}`;
+      const response = await fetch("/api/story-setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ setting, settings: llm }),
+      });
+      const data = (await response.json()) as {
+        ok?: boolean;
+        name?: string;
+        persona?: string;
+        hint?: string;
+      };
+      if (data.ok) {
+        if (data.persona) setRole(data.persona);
+        if (data.name) setName(data.name);
+        if (data.hint) {
+          setOpeningMode("narrator");
+          setOpeningHint(data.hint);
+        }
+      }
+    } catch {
+      // best-effort: leave the fields as they are on failure
+    } finally {
+      setAutofilling(false);
+    }
+  }
 
   const isCustom = presetId === "custom";
   const preset = STORY_PRESETS.find((item) => item.id === presetId) ?? STORY_PRESETS[0];
@@ -2646,6 +2687,20 @@ function NewStoryDialog({
               );
             })}
           </div>
+
+          <button
+            type="button"
+            onClick={() => void autofill()}
+            disabled={autofilling || (isCustom && !customWorld.trim())}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-200/10 px-3 py-1.5 text-sm font-medium text-amber-200 transition hover:bg-amber-200/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {autofilling ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <span aria-hidden="true">✨</span>
+            )}
+            {autofilling ? "Гемма придумывает…" : "Заполнить за меня"}
+          </button>
 
           {isCustom ? (
             <label className="mt-4 block">
