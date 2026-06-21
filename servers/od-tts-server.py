@@ -139,6 +139,21 @@ VOICES = list_voices()
 print(f"[od-tts] torch {torch.__version__} cuda={torch.cuda.is_available()} | "
       f"{len(VOICES)} voices, default={DEFAULT_VOICE}", flush=True)
 print("[od-tts] loading Qwen3-TTS (combo nf4+triton)...", flush=True)
+# Fetch the WHOLE model first. qwen-tts loads the speech_tokenizer feature
+# extractor from a LOCAL path and never fetches it on demand, so from_pretrained's
+# lazy download leaves speech_tokenizer/preprocessor_config.json (+ its weights)
+# missing -> OSError at load on a fresh machine. snapshot_download grabs every file.
+try:
+    from huggingface_hub import snapshot_download
+    print(f"[od-tts] ensuring full {Cfg.tts_model} (first run)...", flush=True)
+    # Download into the SAME cache transformers loads from. With a split cache env
+    # (TRANSFORMERS_CACHE=...\models but HF_HUB_CACHE=...\models\hub) the default
+    # snapshot_download lands in the hub dir while from_pretrained reads the other,
+    # so the speech_tokenizer files never reach the path that's actually used.
+    _tts_cache = os.environ.get("TRANSFORMERS_CACHE") or None
+    snapshot_download(Cfg.tts_model, cache_dir=_tts_cache)
+except Exception as _e:
+    print(f"[od-tts] snapshot_download warning ({_e}); relying on lazy fetch", flush=True)
 _engine = sd_tts.make(Cfg())
 _lock = threading.Lock()
 print(f"[od-tts] ready -> http://{HOST}:{PORT}", flush=True)

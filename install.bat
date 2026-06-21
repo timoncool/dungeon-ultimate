@@ -112,18 +112,20 @@ echo [5/9] Installing text/TTS dependencies...
 if defined LLAMA_WHL python-text\python.exe -m pip install "%LLAMA_WHL%" --no-warn-script-location
 python-text\python.exe -m pip install "triton-windows>=3.7,<3.8" --no-warn-script-location
 if "%INSTALL_FLASH%"=="1" if defined FLASH_WHL python-text\python.exe -m pip install "%FLASH_WHL%" --no-warn-script-location
-python-text\python.exe -m pip install "transformers==4.57.3" accelerate bitsandbytes==0.49.2 soundfile rotary-embedding-torch torchdiffeq fastapi "uvicorn[standard]" sentencepiece "huggingface_hub>=0.34" hf-xet --no-warn-script-location
+python-text\python.exe -m pip install "transformers==4.57.3" accelerate bitsandbytes==0.49.2 soundfile rotary-embedding-torch torchdiffeq omegaconf==2.3.1 einops fastapi "uvicorn[standard]" sentencepiece "huggingface_hub>=0.34" hf-xet --no-warn-script-location
 python-text\python.exe -m pip install faster-qwen3-tts==0.2.6 qwen-tts==0.1.1 --no-warn-script-location
-REM qwen3-tts-triton: vendored source (was installed from a local F: path in dev). Edit path if needed.
-if exist "servers\qwen3-tts-triton\pyproject.toml" (
-    python-text\python.exe -m pip install -e servers\qwen3-tts-triton --no-warn-script-location
-) else (
-    echo [!] servers\qwen3-tts-triton not vendored yet - TTS triton kernels will be missing.
-)
+REM qwen3-tts-triton: shorts-dub's tts.py hard-imports it (combo Triton kernels;
+REM the bnb fallback lives inside it). PyPI gates it to py>=3.12 but it runs on
+REM cp311, and its hatchling build backend isn't reachable under pip's isolated
+REM build on the embedded Python -> install hatchling first, then build it with
+REM --no-build-isolation and --ignore-requires-python. Without this TTS crashes
+REM at startup (ModuleNotFoundError: qwen3_tts_triton).
+python-text\python.exe -m pip install hatchling editables --no-warn-script-location
+python-text\python.exe -m pip install --no-deps --no-build-isolation --ignore-requires-python "git+https://github.com/newgrit1004/qwen3-tts-triton" --no-warn-script-location
 
 REM ASR (servers\od-asr-server.py): Parakeet via onnx-asr on the GPU. Shares this
 REM same python-text env. onnxruntime-gpu must match the installed CUDA runtime.
-python-text\python.exe -m pip install onnx-asr onnxruntime-gpu --no-warn-script-location
+python-text\python.exe -m pip install onnx-asr==0.11.0 onnxruntime-gpu==1.26.0 --no-warn-script-location
 
 call :patch_triton_headers python-text
 
@@ -186,6 +188,17 @@ goto :backends_done
 echo [!] Git not found - install it from https://git-scm.com/downloads and re-run install.bat.
 echo     Without git the TTS + image backends are missing; text still works.
 :backends_done
+
+REM TTS voice pack (reference clips for zero-shot voice cloning) — same pack the
+REM other portables pull. Without it the TTS server loads but can't clone a voice
+REM (read-aloud stays silent). Flatten the archive's .mp3/.txt into servers\voices\.
+if exist "servers\voices\RU_Male_Gabidullin_ruslan.mp3" goto :voices_done
+echo [+] Downloading TTS voice pack...
+if not exist "servers\voices" mkdir "servers\voices"
+curl -L -o "downloads\voice-pack.zip" "https://huggingface.co/datasets/nerualdreming/VibeVoice/resolve/main/voice-pack.zip"
+if not exist "downloads\voice-pack.zip" goto :voices_done
+powershell -Command "Expand-Archive -Path 'downloads\voice-pack.zip' -DestinationPath 'downloads\vp' -Force; Get-ChildItem 'downloads\vp' -Recurse -Include *.mp3,*.txt | ForEach-Object { Copy-Item $_.FullName 'servers\voices\' -Force }"
+:voices_done
 
 echo %CUDA_VERSION%> cuda_version.txt
 

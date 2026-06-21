@@ -36,6 +36,13 @@ cuda_version.txt
 /ultra-fast-image-gen/
 /shorts-dub/
 
+# Сервер-сайд скачиваемое (голос-пак, GGUF текст-модели, TTS-кэш) — install.bat / первый запуск
+/servers/voices/
+/servers/models/
+/.tts-cache/
+/hf-home/
+install-log.txt
+
 # Сессионные артефакты ассистента / тестовые логи
 /.claude/
 /stub.log
