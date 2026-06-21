@@ -7,7 +7,13 @@ import { cn } from "@/lib/cn";
 import { splitSentences } from "@/lib/text";
 import type { StoryMessage } from "@/lib/types";
 
-type FlipApi = { pageFlip: () => { flipNext: () => void; flipPrev: () => void } };
+type FlipApi = {
+  pageFlip: () => {
+    flipNext: () => void;
+    flipPrev: () => void;
+    turnToPage: (page: number) => void;
+  };
+};
 type Block =
   | { kind: "image"; url: string; message: StoryMessage }
   | { kind: "text"; text: string; message: StoryMessage; drop: boolean };
@@ -190,6 +196,23 @@ export default function BookReader({
     flushPage();
     setPages(out);
   }, [passages, dims]);
+
+  // New narration extends the book and react-pageflip remounts (its key includes
+  // pages.length + the page size), which otherwise snaps it back to page 1. Re-assert
+  // the position after the remount so the player lands on the NEWEST page instead of
+  // having to flip all the way back every turn.
+  const lastPage = pages.length - 1;
+  useEffect(() => {
+    if (lastPage < 0) return;
+    const id = window.setTimeout(() => {
+      try {
+        bookRef.current?.pageFlip().turnToPage(lastPage);
+      } catch {
+        // flipbook not mounted yet — harmless
+      }
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [lastPage, dims.pageW, dims.pageH]);
 
   const measurer = (
     <div

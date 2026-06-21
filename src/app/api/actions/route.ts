@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requestChatCompletion } from "@/lib/llm";
+import { requestChatCompletion, requestStructuredJson } from "@/lib/llm";
 import { LANGUAGE_VALUES } from "@/lib/types";
 import { promptsFor } from "@/lib/prompts";
 
@@ -62,6 +62,51 @@ function parseActions(raw: string): Array<{ emoji?: string; label: string }> {
   return out;
 }
 
+// Grammar schema for the structured path: a small, strictly-shaped object so the
+// local server constrains sampling to exactly {actions:[{emoji,label}]}.
+const ACTIONS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    actions: {
+      type: "array",
+      minItems: 3,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          emoji: { type: "string", maxLength: 8 },
+          label: { type: "string", minLength: 1, maxLength: 48 },
+        },
+        required: ["emoji", "label"],
+      },
+    },
+  },
+  required: ["actions"],
+};
+
+// Normalize one structured action: split a stray "emoji | text", lift a leading
+// emoji out of the label, and drop an over-long "emoji" that's really a word.
+function cleanAction(action: { emoji?: string; label?: string }): { emoji?: string; label: string } {
+  let label = (action.label ?? "").trim();
+  let emoji = (action.emoji ?? "").trim() || undefined;
+  if (label.includes("|")) {
+    const [head, ...rest] = label.split("|");
+    label = rest.join("|").trim();
+    if (!emoji && head.trim()) emoji = head.trim();
+  }
+  if (!emoji) {
+    const lead = label.match(/^(\p{Extended_Pictographic})\s*/u);
+    if (lead) {
+      emoji = lead[1];
+      label = label.slice(lead[0].length).trim();
+    }
+  }
+  if (emoji && emoji.length > 4) emoji = undefined;
+  return { emoji, label };
+}
+
 export async function POST(request: Request) {
   // Best-effort route: a malformed/oversized body must degrade to empty chips,
   // never a 500 that the comment + catch below promise it won't be.
@@ -71,6 +116,9 @@ export async function POST(request: Request) {
   }
   const body = parsed.data;
 
+  // The in-language actions.system carries the intent (3–4 short, distinct,
+  // imperative actions); the user turn spells out the JSON shape, since the schema
+  // constrains the grammar but is never shown to the model.
   const messages = [
     {
       role: "system" as const,
@@ -78,17 +126,38 @@ export async function POST(request: Request) {
     },
     {
       role: "user" as const,
-      content: `Последняя сцена:\n${body.passage.slice(-4000)}\n\nПредложи 3–4 варианта действия.`,
+      content: `Последняя сцена:\n${body.passage.slice(-4000)}\n\nВерни JSON-объект {"actions":[{"emoji":"<один эмодзи>","label":"<короткое действие, 3–6 слов, повелительно>"}, …]} — РОВНО 3–4 разных конкретных действия, которые герой-игрок может совершить прямо сейчас.`,
     },
   ];
 
-  // Best-effort: any failure (server down, non-ok, timeout) degrades to no chips.
-  const result = await requestChatCompletion({
+  // Structured (grammar-constrained) chips: the schema forces a valid JSON shape,
+  // so the fragile "emoji | action" text parsing never has to fire on the happy path.
+  const structured = await requestStructuredJson<{ actions?: Array<{ emoji?: string; label?: string }> }>({
+    settings: body.settings,
+    messages,
+    schema: ACTIONS_SCHEMA,
+    temperature: 0.5,
+    maxTokens: 220,
+    timeoutMs: 45_000,
+  });
+  if (structured.ok && Array.isArray(structured.data.actions)) {
+    const actions = structured.data.actions
+      .map(cleanAction)
+      .filter((action) => action.label && /\p{L}/u.test(action.label))
+      .slice(0, 4);
+    if (actions.length) {
+      return Response.json({ actions });
+    }
+  }
+
+  // Fallback: a server that ignored response_format still answers as text — parse
+  // the lenient "emoji | action" form so chips degrade rather than vanish.
+  const text = await requestChatCompletion({
     settings: body.settings,
     messages,
     temperature: 0.5,
     maxTokens: 200,
     timeoutMs: 45_000,
   });
-  return Response.json({ actions: result.ok ? parseActions(result.content) : [] });
+  return Response.json({ actions: text.ok ? parseActions(text.content) : [] });
 }

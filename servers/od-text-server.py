@@ -106,48 +106,81 @@ with _lock:
 print(f"[od-text-server] serving -> http://{HOST}:{PORT}/v1  (models: {', '.join(MODELS)})", flush=True)
 
 
-_TOOL_RE = re.compile(r"generate_image\s*\{(.*?)\}", re.S)
+import json as _json
+
+# The GGUF emits a generate_image call as literal text, body wrapped in [..] (and
+# sometimes {..}), field values wrapped in the <|"> markers (legacy: <|"|>).
+_TOOL_RE = re.compile(r"generate_image\s*[\[{](.*?)[\]}]", re.S)
 
 
 def _field(blob, name):
-    m = re.search(name + r'\s*:\s*<\|"\|>(.*?)<\|"\|>', blob, re.S)
+    m = re.search(name + r'\s*:\s*<\|"\|?>(.*?)<\|"\|?>', blob, re.S)
     if m:
         return m.group(1).strip()
     m = re.search(name + r'\s*:\s*"(.*?)"', blob, re.S)
     return m.group(1).strip() if m else None
 
 
+def _bool_field(blob, name):
+    v = _field(blob, name)
+    if v is not None:
+        return v.strip().lower() in ("true", "1", "yes")
+    m = re.search(name + r"\s*:\s*(true|false)", blob, re.I)
+    return (m.group(1).lower() == "true") if m else None
+
+
+def _extract_image_call(content):
+    """Pull a generate_image call out of the model's literal markup into OpenAI
+    tool_calls (or None). Carries prompt/location/shot/reason/sameLocation."""
+    m = _TOOL_RE.search(content)
+    if not m:
+        return None
+    inner = m.group(1)
+    prompt = _field(inner, "prompt")
+    if not prompt:
+        return None
+    args = {"prompt": prompt}
+    for f in ("location", "shot", "reason"):
+        v = _field(inner, f)
+        if v:
+            args[f] = v
+    same = _bool_field(inner, "sameLocation")
+    if same is not None:
+        args["sameLocation"] = same
+    return [{
+        "id": "call_genimg",
+        "type": "function",
+        "function": {"name": "generate_image", "arguments": _json.dumps(args, ensure_ascii=False)},
+    }]
+
+
+def _clean_content(content):
+    """Strip ALL of the model's literal control markup (thinking channel + inline
+    tool call) so the visible story text stays clean."""
+    content = re.sub(r"(?:call:)?generate_image\s*[\[{].*?[\]}]", "", content, flags=re.S)
+    content = re.sub(r"<\|?channel\|?>\s*\w*", "", content)   # <|channel>thought / <channel|>
+    content = re.sub(r"<\|?tool_call\|?>", "", content)         # <|tool_call|> / <tool_call|>
+    content = re.sub(r"<\|?[^<>]*?\|?>", "", content)           # any leftover <|...|>/<|...>/<...|>/<|">
+    content = re.sub(r"(?m)^\s*call:\s*$", "", content)         # stray bare "call:" line
+    return content.strip()
+
+
+def _postprocess_parts(content, tool_calls):
+    """Shared by the buffered + streamed paths: ensure tool_calls, clean the text."""
+    if not tool_calls:
+        tool_calls = _extract_image_call(content or "")
+    return _clean_content(content or ""), tool_calls
+
+
 def _postprocess(result):
-    """Gemma 4 emits its thinking channel + tool calls as literal <|...|> markup.
-    Pull a generate_image call into proper OpenAI tool_calls and strip ALL control
-    markup so the visible story text stays clean."""
     try:
         msg = result["choices"][0]["message"]
     except Exception:
         return result
-    content = msg.get("content") or ""
-    if not msg.get("tool_calls"):
-        m = _TOOL_RE.search(content)
-        if m:
-            prompt = _field(m.group(1), "prompt")
-            reason = _field(m.group(1), "reason")
-            if prompt:
-                import json as _json
-                args = {"prompt": prompt}
-                if reason:
-                    args["reason"] = reason
-                msg["tool_calls"] = [{
-                    "id": "call_genimg",
-                    "type": "function",
-                    "function": {"name": "generate_image", "arguments": _json.dumps(args, ensure_ascii=False)},
-                }]
-    content = re.sub(r"<\|?tool_call\|?>.*?<\|?/?tool_call\|?>", "", content, flags=re.S)
-    content = re.sub(r"<\|?tool_call\|?>.*\Z", "", content, flags=re.S)
-    content = re.sub(r"(?:call:)?generate_image\s*\{.*?\}", "", content, flags=re.S)
-    content = re.sub(r"<\|?channel\|?>\s*\w*", "", content)
-    content = re.sub(r"<\|[^>]*?>", "", content)
-    content = re.sub(r"<[^<>]*?\|>", "", content)
-    msg["content"] = content.strip()
+    clean, tcs = _postprocess_parts(msg.get("content"), msg.get("tool_calls"))
+    msg["content"] = clean
+    if tcs:
+        msg["tool_calls"] = tcs
     return result
 
 
@@ -203,19 +236,47 @@ async def chat_completions(request: Request):
     tools = body.get("tools")
     tool_choice = body.get("tool_choice")
 
+    response_format = body.get("response_format")
+
     if body.get("stream"):
-        import json as _json
         def _gen():
             with _lock:
                 _load(model_id)
                 call = dict(kwargs, stream=True)
+                if response_format:
+                    call["response_format"] = response_format
                 if tools:
                     call["tools"] = tools
                     if tool_choice:
                         call["tool_choice"] = tool_choice
+                # Buffer the model's raw chunks, then postprocess the assembled text
+                # exactly like the non-stream path: lift the inline generate_image
+                # call into proper tool_calls and strip the <|...|> control markup so
+                # the app gets clean narration + a real tool call (per-turn images).
+                # Trades token-by-token streaming for correctness; a 12B turn is a few
+                # seconds, then the cleaned passage is emitted at once.
                 try:
+                    pieces, model_tcs = [], None
                     for chunk in _llm.create_chat_completion(**call):
-                        yield "data: " + _json.dumps(chunk, ensure_ascii=False) + "\n\n"
+                        try:
+                            delta = chunk["choices"][0].get("delta", {})
+                        except Exception:
+                            delta = {}
+                        if isinstance(delta.get("content"), str):
+                            pieces.append(delta["content"])
+                        if delta.get("tool_calls"):
+                            model_tcs = delta["tool_calls"]
+                    clean, tcs = (
+                        ("".join(pieces), model_tcs)
+                        if response_format
+                        else _postprocess_parts("".join(pieces), model_tcs)
+                    )
+                    yield "data: " + _json.dumps({"choices": [{"index": 0, "delta": {"role": "assistant"}}]}) + "\n\n"
+                    if clean:
+                        yield "data: " + _json.dumps({"choices": [{"index": 0, "delta": {"content": clean}}]}, ensure_ascii=False) + "\n\n"
+                    if tcs:
+                        yield "data: " + _json.dumps({"choices": [{"index": 0, "delta": {"tool_calls": tcs}}]}, ensure_ascii=False) + "\n\n"
+                    yield "data: " + _json.dumps({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}) + "\n\n"
                 except Exception as exc:
                     yield "data: " + _json.dumps({"error": {"message": str(exc)}}) + "\n\n"
                 yield "data: [DONE]\n\n"
@@ -225,20 +286,25 @@ async def chat_completions(request: Request):
         _load(model_id)
         try:
             call = dict(kwargs)
+            if response_format:
+                call["response_format"] = response_format
             if tools:
                 call["tools"] = tools
                 if tool_choice:
                     call["tool_choice"] = tool_choice
             result = _llm.create_chat_completion(**call)
         except Exception as exc:
-            if tools:
+            if tools or response_format:
                 try:
                     result = _llm.create_chat_completion(**kwargs)
                 except Exception as exc2:
                     return JSONResponse({"error": {"message": f"generation failed: {exc2}"}}, status_code=500)
             else:
                 return JSONResponse({"error": {"message": f"generation failed: {exc}"}}, status_code=500)
-    result = _postprocess(result)
+    # Grammar-constrained JSON is already clean structured output — only run the
+    # markup/tool postprocessor on free-text responses.
+    if not response_format:
+        result = _postprocess(result)
     result.setdefault("model", _current_id)
     return JSONResponse(result)
 

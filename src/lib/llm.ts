@@ -31,6 +31,10 @@ export async function requestChatCompletion(opts: {
   temperature: number;
   maxTokens: number;
   timeoutMs: number;
+  // OpenAI/llama.cpp `response_format` — e.g. {type:"json_object", schema:{…}}.
+  // The local server turns the schema into a GBNF grammar that constrains
+  // sampling, so the reply is always valid JSON of that shape.
+  responseFormat?: unknown;
 }): Promise<ChatCompletionResult> {
   const baseUrl =
     opts.settings.customBaseUrl?.trim() ||
@@ -53,6 +57,7 @@ export async function requestChatCompletion(opts: {
         messages: opts.messages,
         temperature: opts.temperature,
         max_tokens: opts.maxTokens,
+        ...(opts.responseFormat ? { response_format: opts.responseFormat } : {}),
       }),
       signal: controller.signal,
     });
@@ -70,4 +75,49 @@ export async function requestChatCompletion(opts: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export type StructuredJsonResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: number; detail: string };
+
+// Grammar-constrained JSON completion: the JSON Schema is sent as response_format
+// so the local server constrains sampling to it (llama.cpp from_json_schema) — the
+// reply is therefore always valid JSON of the right shape, no fragile text parsing.
+// NOTE: the schema is NOT shown to the model (it only shapes the grammar), so the
+// caller's prompt must still describe the fields in words. Format ≠ semantics: the
+// grammar guarantees the shape; the prompt + downstream validation guard meaning.
+export async function requestStructuredJson<T = unknown>(opts: {
+  settings: CustomTextSettings;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  schema: Record<string, unknown>;
+  temperature?: number;
+  maxTokens: number;
+  timeoutMs: number;
+}): Promise<StructuredJsonResult<T>> {
+  const result = await requestChatCompletion({
+    settings: opts.settings,
+    messages: opts.messages,
+    temperature: opts.temperature ?? 0.4,
+    maxTokens: opts.maxTokens,
+    timeoutMs: opts.timeoutMs,
+    responseFormat: { type: "json_object", schema: opts.schema },
+  });
+  if (!result.ok) {
+    return result;
+  }
+  const parse = (text: string): T | undefined => {
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return undefined;
+    }
+  };
+  // Grammar guarantees valid JSON; the regex salvage is only a guard for a server
+  // that silently ignored response_format (so we degrade instead of throwing).
+  const data = parse(result.content) ?? parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? "");
+  if (data === undefined) {
+    return { ok: false, status: 0, detail: "structured output was not valid JSON" };
+  }
+  return { ok: true, data };
 }
