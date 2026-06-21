@@ -4,7 +4,7 @@ import path from "node:path";
 import { DEFAULT_CHAT_TITLE, titleFromInput } from "@/lib/defaults";
 import { configuredDefaultStorySettings } from "@/lib/runtime-defaults";
 import { isLocalTextModelId, isTextProvider } from "@/lib/text-models";
-import { isProseSize, isResponseLength } from "@/lib/types";
+import { isLanguage, isProseSize, isResponseLength } from "@/lib/types";
 import type {
   Attachment,
   GeneratedImage,
@@ -258,6 +258,10 @@ function normalizeSettings(settings?: Partial<StorySettings>): StorySettings {
 
   if (!isResponseLength(merged.responseLength)) {
     merged.responseLength = defaultSettings.responseLength;
+  }
+
+  if (!isLanguage(merged.language)) {
+    merged.language = defaultSettings.language;
   }
 
   if (typeof merged.voice !== "string") {

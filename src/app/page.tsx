@@ -3159,8 +3159,10 @@ function CharacterPanel({
 } & PanelControlProps) {
   // Ask the text model to invent a fresh protagonist for the blank draft form.
   const [autofilling, setAutofilling] = useState(false);
+  const [autofillError, setAutofillError] = useState("");
   const autofillDraft = async () => {
     setAutofilling(true);
+    setAutofillError("");
     try {
       const response = await fetch("/api/character", {
         method: "POST",
@@ -3174,7 +3176,11 @@ function CharacterPanel({
           },
         }),
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        const info = (await response.json().catch(() => null)) as { error?: string } | null;
+        setAutofillError(info?.error || "Не удалось сгенерировать персонажа.");
+        return;
+      }
       const data = (await response.json()) as {
         character?: Partial<CharacterDraft>;
       } & Partial<CharacterDraft>;
@@ -3188,7 +3194,7 @@ function CharacterPanel({
         spells: c.spells ?? current.spells,
       }));
     } catch {
-      // best-effort: leave the draft untouched on failure
+      setAutofillError("Не удалось — запущен ли текстовый сервер?");
     } finally {
       setAutofilling(false);
     }
@@ -3242,6 +3248,9 @@ function CharacterPanel({
               {autofilling ? "…" : "Заполнить"}
             </button>
           </span>
+          {autofillError && (
+            <span className="mb-1 block text-[11px] text-red-400">{autofillError}</span>
+          )}
           <input
             id="new-character-name"
             name="new-character-name"

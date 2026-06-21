@@ -50,7 +50,10 @@ function parseActions(raw: string): Array<{ emoji?: string; label: string }> {
     }
     // A quick action is one short clause — reject sentences/paragraphs outright.
     if (!cleaned || cleaned.length > 48 || cleaned.split(/\s+/).length > 8) continue;
-    if (!/[а-яёa-z]/i.test(cleaned)) continue;
+    // Must contain a real letter in ANY script (Latin/Cyrillic/CJK/kana/…) so the
+    // chips work in every offered language, not just ru/en — but a pure
+    // emoji/punctuation line is still dropped.
+    if (!/\p{L}/u.test(cleaned)) continue;
     if (emoji && emoji.length > 4) emoji = undefined;
     out.push({ emoji, label: cleaned });
     if (out.length >= 4) break;

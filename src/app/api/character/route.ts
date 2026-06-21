@@ -37,7 +37,11 @@ function extractJson(raw: string): Record<string, unknown> | null {
 const str = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 export async function POST(request: Request) {
-  const body = requestSchema.parse(await request.json());
+  const parsedBody = requestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsedBody.success) {
+    return Response.json({ error: "Некорректный запрос." }, { status: 400 });
+  }
+  const body = parsedBody.data;
   const langName = LANGUAGE_PROMPT_NAMES[body.settings.language];
 
   const messages = [
@@ -63,7 +67,9 @@ export async function POST(request: Request) {
     settings: body.settings,
     messages,
     temperature: 1.0,
-    maxTokens: 500,
+    // Headroom for a full sheet in token-heavy scripts (zh/ja/ru) so the JSON
+    // isn't truncated before its closing brace.
+    maxTokens: 800,
     timeoutMs: 60_000,
   });
 
