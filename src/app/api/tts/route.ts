@@ -1,13 +1,11 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getCharactersByIds } from "@/lib/db";
 import { serverEnv } from "@/lib/server-env";
+import { safeName } from "@/lib/tts";
 
 export const runtime = "nodejs";
-
-function safeName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
-}
 
 // Voice a narrator passage via the local TTS reader (od-tts-server.py :8081).
 // When a messageId is given, the WAV is saved per-message under
@@ -74,10 +72,13 @@ export async function POST(request: Request) {
   }
 
   if (messageId) {
+    // Fold a short content hash in so editing a passage regenerates audio
+    // instead of replaying the stale cached WAV for the same id/chunk/voice.
+    const hash = createHash("sha1").update(text).digest("hex").slice(0, 8);
     const fileName =
       chunkIndex === null
-        ? `${safeName(messageId)}__${safeName(voice)}.wav`
-        : `${safeName(messageId)}__c${chunkIndex}__${safeName(voice)}.wav`;
+        ? `${safeName(messageId)}__${safeName(voice)}__${hash}.wav`
+        : `${safeName(messageId)}__c${chunkIndex}__${safeName(voice)}__${hash}.wav`;
     const dir = path.join(process.cwd(), "public", "generated", "tts");
     const filePath = path.join(dir, fileName);
     const url = `/generated/tts/${fileName}`;

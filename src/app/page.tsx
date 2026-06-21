@@ -71,6 +71,7 @@ import type {
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "@/lib/rpg/dice";
 import { deriveForOwner, type DerivedRpg } from "@/lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
+import { splitDialogueSegments, voiceForCharacter } from "@/lib/tts";
 import type DiceBox from "@3d-dice/dice-box-threejs";
 
 // Page-flip reader (react-pageflip touches the DOM) — client-only.
@@ -498,6 +499,11 @@ export default function Home() {
   const [speakingId, setSpeakingId] = useState("");
   const audioCacheRef = useRef<Map<string, string>>(new Map());
   const speakSeqRef = useRef(0);
+  // Available voice ids from the TTS reader. Used to auto-assign a distinct,
+  // stable voice per character when multi-voice is on, and to populate the
+  // per-character voice picker. Empty until the reader responds (degrades to the
+  // single narrator voice).
+  const [voices, setVoices] = useState<string[]>([]);
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === selectedChatId),
@@ -895,6 +901,23 @@ export default function Home() {
     audio.playbackRate = settings.ttsSpeed;
   }, [settings.ttsVolume, settings.ttsSpeed]);
 
+  // Load the voice pack once, for multi-voice auto-assignment + the per-character
+  // picker. Falls back to an empty list if the reader is down.
+  useEffect(() => {
+    let active = true;
+    fetch("/api/voices")
+      .then((response) => (response.ok ? response.json() : { voices: [] }))
+      .then((data: { voices?: string[] }) => {
+        if (active && Array.isArray(data.voices)) {
+          setVoices(data.voices);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const setImageGenerationEnabled = useCallback((imageGenerationEnabled: boolean) => {
     setSettings((current) => ({ ...current, imageGenerationEnabled }));
     if (!imageGenerationEnabled) {
@@ -1046,6 +1069,7 @@ export default function Home() {
       skills?: string;
       spells?: string;
       portrait?: Attachment | null;
+      voice?: string | null;
     },
   ) {
     if (!selectedChatId) {
@@ -1216,22 +1240,33 @@ export default function Home() {
     stopSpeaking();
     const seq = (speakSeqRef.current += 1);
     setSpeakingId(messageId);
-    const voice = settings.voice;
-    const sentences = splitSentences(text);
-    if (!sentences.length) {
+    // Multi-voice on: split into narration / per-character dialogue runs, each
+    // voiced distinctly, then synthesize each run sentence-by-sentence. Off: one
+    // narrator-voiced run over the whole passage (unchanged behavior). Each
+    // sentence is a chunk { text, voice }; the voice is part of the cache key so
+    // runs never collide.
+    const chunks: Array<{ text: string; voice: string }> = settings.multiVoice
+      ? splitDialogueSegments(text, settings, characters, voices).flatMap((segment) =>
+          splitSentences(segment.text).map((sentence) => ({
+            text: sentence,
+            voice: segment.voice,
+          })),
+        )
+      : splitSentences(text).map((sentence) => ({ text: sentence, voice: settings.voice }));
+    if (!chunks.length) {
       setSpeakingId("");
       return;
     }
     const audio = audioRef.current ?? new Audio();
     audioRef.current = audio;
-    let nextUrl = fetchChunkUrl(messageId, 0, sentences[0], voice);
-    for (let i = 0; i < sentences.length; i += 1) {
+    let nextUrl = fetchChunkUrl(messageId, 0, chunks[0].text, chunks[0].voice);
+    for (let i = 0; i < chunks.length; i += 1) {
       if (speakSeqRef.current !== seq) return;
       const url = await nextUrl;
       if (speakSeqRef.current !== seq) return;
       nextUrl =
-        i + 1 < sentences.length
-          ? fetchChunkUrl(messageId, i + 1, sentences[i + 1], voice)
+        i + 1 < chunks.length
+          ? fetchChunkUrl(messageId, i + 1, chunks[i + 1].text, chunks[i + 1].voice)
           : Promise.resolve(null);
       if (!url) continue;
       await playUrl(audio, url);
@@ -1825,11 +1860,13 @@ export default function Home() {
               inventory: character.inventory,
               skills: character.skills,
               spells: character.spells,
+              voice: character.voice ?? null,
             })
           }
           onPortraitFile={(characterId, file) => void uploadCharacterPortrait(file, characterId)}
           onClearPortrait={(characterId) => void updateCharacterById(characterId, { portrait: null })}
           onDelete={(characterId) => void deleteCharacterById(characterId)}
+          voices={voices}
           {...desktopPanelControls(panel)}
         />
       );
@@ -1984,11 +2021,13 @@ export default function Home() {
               inventory: character.inventory,
               skills: character.skills,
               spells: character.spells,
+              voice: character.voice ?? null,
             })
           }
           onPortraitFile={(characterId, file) => void uploadCharacterPortrait(file, characterId)}
           onClearPortrait={(characterId) => void updateCharacterById(characterId, { portrait: null })}
           onDeleteCharacter={(characterId) => void deleteCharacterById(characterId)}
+          voices={voices}
           settings={settings}
           setSettings={setSettings}
           onImageGenerationEnabledChange={setImageGenerationEnabled}
@@ -2703,6 +2742,7 @@ function MobileToolsSheet({
   onPortraitFile,
   onClearPortrait,
   onDeleteCharacter,
+  voices,
   settings,
   setSettings,
   onImageGenerationEnabledChange,
@@ -2728,12 +2768,15 @@ function MobileToolsSheet({
   onCreateCharacter: () => void;
   onLocalCharacterChange: (
     characterId: string,
-    updates: Partial<Pick<StoryCharacter, "name" | "details" | "inventory" | "skills" | "spells">>,
+    updates: Partial<
+      Pick<StoryCharacter, "name" | "details" | "inventory" | "skills" | "spells" | "voice">
+    >,
   ) => void;
   onSaveCharacter: (character: StoryCharacter) => void;
   onPortraitFile: (characterId: string, file: File) => void;
   onClearPortrait: (characterId: string) => void;
   onDeleteCharacter: (characterId: string) => void;
+  voices: string[];
   settings: StorySettings;
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   onImageGenerationEnabledChange: (enabled: boolean) => void;
@@ -2820,6 +2863,7 @@ function MobileToolsSheet({
               onPortraitFile={onPortraitFile}
               onClearPortrait={onClearPortrait}
               onDelete={onDeleteCharacter}
+              voices={voices}
               compact
             />
           )}
@@ -3035,6 +3079,7 @@ function CharacterPanel({
   onPortraitFile,
   onClearPortrait,
   onDelete,
+  voices,
   compact = false,
   open,
   onOpenChange,
@@ -3051,12 +3096,15 @@ function CharacterPanel({
   onCreate: () => void;
   onLocalChange: (
     characterId: string,
-    updates: Partial<Pick<StoryCharacter, "name" | "details" | "inventory" | "skills" | "spells">>,
+    updates: Partial<
+      Pick<StoryCharacter, "name" | "details" | "inventory" | "skills" | "spells" | "voice">
+    >,
   ) => void;
   onSave: (character: StoryCharacter) => void;
   onPortraitFile: (characterId: string, file: File) => void;
   onClearPortrait: (characterId: string) => void;
   onDelete: (characterId: string) => void;
+  voices: string[];
   compact?: boolean;
 } & PanelControlProps) {
   return (
@@ -3343,6 +3391,39 @@ function CharacterPanel({
                   </label>
                 </div>
               </div>
+
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
+                  <Volume2 className="size-3.5" aria-hidden="true" />
+                  Голос
+                </span>
+                <select
+                  value={character.voice || ""}
+                  onChange={(event) => {
+                    onLocalChange(character.id, { voice: event.target.value });
+                    onSave({ ...character, voice: event.target.value || undefined });
+                  }}
+                  className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-200 outline-none focus:border-amber-300"
+                >
+                  <option value="">
+                    {`Авто${
+                      settings.multiVoice
+                        ? ` · ${voiceForCharacter({ voice: settings.voice, multiVoice: true }, { id: character.id }, voices)}`
+                        : ""
+                    }`}
+                  </option>
+                  {voices.map((voice) => (
+                    <option key={voice} value={voice}>
+                      {voice}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-[11px] text-stone-600">
+                  {settings.multiVoice
+                    ? "Авто — стабильный отдельный голос по персонажу. Действует при «Разные голоса персонажей»."
+                    : "Включи «Разные голоса персонажей», чтобы реплики читались этим голосом."}
+                </span>
+              </label>
 
               <div className="flex items-center gap-2">
                 <input

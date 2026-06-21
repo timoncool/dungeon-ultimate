@@ -1,14 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { safeName } from "@/lib/tts";
 
 export const runtime = "nodejs";
 
 // Max size for an uploaded clone reference clip.
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
-
-function safeName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
-}
 
 // Upload a custom voice-clone reference: a multipart .mp3 saved to
 // public/uploads/voices/<name>.mp3. The od-tts-server.py reader resolves
@@ -42,7 +39,7 @@ export async function POST(request: Request) {
   }
 
   // Build a stable, collision-resistant voice id from the original name.
-  const stem = safeName(lowerName.replace(/\.mp3$/, "")) || "voice";
+  const stem = safeName(lowerName.replace(/\.mp3$/, ""), 80) || "voice";
   const voiceId = `${stem}_${crypto.randomUUID().slice(0, 8)}`;
   const filename = `${voiceId}.mp3`;
   const uploadDir = path.join(process.cwd(), "public", "uploads", "voices");

@@ -7,9 +7,10 @@ import type { StoryCharacter, StorySettings } from "@/lib/types";
 // single voice (StorySettings.voice). This module lets a caller map dialogue to
 // per-character voices WITHOUT breaking that single-voice path:
 //
-//   • voiceForCharacter() — the voice id to read a known speaker's lines in,
-//     falling back to the narrator's single voice when the character has none
-//     or multi-voice is off.
+//   • voiceForCharacter() — the voice id to read a known speaker's lines in:
+//     the character's explicit voice, else a deterministic voice auto-assigned
+//     from the available pool, else the narrator's single voice (multi-voice off
+//     or no pool).
 //   • detectSpeaker() — best-effort attribution of a dialogue line to a saved
 //     character by name, so a future per-line player (or the TTS route, given a
 //     characterId) can choose a voice. Returns null when unsure — the caller
@@ -22,7 +23,55 @@ import type { StoryCharacter, StorySettings } from "@/lib/types";
 // No network calls and no TTS-server dependency live here: this only decides
 // WHICH voice id each chunk should use. POST /api/tts still performs synthesis,
 // one { text, voice } request at a time, so wiring any of this up is additive.
+// Keep this module free of node-only imports so the client can import it too.
 // ---------------------------------------------------------------------------
+
+// Filesystem-safe slug for a value used in a filename (TTS WAVs, uploaded
+// clones). Pure string fn shared by the tts/tts-voice routes.
+export function safeName(value: string, max = 120): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, max);
+}
+
+// Stable 32-bit hash (FNV-1a) of a string. Deterministic across runs/sessions so
+// a character always maps to the same auto-assigned voice.
+function hashString(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+// Voices a character may be auto-assigned: the available pool minus the
+// narrator's voice, so an unset character never collides with narration.
+function speakerPool(voicePool: readonly string[], narratorVoice: string): string[] {
+  const seen = new Set<string>();
+  const pool: string[] = [];
+  for (const raw of voicePool) {
+    const voice = raw.trim();
+    if (voice && voice !== narratorVoice && !seen.has(voice)) {
+      seen.add(voice);
+      pool.push(voice);
+    }
+  }
+  return pool;
+}
+
+// Deterministic voice for a character with no explicit voice set: pick from the
+// pool by a stable hash of the character id, so each character consistently
+// reads in their own distinct voice. Returns null when the pool is empty.
+export function autoVoiceForCharacter(
+  characterId: string,
+  voicePool: readonly string[],
+  narratorVoice: string,
+): string | null {
+  const pool = speakerPool(voicePool, narratorVoice);
+  if (!pool.length) {
+    return null;
+  }
+  return pool[hashString(characterId) % pool.length];
+}
 
 export type VoiceSegment = {
   text: string;
@@ -32,14 +81,22 @@ export type VoiceSegment = {
 };
 
 // The voice a specific character should be read in. Honors multi-voice only when
-// enabled and the character actually has a voice set; otherwise the single
-// narrator voice. Safe to call unconditionally.
+// enabled; then prefers the character's explicit voice, else a deterministic
+// voice auto-assigned from `voicePool`, else the single narrator voice. Safe to
+// call unconditionally.
 export function voiceForCharacter(
   settings: Pick<StorySettings, "voice" | "multiVoice">,
-  character: Pick<StoryCharacter, "voice"> | null | undefined,
+  character: Pick<StoryCharacter, "id" | "voice"> | null | undefined,
+  voicePool: readonly string[] = [],
 ): string {
-  if (settings.multiVoice && character?.voice && character.voice.trim()) {
-    return character.voice.trim();
+  if (settings.multiVoice && character) {
+    if (character.voice && character.voice.trim()) {
+      return character.voice.trim();
+    }
+    const auto = autoVoiceForCharacter(character.id, voicePool, settings.voice);
+    if (auto) {
+      return auto;
+    }
   }
   return settings.voice;
 }
@@ -111,6 +168,7 @@ export function splitDialogueSegments(
   passage: string,
   settings: Pick<StorySettings, "voice" | "multiVoice">,
   characters: Array<Pick<StoryCharacter, "id" | "name" | "voice">>,
+  voicePool: readonly string[] = [],
 ): VoiceSegment[] {
   const text = passage.trim();
   if (!text) {
@@ -163,8 +221,15 @@ export function splitDialogueSegments(
 
     const quoted = text.slice(nextOpen, closeAt + span.close.length);
     const speaker = detectSpeaker(leading, characters);
-    const voice =
-      speaker?.voice && speaker.voice.trim() ? speaker.voice.trim() : narratorVoice;
+    // Explicit voice wins, else a deterministic auto-assigned one, else narrator.
+    let voice = narratorVoice;
+    if (speaker) {
+      if (speaker.voice && speaker.voice.trim()) {
+        voice = speaker.voice.trim();
+      } else {
+        voice = autoVoiceForCharacter(speaker.id, voicePool, narratorVoice) ?? narratorVoice;
+      }
+    }
     segments.push({
       text: quoted.trim(),
       voice,
