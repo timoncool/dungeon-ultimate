@@ -174,6 +174,13 @@ where git >nul 2>&1
 if errorlevel 1 goto :no_git_backends
 if not exist "shorts-dub\shorts_dub\tts.py" git clone --depth 1 https://github.com/timoncool/shorts-dub.git shorts-dub
 if not exist "ultra-fast-image-gen\generate.py" git clone --depth 1 https://github.com/newideas99/ultra-fast-image-gen.git ultra-fast-image-gen
+REM The image backend is a flat-layout uv project (loaders.py, generate.py, ... at
+REM its root), not a pip-installable package. The image server runs generate.py with
+REM the embedded Python, which ignores PYTHONPATH and never auto-adds the script dir
+REM to sys.path -> `from loaders import ...` fails. Drop a .pth into site-packages
+REM (already on sys.path + site enabled) so the backend's modules import. This is the
+REM same mechanism `pip install -e` would use, without re-resolving its deps.
+if exist "ultra-fast-image-gen\generate.py" echo %SCRIPT_DIR%ultra-fast-image-gen> "python-image\Lib\site-packages\ultra_fast_image_gen.pth"
 goto :backends_done
 :no_git_backends
 echo [!] Git not found - install it from https://git-scm.com/downloads and re-run install.bat.
