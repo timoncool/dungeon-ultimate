@@ -290,10 +290,15 @@ export function buildStoryMessages(
     : p.labels.noCharacters;
 
   const narratorSystem = settings.narratorPrompt?.trim() || p.narrator;
-  const imageSystem = settings.imagePrompt?.trim() || IMAGE_SYSTEM;
   const antiRepetitionNudge = settings.antiRepetition
     ? buildAntiRepetitionNudge(messages, language)
     : "";
+  // Images are produced by a SEPARATE structured pass (see api/story route), never
+  // by the narrator. The local 12B otherwise leaks an invented "[IMAGE_GEN_PROMPT]
+  // ..." block or a generate_image call into the prose, so forbid it explicitly.
+  const imageDirective = settings.imageGenerationEnabled
+    ? "ИЛЛЮСТРАЦИИ к сцене создаёт ОТДЕЛЬНАЯ система, не ты. НИКОГДА не пиши промпт изображения, маркеры вида [IMAGE_GEN_PROMPT], вызовы generate_image, английские описания кадра или блоки ```json в видимом тексте. Пиши ТОЛЬКО живую прозу истории."
+    : p.imageDisabled;
 
   return [
     {
@@ -304,17 +309,12 @@ export function buildStoryMessages(
         settings.causeAwareEnding ? p.ending : "",
         settings.companion ? p.companion : "",
         antiRepetitionNudge,
-        settings.imageGenerationEnabled ? imageSystem : p.imageDisabled,
+        imageDirective,
         `${p.labels.world}:\n${settings.world || p.labels.worldFallback}`,
         `${p.labels.style}:\n${settings.style || p.labels.styleFallback}`,
         storySummary ? `${p.labels.storySoFar}:\n${storySummary}` : "",
         `${p.labels.savedCharacters}:\n${characterRoster}`,
         rpgSection,
-        settings.imageGenerationEnabled
-          ? `Параметры изображений по умолчанию: бэкенд ${settings.imageBackend}, длинная сторона ${
-              settings.imageMode === "slow" ? "2048" : "1024"
-            }, соотношение ${settings.aspect}. Не добавляй текстовые наложения на генерируемые изображения.`
-          : "",
       ]
         .filter(Boolean)
         .join("\n\n"),
@@ -358,6 +358,31 @@ export function parseStoryModelResult(raw: string): StoryModelResult {
     storyText: trimmed,
     image: { needed: false },
   };
+}
+
+// Leak guard for the SCENE narration: the local 12B sometimes ignores tool-calling
+// and instead writes the image instruction into the prose — an invented
+// "[IMAGE_GEN_PROMPT] <english>" block, a literal generate_image[...] / {...} call,
+// a {"action":"generate_image",...} object, or a ```json fence. The real image is
+// produced by the structured image pass, so strip any such artifact (always emitted
+// at/after the prose) before the passage is shown or saved.
+export function stripImageArtifacts(text: string): string {
+  return text
+    // The invented UNDERSCORE marker the model leaks and everything after it (it is
+    // always terminal). Require the underscore form so a natural "[IMAGE PROMPT]"
+    // sign/inscription in Russian prose is NOT matched and the passage not truncated.
+    .replace(/\[\s*IMAGE_GEN(?:ERATION)?_PROMPT\s*\][\s\S]*$/i, "")
+    // A literal generate_image[...] / generate_image{...} call written as its own line.
+    .replace(/(?:^|\n)\s*(?:call:)?\s*generate_image\s*[[{][\s\S]*$/i, "")
+    // A bare JSON tool object for the image call.
+    .replace(/\{\s*"action"\s*:\s*"generate_image"[\s\S]*$/i, "")
+    // A CLOSED ```lang\n…\n``` fenced block. Require BOTH delimiters and a newline
+    // after the opener so a stray/inline backtick can't delete the rest of the story.
+    .replace(/```[a-z]*\n[\s\S]*?```/gi, "")
+    // A TRAILING, unterminated ```json image payload (the leak ends the passage and
+    // carries a "prompt" key) — anchored on that so dangling backticks aren't eaten.
+    .replace(/```(?:json)?\s*\{[\s\S]*"prompt"[\s\S]*$/i, "")
+    .trim();
 }
 
 export function extractStoryText(raw: unknown): string {

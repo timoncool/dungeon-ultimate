@@ -181,6 +181,8 @@ export function applyGameUpdate(
     const target = actors.get(attack.targetId);
     // Skip if there's no valid attacker/target, or either is already dead.
     if (!attacker || attacker.rpg.dead || !target || target.rpg.dead) continue;
+    // Defense in depth: a mis-resolved attack must never land on its own attacker.
+    if (attackerId === attack.targetId) continue;
     const ability = attack.ability ?? "str";
     const score = attacker.rpg.stats[ability] ?? 10;
     const ac = target.rpg.ac ?? 10;

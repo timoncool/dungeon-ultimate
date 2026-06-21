@@ -5,6 +5,7 @@ import {
   addEvents,
   addItems,
   addMessage,
+  getActiveScene,
   getCharacterRpg,
   getCharacterRpgMap,
   getCombatants,
@@ -28,6 +29,7 @@ import {
   extractStoryText,
   finalizeScenePrompt,
   packStoryHistory,
+  stripImageArtifacts,
 } from "@/lib/story-prompt";
 import {
   DEFAULT_LOCAL_TEXT_MODEL,
@@ -40,7 +42,7 @@ import {
   PROSE_SIZE_VALUES,
   RESPONSE_LENGTH_VALUES,
 } from "@/lib/types";
-import type { Attachment, StoryCharacter, StoryMessage } from "@/lib/types";
+import type { Attachment, ImageShot, StoryCharacter, StoryMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -52,12 +54,14 @@ const MAX_IMAGE_REFERENCES = 3;
 // Of those, how many are character portraits the narrator may name — kept below
 // the total so the scene/item references always have room.
 const MAX_CHARACTER_REFERENCES = 2;
-// Run the structured rules-engine pass (a separate grammar-constrained call that
-// emits the GameUpdate JSON). OFF by default: the local 12B fills the complex
-// combat schema with garbage (invented ids), so combat rides the narrator's
-// [[GAME]] block instead. Set STRUCTURED_GAME_EVENTS=1 to enable it for a stronger
-// model — the pass is already ID-gated, so it can only ever help, never regress.
-const STRUCTURED_GAME_EVENTS = serverEnv("STRUCTURED_GAME_EVENTS", "") === "1";
+// Run the structured rules-engine pass: a SEPARATE grammar-constrained call that
+// turns the just-written narration into the mechanics JSON. ON by default — this is
+// the primary mechanics path now. The schema uses SEMANTIC actor selectors ("hero"
+// / an enemy's name), never raw ids, so the local 12B can't poison it with invented
+// UUIDs (the old failure mode); ids are resolved server-side in resolveEngineUpdate.
+// The narrator writes pure prose and no longer hand-writes a [[GAME]] block.
+// Set STRUCTURED_GAME_EVENTS=0 to fall back to narrator [[GAME]] blocks only.
+const STRUCTURED_GAME_EVENTS = serverEnv("STRUCTURED_GAME_EVENTS", "1") !== "0";
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const MAX_CONFIGURABLE_OUTPUT_TOKENS = 65_536;
 const DEFAULT_LOCAL_MAX_OUTPUT_TOKENS = 4_096;
@@ -983,24 +987,34 @@ async function summarizeEvictedPassages(
 // only declares WHAT happens), so combat no longer depends on the narrator hand-
 // writing a valid [[GAME]] block. The schema constrains the SHAPE; this prompt
 // describes the FIELDS (the schema is never shown to the model).
-const GAME_ENGINE_SYSTEM = `You are the deterministic D&D rules engine for one roleplay turn. You receive the current game state (character/enemy IDs, HP, AC) and the narration of what just happened. Output ONLY a JSON object of the mechanics this turn triggers — the engine rolls the dice and applies damage/death; you only declare WHAT happens. Output {} when the turn is purely narrative.
+const GAME_ENGINE_SYSTEM = `You are the deterministic D&D rules engine for ONE turn of a solo roleplay (one player hero, plus any enemies). You receive the current game state and the narration of what just happened. Output ONLY a JSON object describing the mechanics this turn triggers. The engine rolls every die and applies all damage/death — you only DECLARE what happens.
 
-Fields (all optional — include ONLY what the scene actually triggers):
-- rolls: ability checks the player attempts — [{"ability":"str|dex|con|int|wis|cha","dc":5..20,"label":"short","actorId":"EXACT_ID"}] (dc 5 easy, 15 medium, 20 very hard).
-- attacks: an attack on a target — [{"attackerId":"ID","targetId":"ID","ability":"str|dex|con|int|wis|cha","damage":"1d8+2","label":"short"}]. In active combat EVERY living enemy attacks the player via attacks (attackerId = enemy ID, targetId = player ID).
-- spawnEnemies: foes entering combat — [{"name":"Goblin","hp":12,"ac":13,"level":1,"stats":{"str":12,"dex":14}}].
-- hpDelta: out-of-combat damage(-) / heal(+) — [{"characterId":"ID","amount":-6,"reason":"short"}].
-- applyEffects: buffs/debuffs/poison/blessing — [{"characterId":"ID","name":"short","kind":"buff|debuff","modifiers":{"str":2},"turns":3}].
-- clearEffects: remove an effect — [{"characterId":"ID","name":"name or *"}].
-- grantItems: loot — [{"name":"short","slot":"weapon|armor|shield|trinket|consumable|misc","rarity":"common|uncommon|rare|epic|legendary","damage":"1d8","withImage":true,"imagePromptEn":"short ENGLISH visual"}].
+⛔ GROUNDING — THE MOST IMPORTANT RULE. Declare ONLY mechanics that are EXPLICITLY present in the narration you are given. Your DEFAULT output is {} (empty). Do NOT invent anything. Specifically:
+- Do NOT spawn an enemy unless the narration introduces a NEW foe by name. Use that foe's EXACT name from the prose. Never a foe that isn't in the text.
+- Do NOT add damage, an attack, or an effect that the prose does not literally describe happening. Atmosphere (sparks, shadows, tension, a crackling fire) is NOT damage.
+- Do NOT copy the placeholder names/numbers from the examples below — they are only format illustrations, never real values.
+- If the narration is purely descriptive or social with no dice-worthy risk, output exactly {}.
 
-Reference combatants ONLY by their EXACT IDs from the state. NEVER decide hit/miss/damage/death yourself — the engine does. Do not invent IDs.`;
+Refer to combatants by ROLE, never by id: the player character is always "hero"; an enemy is its exact name as written in the state / prose.
+
+Fields (all optional — include ONLY what the prose ACTUALLY shows):
+- rolls: an ability check the HERO attempts — [{"ability":"str|dex|con|int|wis|cha","dc":<5-20>,"label":"<short>"}]. Emit a roll WHENEVER the hero attempts something whose outcome is uncertain: sneaking, striking, dodging, picking a lock, persuading/intimidating, jumping, climbing, searching for traps, a saving throw. dc 5 trivial, 10 moderate, 15 hard, 20 very hard. Do NOT roll for safe trivial actions (walking, talking calmly, looking around).
+- attacks: a strike the prose describes — [{"attacker":"hero"|"<foe name>","target":"hero"|"<foe name>","ability":"<one ability>","damage":"<dice like 1dN+M>","label":"<short>"}]. Only during a fight the narration is actively depicting.
+- spawnEnemies: ONLY a foe the narration newly introduces — [{"name":"<the foe's exact name from the prose>","hp":<small int>,"ac":<10-16>,"level":<1-5>}].
+- hpDelta: damage(-)/heal(+) the prose states — [{"who":"hero"|"<foe name>","amount":<signed int>,"reason":"<short>"}].
+- applyEffects: a buff/debuff/poison/blessing the prose causes — [{"who":"hero"|"<foe name>","name":"<short>","kind":"buff|debuff","modifiers":{"<ability>":<int>},"turns":<int>}].
+- clearEffects: an effect the prose removes — [{"who":"hero"|"<foe name>","name":"<name or *>"}].
+- grantItems: loot the HERO actually gains in the prose — [{"name":"<short>","slot":"weapon|armor|shield|trinket|consumable|misc","rarity":"common|uncommon|rare|epic|legendary","damage":"<dice>","withImage":true,"imagePromptEn":"<short ENGLISH visual>"}]. Not for items the hero already owns.
+
+NEVER decide hit/miss/damage/death yourself — the engine does. Output strictly the JSON object, nothing else.`;
 
 const ABILITY_ENUM = ["str", "dex", "con", "int", "wis", "cha"];
 const NUM_RECORD = { type: "object", additionalProperties: { type: "number" } };
-// JSON-Schema mirror of gameUpdateSchema: the local server turns it into a GBNF
-// grammar so the engine pass always returns a valid GameUpdate shape.
-const GAME_UPDATE_SCHEMA = {
+// JSON-Schema for the engine pass: the local server turns it into a GBNF grammar
+// so the call always returns a valid SHAPE. Actors are named semantically ("hero"
+// or an enemy's name) — never raw ids — so the 12B can't invent UUIDs; ids are
+// resolved server-side (resolveEngineUpdate) into the real GameUpdate apply.ts wants.
+const ENGINE_RAW_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -1013,9 +1027,6 @@ const GAME_UPDATE_SCHEMA = {
           ability: { type: "string", enum: ABILITY_ENUM },
           dc: { type: "number" },
           label: { type: "string" },
-          actorId: { type: "string" },
-          kind: { type: "string", enum: ["skill", "attack", "save"] },
-          targetId: { type: "string" },
         },
         required: ["ability", "dc"],
       },
@@ -1026,13 +1037,13 @@ const GAME_UPDATE_SCHEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          attackerId: { type: "string" },
-          targetId: { type: "string" },
+          attacker: { type: "string" },
+          target: { type: "string" },
           ability: { type: "string", enum: ABILITY_ENUM },
           damage: { type: "string" },
           label: { type: "string" },
         },
-        required: ["targetId"],
+        required: ["target"],
       },
     },
     spawnEnemies: {
@@ -1056,11 +1067,11 @@ const GAME_UPDATE_SCHEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          characterId: { type: "string" },
+          who: { type: "string" },
           amount: { type: "number" },
           reason: { type: "string" },
         },
-        required: ["characterId", "amount"],
+        required: ["who", "amount"],
       },
     },
     applyEffects: {
@@ -1069,7 +1080,7 @@ const GAME_UPDATE_SCHEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          characterId: { type: "string" },
+          who: { type: "string" },
           name: { type: "string" },
           kind: { type: "string", enum: ["buff", "debuff"] },
           modifiers: NUM_RECORD,
@@ -1084,7 +1095,7 @@ const GAME_UPDATE_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        properties: { characterId: { type: "string" }, name: { type: "string" } },
+        properties: { who: { type: "string" }, name: { type: "string" } },
         required: ["name"],
       },
     },
@@ -1094,7 +1105,6 @@ const GAME_UPDATE_SCHEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          ownerId: { type: "string" },
           name: { type: "string" },
           slot: {
             type: "string",
@@ -1118,16 +1128,259 @@ const GAME_UPDATE_SCHEMA = {
   },
 };
 
-// Compact, ID-first state line for the engine pass — "use these exact IDs".
+// Compact, NAME-first state line for the engine pass: the model refers to actors
+// semantically ("hero" or an enemy's name), so no ids are exposed to it at all.
 function rpgStateForEngine(actors: ActorMap, enemies: Enemy[]): string {
   const lines: string[] = [];
-  for (const [id, actor] of actors) {
-    lines.push(`- ${actor.name} (ID ${id}): HP ${actor.rpg.hp.current}/${actor.rpg.hp.max}, AC ${actor.rpg.ac}`);
+  let first = true;
+  for (const [, actor] of actors) {
+    const tag = first ? `hero (${actor.name})` : actor.name;
+    lines.push(`- ${tag}: HP ${actor.rpg.hp.current}/${actor.rpg.hp.max}, AC ${actor.rpg.ac}`);
+    first = false;
   }
   for (const enemy of enemies) {
-    lines.push(`- ENEMY ${enemy.name} (ID ${enemy.id}): HP ${enemy.rpg.hp.current}/${enemy.rpg.hp.max}, AC ${enemy.rpg.ac}`);
+    if (enemy.rpg.dead) continue;
+    lines.push(`- enemy "${enemy.name}": HP ${enemy.rpg.hp.current}/${enemy.rpg.hp.max}, AC ${enemy.rpg.ac}`);
   }
-  return lines.length ? `CURRENT GAME STATE (use these EXACT IDs):\n${lines.join("\n")}` : "No combatants on the field yet.";
+  return lines.length
+    ? `CURRENT GAME STATE — refer to combatants by these names ("hero" or an enemy's name):\n${lines.join("\n")}`
+    : `No enemies on the field. The hero acts solo.`;
+}
+
+// The raw, semantic shape the engine pass returns (ENGINE_RAW_SCHEMA): actors are
+// named "hero" / by enemy name, never id. resolveEngineUpdate maps those to the
+// real ids the GameUpdate/apply.ts pipeline expects.
+type RawEngineUpdate = {
+  rolls?: Array<{ ability: string; dc: number; label?: string }>;
+  attacks?: Array<{
+    attacker?: string;
+    target?: string;
+    ability?: string;
+    damage?: string;
+    label?: string;
+  }>;
+  spawnEnemies?: unknown[];
+  hpDelta?: Array<{ who?: string; amount: number; reason?: string }>;
+  applyEffects?: Array<{
+    who?: string;
+    name: string;
+    kind?: string;
+    modifiers?: Record<string, number>;
+    turns?: number;
+    note?: string;
+  }>;
+  clearEffects?: Array<{ who?: string; name: string }>;
+  grantItems?: unknown[];
+  note?: string;
+};
+
+const HERO_WORDS = new Set([
+  "hero",
+  "player",
+  "protagonist",
+  "self",
+  "me",
+  "герой",
+  "игрок",
+  "протагонист",
+  "персонаж",
+  "я",
+]);
+
+const ABILITY_SET = new Set(ABILITY_ENUM);
+const SLOT_SET = new Set(["weapon", "armor", "shield", "trinket", "consumable", "misc"]);
+const RARITY_SET = new Set(["common", "uncommon", "rare", "epic", "legendary"]);
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Keep only numeric values from a model-supplied stat record, so a stray string
+// modifier ("+2") can't fail the whole-update schema validation.
+function numericRecord(rec: Record<string, unknown>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
+// Map one semantic actor reference ("hero" / a synonym / a character or enemy name)
+// to a concrete id. Living enemies win over dead ones. Exact match first; the partial
+// fallback guards against 1–2 char false positives, requires a whole-word/substring
+// hit, and prefers the LONGEST matching name so "Гоблин" never collapses onto a
+// short name. Returns undefined when nothing matches (callers DROP rather than guess).
+function resolveActorRef(
+  ref: string | undefined,
+  heroId: string | undefined,
+  heroName: string | undefined,
+  enemies: Enemy[],
+): string | undefined {
+  const r = (ref ?? "").trim().toLowerCase();
+  if (!r) return undefined;
+  if (HERO_WORDS.has(r)) return heroId;
+  if (heroName && r === heroName.toLowerCase()) return heroId;
+  const living = enemies.filter((enemy) => !enemy.rpg.dead);
+  const pools = [living, enemies];
+  for (const pool of pools) {
+    const exact = pool.find((enemy) => enemy.name.toLowerCase() === r);
+    if (exact) return exact.id;
+  }
+  if (r.length >= 2) {
+    for (const pool of pools) {
+      const candidates = pool
+        .filter((enemy) => {
+          const name = enemy.name.toLowerCase();
+          if (name.length < 3) return false; // never partial-match a 1–2 char name
+          const wholeWord = new RegExp(`(^|\\s)${escapeRegExp(name)}(\\s|$)`).test(r);
+          return wholeWord || (r.length >= 3 && name.includes(r));
+        })
+        .sort((a, b) => b.name.length - a.name.length);
+      if (candidates.length) return candidates[0].id;
+    }
+  }
+  return undefined;
+}
+
+// Turn the semantic engine output into a real-id GameUpdate. Rolls are always the
+// hero's. For attacks/effects/hp, a named actor that does NOT resolve is DROPPED (we
+// never silently redirect an enemy's hit onto the hero), and a hero-vs-hero self-hit
+// is dropped. Per-field values are validated (enum/number) so one bad field can't make
+// the whole-update schema parse fail and discard every mechanic this turn. Returns a
+// plain object validated by gameUpdateSchema in the caller.
+function resolveEngineUpdate(
+  raw: RawEngineUpdate,
+  heroId: string | undefined,
+  heroName: string | undefined,
+  enemies: Enemy[],
+): Record<string, unknown> {
+  const ref = (value: string | undefined) => resolveActorRef(value, heroId, heroName, enemies);
+  const firstEnemyId = () => (enemies.find((enemy) => !enemy.rpg.dead) ?? enemies[0])?.id;
+  // Resolve a non-attack "who": absent → the hero; a name that resolves → that actor;
+  // a name that does NOT resolve → null, signalling the caller to drop the entry
+  // rather than silently land the damage/effect on the hero.
+  const resolveWho = (who: string | undefined): string | null | undefined => {
+    const s = (who ?? "").trim();
+    if (!s) return heroId;
+    return ref(who) ?? null;
+  };
+  const out: Record<string, unknown> = {};
+
+  // Rolls are always the hero's check — skip them entirely when there is no hero
+  // character, so a check never gets mis-rolled against an enemy's stats.
+  if (raw.rolls?.length && heroId) {
+    const rolls = raw.rolls
+      .filter((roll) => ABILITY_SET.has(roll.ability))
+      .map((roll) => ({
+        ability: roll.ability,
+        dc: roll.dc,
+        ...(roll.label ? { label: roll.label } : {}),
+        actorId: heroId,
+        kind: "skill",
+      }));
+    if (rolls.length) out.rolls = rolls;
+  }
+
+  if (raw.attacks?.length) {
+    const attacks = raw.attacks
+      .map((attack) => {
+        const attackerRaw = (attack.attacker ?? "").trim();
+        let attackerId: string | undefined;
+        if (attackerRaw) {
+          attackerId = ref(attack.attacker);
+          if (!attackerId) return null; // named attacker we can't resolve → drop, don't guess
+        } else {
+          attackerId = heroId; // unnamed → the hero swings
+        }
+        let targetId = ref(attack.target);
+        if (!targetId) targetId = attackerId === heroId ? firstEnemyId() : heroId;
+        if (!targetId) return null;
+        if (attackerId && attackerId === targetId) return null; // no self-hit
+        return {
+          ...(attackerId ? { attackerId } : {}),
+          targetId,
+          ...(attack.ability && ABILITY_SET.has(attack.ability) ? { ability: attack.ability } : {}),
+          ...(attack.damage ? { damage: attack.damage } : {}),
+          ...(attack.label ? { label: attack.label } : {}),
+        };
+      })
+      .filter(Boolean);
+    if (attacks.length) out.attacks = attacks;
+  }
+
+  if (raw.hpDelta?.length) {
+    const hpDelta = raw.hpDelta
+      .map((entry) => {
+        const characterId = resolveWho(entry.who);
+        return characterId && typeof entry.amount === "number"
+          ? { characterId, amount: entry.amount, ...(entry.reason ? { reason: entry.reason } : {}) }
+          : null;
+      })
+      .filter(Boolean);
+    if (hpDelta.length) out.hpDelta = hpDelta;
+  }
+
+  if (raw.applyEffects?.length) {
+    const applyEffects = raw.applyEffects
+      .map((effect) => {
+        const characterId = resolveWho(effect.who);
+        if (characterId === null) return null; // named-but-unresolved → drop
+        const kind =
+          effect.kind === "buff" || effect.kind === "debuff" ? effect.kind : undefined;
+        return {
+          ...(characterId ? { characterId } : {}),
+          name: effect.name,
+          ...(kind ? { kind } : {}),
+          ...(effect.modifiers ? { modifiers: numericRecord(effect.modifiers) } : {}),
+          ...(typeof effect.turns === "number" ? { turns: effect.turns } : {}),
+          ...(effect.note ? { note: effect.note } : {}),
+        };
+      })
+      .filter(Boolean);
+    if (applyEffects.length) out.applyEffects = applyEffects;
+  }
+
+  if (raw.clearEffects?.length) {
+    const clearEffects = raw.clearEffects
+      .map((effect) => {
+        const characterId = resolveWho(effect.who);
+        if (characterId === null) return null;
+        return { ...(characterId ? { characterId } : {}), name: effect.name };
+      })
+      .filter(Boolean);
+    if (clearEffects.length) out.clearEffects = clearEffects;
+  }
+
+  if (raw.grantItems?.length) {
+    const grantItems = raw.grantItems
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const o = item as Record<string, unknown>;
+        const str = (k: string) => (typeof o[k] === "string" && o[k] ? (o[k] as string) : undefined);
+        const name = str("name");
+        if (!name) return null; // name is required by the schema
+        return {
+          name,
+          ...(heroId ? { ownerId: heroId } : {}),
+          ...(typeof o.slot === "string" && SLOT_SET.has(o.slot) ? { slot: o.slot } : {}),
+          ...(typeof o.rarity === "string" && RARITY_SET.has(o.rarity) ? { rarity: o.rarity } : {}),
+          ...(str("description") ? { description: str("description") } : {}),
+          ...(str("damage") ? { damage: str("damage") } : {}),
+          ...(str("imagePromptEn") ? { imagePromptEn: str("imagePromptEn") } : {}),
+          ...(o.modifiers && typeof o.modifiers === "object"
+            ? { modifiers: numericRecord(o.modifiers as Record<string, unknown>) }
+            : {}),
+          ...(typeof o.qty === "number" ? { qty: o.qty } : {}),
+          ...(typeof o.withImage === "boolean" ? { withImage: o.withImage } : {}),
+        };
+      })
+      .filter(Boolean);
+    if (grantItems.length) out.grantItems = grantItems;
+  }
+
+  if (raw.spawnEnemies?.length) out.spawnEnemies = raw.spawnEnemies;
+  if (raw.note?.trim()) out.note = raw.note; // ignore a whitespace-only note
+  return out;
 }
 
 // Run the structured rules-engine pass for this turn. Returns a validated
@@ -1150,44 +1403,190 @@ async function requestGameEvent(
       content: `Player action: ${playerInput?.trim() || "(none — narrative beat)"}\n\nWhat just happened (narration):\n${narration.slice(-3000)}\n\nOutput the mechanics JSON for this turn ({} if nothing mechanical).`,
     },
   ];
-  const result = await requestStructuredJson<unknown>({
+  const result = await requestStructuredJson<RawEngineUpdate>({
     settings,
     messages,
-    schema: GAME_UPDATE_SCHEMA,
-    temperature: 0.3,
+    schema: ENGINE_RAW_SCHEMA,
+    temperature: 0.2,
     maxTokens: 500,
     timeoutMs: 60_000,
   });
   if (!result.ok) {
     return null;
   }
-  const parsed = gameUpdateSchema.safeParse(result.data);
+  // Resolve semantic actor names -> real ids, then validate the built GameUpdate
+  // against the canonical schema (defensive: the grammar guarantees the raw shape,
+  // this guarantees the resolved shape apply.ts consumes).
+  const heroEntry = actors.entries().next().value as [string, { name: string }] | undefined;
+  const built = resolveEngineUpdate(result.data, heroEntry?.[0], heroEntry?.[1]?.name, enemies);
+  const parsed = gameUpdateSchema.safeParse(built);
   if (!parsed.success) {
     return null;
   }
   const update = parsed.data as GameUpdate;
-  const hasMechanics = Object.values(update).some((value) =>
-    Array.isArray(value) ? value.length > 0 : value !== undefined,
-  );
-  if (!hasMechanics) {
+  // A lone `note` is decoration, not mechanics — only a non-empty mechanical array
+  // counts, so a note-only result falls through (to the [[GAME]] fallback / nothing)
+  // instead of masquerading as a real update.
+  const mechKeys = [
+    "rolls",
+    "attacks",
+    "spawnEnemies",
+    "hpDelta",
+    "applyEffects",
+    "clearEffects",
+    "grantItems",
+  ] as const;
+  const hasMechanics = mechKeys.some((key) => {
+    const value = update[key];
+    return Array.isArray(value) && value.length > 0;
+  });
+  return hasMechanics ? update : null;
+}
+
+// Second-pass "cinematographer": a SEPARATE grammar-constrained call that reads the
+// finished narration and decides the ONE key image for the moment. Decoupled from
+// the prose (the narrator writes pure story now) so the local 12B can never leak an
+// invented "[IMAGE_GEN_PROMPT]" block or a half-formed generate_image tool call into
+// the passage — the image prompt is produced here, as strict JSON, in English.
+const IMAGE_PASS_SYSTEM = `You are the cinematographer for an illustrated roleplay. You receive the latest narration passage and the cast. Decide the ONE key image that best illustrates THIS moment and output it as a JSON object.
+
+- needed: true for almost every meaningful turn — give the player one vivid key image of what just happened (an action, a new place, a character beat, a reveal). false ONLY when the passage is purely meta or a trivial aside.
+- prompt: the image description, in ENGLISH (the image model only understands English), as one flowing cinematic paragraph (not a list). Cover, in rough order: subject + their key visible action/pose/expression; the setting and a few establishing details; lighting (source, direction, color, shadows); mood/atmosphere; composition & camera (framing, angle, depth); and a visual style idiom (e.g. cinematic concept art, gritty photoreal render) — never a living artist. Favor concrete observable nouns. Keep one consistent time of day and light logic.
+- For established characters do NOT use their names as visual descriptors: describe each by visible features and whether they are a man or woman (age range, build, hair, face, clothing, pose), consistent with how they were described.
+- shot: "wide", "medium", or "close".
+- location: a short, STABLE label for the physical place of the shot (e.g. "green meadow", "crypt of ash"). Reuse the exact label whenever the scene stays in that place.
+- sameLocation: true if this shot is the SAME physical place as the previously illustrated turn (so the established look is kept and only what changed changes); false on a new place, a hard cut, or a jump to a tight close-up.
+- characters: the exact NAMES of saved cast members who actually appear in this shot (0–2), or [].
+
+Output strictly the JSON object, nothing else. Never put text, letters, captions, or watermarks into the image.`;
+
+const IMAGE_PASS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    needed: { type: "boolean" },
+    prompt: { type: "string" },
+    shot: { type: "string", enum: ["wide", "medium", "close"] },
+    location: { type: "string" },
+    sameLocation: { type: "boolean" },
+    characters: { type: "array", items: { type: "string" } },
+  },
+  required: ["needed", "prompt"],
+};
+
+type ImagePassResult = {
+  prompt: string;
+  shot?: ImageShot;
+  location?: string;
+  sameLocation?: boolean;
+  characterNames: string[];
+};
+
+// Run the structured image pass over the finished narration. Returns the scene
+// image request (English prompt + continuity hints + cast names), or null for a
+// turn that should not be illustrated / on failure.
+async function requestImageRequest(
+  settings: StoryRequestSettings,
+  characters: StoryCharacter[],
+  narration: string,
+  activeLocation: string | undefined,
+): Promise<ImagePassResult | null> {
+  if (!narration.trim()) {
     return null;
   }
-  // Semantic gate (format != meaning): the local 12B sometimes fills a VALID shape
-  // with garbage — invented ids, a copied placeholder. Accept the structured update
-  // only if every id it references is a real combatant; otherwise return null so
-  // resolveRpgTurn falls back to a narrator [[GAME]] block. spawnEnemies have no id
-  // yet, so they don't gate.
-  const knownIds = new Set<string>([...actors.keys(), ...enemies.map((enemy) => enemy.id)]);
-  const referenced: Array<string | undefined> = [
-    ...(update.rolls ?? []).flatMap((roll) => [roll.actorId, roll.targetId]),
-    ...(update.attacks ?? []).flatMap((attack) => [attack.attackerId, attack.targetId]),
-    ...(update.hpDelta ?? []).map((entry) => entry.characterId),
-    ...(update.applyEffects ?? []).map((effect) => effect.characterId),
-    ...(update.clearEffects ?? []).map((effect) => effect.characterId),
-    ...(update.grantItems ?? []).map((item) => item.ownerId),
+  // Include each character's gender (folded into details as "Пол: мужской/женский")
+  // so the cinematographer draws the right person — names alone leave it guessing,
+  // and it defaults a female hero to a man.
+  const castLine = characters.length
+    ? `Cast (saved characters — depict each with the stated gender, refer to them by these exact names): ${characters
+        .map((character) => {
+          const g = /Пол:\s*мужской/i.test(character.details)
+            ? " [male]"
+            : /Пол:\s*женский/i.test(character.details)
+              ? " [female]"
+              : "";
+          return `${character.name}${g}`;
+        })
+        .join(", ")}.`
+    : "No saved characters yet.";
+  const sceneLine = activeLocation
+    ? `The previously illustrated scene was at: "${activeLocation}". If this moment is the SAME physical place, reuse that exact label and set sameLocation=true.`
+    : "No scene has been illustrated yet, so sameLocation=false.";
+  const messages = [
+    {
+      role: "system" as const,
+      content: settings.imagePrompt?.trim()
+        ? `${settings.imagePrompt.trim()}\n\n${IMAGE_PASS_SYSTEM}`
+        : IMAGE_PASS_SYSTEM,
+    },
+    {
+      role: "user" as const,
+      content: `${castLine}\n${sceneLine}\n\nNarration to illustrate:\n${narration.slice(-3000)}\n\nOutput the image JSON for this moment.`,
+    },
   ];
-  const allIdsValid = referenced.every((id) => !id || knownIds.has(id));
-  return allIdsValid ? update : null;
+  const result = await requestStructuredJson<{
+    needed?: boolean;
+    prompt?: string;
+    shot?: string;
+    location?: string;
+    sameLocation?: boolean;
+    characters?: unknown[];
+  }>({
+    settings,
+    messages,
+    schema: IMAGE_PASS_SCHEMA,
+    temperature: 0.4,
+    maxTokens: 500,
+    timeoutMs: 60_000,
+  });
+  if (!result.ok) {
+    return null;
+  }
+  const data = result.data;
+  if (!data?.needed || !data.prompt?.trim()) {
+    return null;
+  }
+  const shot: ImageShot | undefined =
+    data.shot === "wide" || data.shot === "medium" || data.shot === "close"
+      ? data.shot
+      : undefined;
+  const characterNames = Array.isArray(data.characters)
+    ? data.characters.filter((name): name is string => typeof name === "string")
+    : [];
+  return {
+    prompt: data.prompt.trim(),
+    shot,
+    location: data.location?.trim() || undefined,
+    sameLocation: typeof data.sameLocation === "boolean" ? data.sameLocation : undefined,
+    characterNames,
+  };
+}
+
+// Map the image pass's character NAMES back to saved character ids (case- and
+// substring-tolerant), capped — the pass speaks names, the reference system speaks
+// ids. The hero is folded in separately by withHeroReference at the call site.
+function resolveCharacterNames(names: string[], characters: StoryCharacter[]): string[] {
+  const ids: string[] = [];
+  for (const raw of names) {
+    const name = raw.trim().toLowerCase();
+    if (!name) continue;
+    // Exact first; the partial fallback skips ≤2-char saved names (a 1-letter name
+    // would match almost any word), requires a whole-word hit, and prefers the
+    // LONGEST candidate so "Иван" never collapses onto "И".
+    const exact = characters.find((character) => character.name.toLowerCase() === name);
+    const match =
+      exact ??
+      characters
+        .filter((character) => {
+          const cn = character.name.toLowerCase();
+          if (cn.length < 3) return false;
+          const wholeWord = new RegExp(`(^|\\s)${escapeRegExp(cn)}(\\s|$)`).test(name);
+          return wholeWord || (name.length >= 3 && cn.includes(name));
+        })
+        .sort((a, b) => b.name.length - a.name.length)[0];
+    if (match && !ids.includes(match.id)) ids.push(match.id);
+  }
+  return ids.slice(0, MAX_CHARACTER_REFERENCES);
 }
 
 // Resolve this turn's mechanics (when RPG is on): roll dice server-side, apply
@@ -1398,7 +1797,15 @@ export async function POST(request: Request) {
   const messages = characterVisionMessage
     ? [storyMessages[0], characterVisionMessage, ...storyMessages.slice(1)]
     : storyMessages;
-  const includeImageTool = body.settings.imageGenerationEnabled && body.settings.autoImages;
+  // Images are produced by the SEPARATE structured image pass (requestImageRequest)
+  // over the finished narration — the narrator call no longer carries the
+  // generate_image tool, so the local 12B can't leak a half-formed image call into
+  // the prose. `wantImage` gates the pass; the model never sees an image tool.
+  const wantImage = body.settings.imageGenerationEnabled && body.settings.autoImages;
+  // Off by default — the structured image pass handles illustration. Opt back into the
+  // native generate_image tool (e.g. for a strong tool-calling backend) via env; the
+  // tool-call parsing stays wired as the fallback so it's a real switch, not dead code.
+  const includeImageTool = serverEnv("NARRATOR_IMAGE_TOOL", "") === "1";
 
   // Streaming path: only the custom OpenAI-compatible backend advertises SSE.
   // The Ollama ("local") provider stays on the buffered path below.
@@ -1427,20 +1834,24 @@ export async function POST(request: Request) {
         const toolArgsByIndex = new Map<number, string>();
         let sawImageTool = false;
 
-        // The narrator appends the [[GAME:{...}]] mechanics block as plain text at the
-        // very end of the passage. Stream everything EXCEPT a trailing run that could be
-        // that block, so the raw JSON never flashes in the bubble (the `done` event
-        // reconciles with the cleaned content anyway). Mirrors the canonical GAME_BLOCK
-        // (parse.ts): case-insensitive, whitespace-tolerant. Anchored to end-of-string so
-        // an earlier "[[" in prose that isn't the marker is released as normal prose.
-        const TRAILING_GAME_MARKER = /\[\[\s*(?:G(?:A(?:M(?:E(?:\s*:[\s\S]*)?)?)?)?)?$/i;
+        // Hold back any trailing run that could be the START of a model artifact and
+        // stream only the safe prefix, so a raw marker never flashes in the bubble
+        // (the `done` event reconciles with the fully cleaned content anyway). Covers a
+        // [[GAME:{...}]] mechanics block, an invented [IMAGE_GEN_PROMPT]/generate_image
+        // image call, a ```json fence, and a lone trailing "[". Anchored to end-of-
+        // string so brackets earlier in real prose are released as normal text.
+        // Each branch matches only a TRUE trailing run (anchored to $): a partial
+        // [[GAME / [IMAGE marker, a `generate_image` (optionally opening a same-line
+        // [ or {), a partial ``` fence, or a lone trailing "[". The generate_image and
+        // backtick branches are bounded (no run-to-$) so a `generate_image` word or a
+        // backtick EARLIER in real prose is released as normal text, not held back.
+        const TRAILING_ARTIFACT =
+          /(?:\[\[?\s*G(?:A(?:M(?:E(?:\s*:[\s\S]*)?)?)?)?|\[\s*I(?:M(?:A(?:G(?:E[\s\S]*)?)?)?)?|(?:call:)?\s*generate_image(?:\s*[[{][^\n]*)?|`{1,3}[a-z]*|\[)$/i;
         const flushSafe = () => {
           let safeLen = storyText.length;
-          if (rpgEnabled) {
-            const cut = storyText.search(TRAILING_GAME_MARKER);
-            if (cut !== -1) {
-              safeLen = cut;
-            }
+          const cut = storyText.search(TRAILING_ARTIFACT);
+          if (cut !== -1) {
+            safeLen = cut;
           }
           if (safeLen > flushedLen) {
             controller.enqueue(sse("delta", { text: storyText.slice(flushedLen, safeLen) }));
@@ -1490,12 +1901,19 @@ export async function POST(request: Request) {
         const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
 
         try {
-        const trimmedStory = extractStoryText(storyText);
-        // Structured rules-engine pass over the finished narration (RPG only).
+        const trimmedStory = stripImageArtifacts(extractStoryText(storyText));
+        // Two structured passes over the finished narration: the RPG rules engine
+        // (events) and the cinematographer (the scene image). Run SEQUENTIALLY — the
+        // local model server is single-slot, so firing both at once just makes them
+        // collide. The narrator wrote pure prose; these add the mechanics + image.
+        const activeLocation = chatId ? getActiveScene(chatId)?.location : undefined;
         const gameUpdate =
           rpgEnabled && STRUCTURED_GAME_EVENTS
             ? await requestGameEvent(body.settings, rpgActors, rpgEnemies, body.input, trimmedStory)
             : null;
+        const imagePass = wantImage
+          ? await requestImageRequest(body.settings, characters, trimmedStory, activeLocation)
+          : null;
         const rpg = resolveRpgTurn(
           chatId,
           rpgEnabled,
@@ -1505,29 +1923,38 @@ export async function POST(request: Request) {
           body.settings.randomEvents,
           gameUpdate,
         );
-        const characterIds = withHeroReference(
-          imageToolArgs?.characterIds
-            ?.filter((id) => knownCharacterIds.has(id))
-            .slice(0, MAX_CHARACTER_REFERENCES) || [],
-        );
         const assistantMessage: StoryMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
           content: rpg.clean || "Момент повисает, ожидая твоего следующего действия.",
           createdAt: new Date().toISOString(),
-          imageRequest:
-            includeImageTool && imageToolArgs?.prompt
+          imageRequest: imagePass?.prompt
+            ? {
+                needed: true,
+                prompt: finalizeScenePrompt(imagePass.prompt, body.settings.imageStylePrefix),
+                mode: body.settings.imageMode,
+                backend: body.settings.imageBackend,
+                aspect: body.settings.aspect,
+                characterIds: withHeroReference(
+                  resolveCharacterNames(imagePass.characterNames, characters),
+                ),
+                location: imagePass.location,
+                sameLocation: imagePass.sameLocation,
+                shot: imagePass.shot,
+              }
+            : includeImageTool && imageToolArgs?.prompt
               ? {
                   needed: true,
-                  prompt: finalizeScenePrompt(
-                    imageToolArgs.prompt,
-                    body.settings.imageStylePrefix,
-                  ),
+                  prompt: finalizeScenePrompt(imageToolArgs.prompt, body.settings.imageStylePrefix),
                   mode: body.settings.imageMode,
                   backend: body.settings.imageBackend,
                   aspect: body.settings.aspect,
                   reason: imageToolArgs.reason,
-                  characterIds,
+                  characterIds: withHeroReference(
+                    imageToolArgs.characterIds
+                      ?.filter((id) => knownCharacterIds.has(id))
+                      .slice(0, MAX_CHARACTER_REFERENCES) || [],
+                  ),
                   location: imageToolArgs.location,
                   sameLocation: imageToolArgs.sameLocation,
                   shot: imageToolArgs.shot,
@@ -1588,12 +2015,19 @@ export async function POST(request: Request) {
     return error;
   }
 
-  const storyText = extractStoryText(message?.content);
-  // Structured rules-engine pass over the finished narration (RPG only).
+  const storyText = stripImageArtifacts(extractStoryText(message?.content));
+  const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
+  const activeLocation = body.chatId ? getActiveScene(body.chatId)?.location : undefined;
+  // Two structured passes over the finished narration, SEQUENTIAL (mirrors the
+  // streaming path): the single-slot model server can't serve both at once. The RPG
+  // rules engine (events) then the cinematographer (image).
   const gameUpdate =
     rpgEnabled && STRUCTURED_GAME_EVENTS
       ? await requestGameEvent(body.settings, rpgActors, rpgEnemies, body.input, storyText)
       : null;
+  const imagePass = wantImage
+    ? await requestImageRequest(body.settings, characters, storyText, activeLocation)
+    : null;
   const rpg = resolveRpgTurn(
     body.chatId,
     rpgEnabled,
@@ -1603,9 +2037,8 @@ export async function POST(request: Request) {
     body.settings.randomEvents,
     gameUpdate,
   );
-  const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
 
-  if (!storyText && !imageToolArgs) {
+  if (!storyText && !imagePass && !imageToolArgs) {
     return Response.json(
       {
         error: `${provider === "local" ? "Локальная модель" : "Сервер"}: история не получена.`,
@@ -1615,18 +2048,26 @@ export async function POST(request: Request) {
     );
   }
 
-  const characterIds = withHeroReference(
-    imageToolArgs?.characterIds
-      ?.filter((id) => knownCharacterIds.has(id))
-      .slice(0, MAX_CHARACTER_REFERENCES) || [],
-  );
   const assistantMessage: StoryMessage = {
     id: crypto.randomUUID(),
     role: "assistant",
     content: rpg.clean || "Момент повисает, ожидая твоего следующего действия.",
     createdAt: new Date().toISOString(),
-    imageRequest:
-      body.settings.imageGenerationEnabled && body.settings.autoImages && imageToolArgs?.prompt
+    imageRequest: imagePass?.prompt
+      ? {
+          needed: true,
+          prompt: finalizeScenePrompt(imagePass.prompt, body.settings.imageStylePrefix),
+          mode: body.settings.imageMode,
+          backend: body.settings.imageBackend,
+          aspect: body.settings.aspect,
+          characterIds: withHeroReference(
+            resolveCharacterNames(imagePass.characterNames, characters),
+          ),
+          location: imagePass.location,
+          sameLocation: imagePass.sameLocation,
+          shot: imagePass.shot,
+        }
+      : includeImageTool && imageToolArgs?.prompt
         ? {
             needed: true,
             prompt: finalizeScenePrompt(imageToolArgs.prompt, body.settings.imageStylePrefix),
@@ -1634,7 +2075,11 @@ export async function POST(request: Request) {
             backend: body.settings.imageBackend,
             aspect: body.settings.aspect,
             reason: imageToolArgs.reason,
-            characterIds,
+            characterIds: withHeroReference(
+              imageToolArgs.characterIds
+                ?.filter((id) => knownCharacterIds.has(id))
+                .slice(0, MAX_CHARACTER_REFERENCES) || [],
+            ),
             location: imageToolArgs.location,
             sameLocation: imageToolArgs.sameLocation,
             shot: imageToolArgs.shot,

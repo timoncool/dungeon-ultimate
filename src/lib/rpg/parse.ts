@@ -117,12 +117,20 @@ function mergeUpdates(a: GameUpdate, b: GameUpdate): GameUpdate {
   return merged;
 }
 
+// Bulletproof leak guard: a [[GAME ...]] block is ALWAYS terminal, so strip
+// everything from the first such marker to end-of-string — well-formed, malformed,
+// or a stray bracket the precise GAME_BLOCK regex couldn't match. Normal prose
+// never contains "[[GAME", so this can't eat real story text.
+const GAME_TAIL = /\[\[\s*GAME\b[\s\S]*$/i;
+
 export function extractGameUpdate(text: string): { clean: string; update: GameUpdate | null } {
   const matches = [...text.matchAll(GAME_BLOCK)];
   if (matches.length === 0) {
-    return { clean: text, update: null };
+    // No well-formed block to parse, but a malformed/partial marker may still be
+    // present — strip it so raw "[[GAME..." never reaches the reader.
+    return { clean: text.replace(GAME_TAIL, "").trim(), update: null };
   }
-  const clean = text.replace(GAME_BLOCK, "").trim();
+  const clean = text.replace(GAME_TAIL, "").trim();
   let update: GameUpdate | null = null;
   // A local 12B model often repeats the same block verbatim; merging it twice
   // would double every mechanic. Skip blocks whose raw JSON we've already seen,

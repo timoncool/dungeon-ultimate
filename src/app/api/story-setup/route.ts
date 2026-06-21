@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 
 const requestSchema = z.object({
   setting: z.string().max(4000).default(""),
+  gender: z.enum(["male", "female", "unspecified"]).default("unspecified"),
   settings: z
     .object({
       customBaseUrl: z.string().trim().max(500).default(""),
@@ -38,6 +39,12 @@ export async function POST(request: Request) {
   }
   const body = parsed.data;
   const lang = LANGUAGE_PROMPT_NAMES[body.settings.language];
+  const genderLine =
+    body.gender === "male"
+      ? "\n\nПротагонист — МУЖЧИНА: имя и формулировки роли должны быть мужского рода."
+      : body.gender === "female"
+        ? "\n\nПротагонист — ЖЕНЩИНА: имя и формулировки роли должны быть женского рода."
+        : "";
   const messages = [
     {
       role: "system" as const,
@@ -45,7 +52,7 @@ export async function POST(request: Request) {
     },
     {
       role: "user" as const,
-      content: `Сеттинг: ${body.setting || "(свободный)"}\n\nПридумай протагониста и зацепку первой сцены. Верни JSON-объект {"name":"<имя, 1–3 слова>","persona":"<кто это: роль/занятие + одна зацепка, 3–8 слов>","hint":"<короткая затравка первой сцены, 1 фраза>"}.`,
+      content: `Сеттинг: ${body.setting || "(свободный)"}${genderLine}\n\nПридумай протагониста и зацепку первой сцены. Верни JSON-объект {"name":"<имя, 1–3 слова>","persona":"<кто это: роль/занятие + одна зацепка, 3–8 слов>","hint":"<короткая затравка первой сцены, 1 фраза>"}.`,
     },
   ];
   const result = await requestStructuredJson<{ name?: string; persona?: string; hint?: string }>({
@@ -53,7 +60,9 @@ export async function POST(request: Request) {
     messages,
     schema: SETUP_SCHEMA,
     temperature: 0.95,
-    maxTokens: 220,
+    // 220 was too tight — the hint sentence got cut mid-word. The schema caps each
+    // field's length anyway, so give the grammar room to finish all three.
+    maxTokens: 600,
     timeoutMs: 45_000,
   });
   if (!result.ok) {
