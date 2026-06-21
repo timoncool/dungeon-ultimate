@@ -6,5 +6,5 @@
 // This is the shared primitive: the book reader uses it as-is; the TTS path wraps
 // it with whitespace-collapsing + short-fragment merging (see splitForSpeech).
 export function splitSentences(text: string): string[] {
-  return text.match(/[^.!?…]+[.!?…]*\s*/g) ?? (text ? [text] : []);
+  return text.match(/[^.!?…]+[.!?…]*["”»)]*\s*/g) ?? (text ? [text] : []);
 }

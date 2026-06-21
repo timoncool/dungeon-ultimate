@@ -277,6 +277,16 @@ function makeId() {
     .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
+// Short stable hash of a string (FNV-1a, base36) for content-aware cache keys.
+function hashText(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -445,7 +455,7 @@ export default function Home() {
   // Only the hero's OWN loot — companion/enemy-owned drops must never show in the
   // hero's satchel or offer an equip toggle the engine would ignore.
   const heroItems = useMemo(
-    () => items.filter((item) => item.ownerId === (heroId ?? undefined)),
+    () => items.filter((item) => !item.ownerId || item.ownerId === heroId),
     [items, heroId],
   );
   // Derive (base + equipped) once for both the sheet and the HUD instead of each
@@ -1195,7 +1205,10 @@ export default function Home() {
     chunkText: string,
     voice: string,
   ): Promise<string | null> {
-    const key = `${messageId}__c${chunkIndex}__${voice}`;
+    // Fold a content hash of the chunk into the key so toggling multi-voice or
+    // re-splitting changed text never replays stale audio. Keep the `<id>__c<i>`
+    // prefix intact so saveEdit's prefix-clear still drops this message's chunks.
+    const key = `${messageId}__c${chunkIndex}__${voice}__${hashText(chunkText)}`;
     const cached = audioCacheRef.current.get(key);
     if (cached) return cached;
     try {
@@ -1394,6 +1407,7 @@ export default function Home() {
             id?: string;
             content?: string;
             error?: string;
+            persisted?: boolean;
             imageRequest?: StoryMessage["imageRequest"];
             events?: GameEvent[];
           };
@@ -1407,10 +1421,11 @@ export default function Home() {
           } else if (eventName === "error") {
             streamErrorMessage = data.error || "Поток истории прервался.";
             done = true;
-            // The server errored without persisting the passage, so drop the partial
-            // bubble we built from deltas — otherwise it lingers until a reload (which
-            // restores from the DB) makes it vanish, desyncing the UI from storage.
-            if (streamMessageId) {
+            // Drop the partial bubble ONLY when the server did NOT persist the turn —
+            // otherwise it lingers until a reload makes it vanish, desyncing the UI.
+            // On a persisted post-stream failure the turn IS saved, so keep the bubble
+            // (a reload would restore it); dropping it would desync the other way.
+            if (streamMessageId && !data.persisted) {
               const orphanId = streamMessageId;
               setMessages((current) => current.filter((message) => message.id !== orphanId));
               streamMessageId = "";
@@ -2064,7 +2079,7 @@ export default function Home() {
             <aside className="hidden min-h-0 flex-col gap-3 overflow-y-auto pr-1 lg:flex">
               <CharacterSheet
                 hero={heroRpg}
-                derived={heroDerived ?? deriveForOwner(heroRpg, heroItems, heroId ?? undefined)}
+                derived={heroDerived!}
                 name={heroChar?.name || "Герой"}
                 portrait={heroChar?.portrait}
                 items={heroItems}
@@ -3408,7 +3423,7 @@ function CharacterPanel({
                   <option value="">
                     {`Авто${
                       settings.multiVoice
-                        ? ` · ${voiceForCharacter({ voice: settings.voice, multiVoice: true }, { id: character.id }, voices)}`
+                        ? ` · ${voiceForCharacter({ voice: settings.voice, multiVoice: true }, { id: character.id }, voices, characters)}`
                         : ""
                     }`}
                   </option>

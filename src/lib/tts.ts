@@ -58,11 +58,25 @@ function speakerPool(voicePool: readonly string[], narratorVoice: string): strin
   return pool;
 }
 
-// Deterministic voice for a character with no explicit voice set: pick from the
-// pool by a stable hash of the character id, so each character consistently
-// reads in their own distinct voice. Returns null when the pool is empty.
-export function autoVoiceForCharacter(
+// A character's stable position among its chat's characters, sorted by id so it
+// is deterministic across sessions. Drives distinct auto-voice assignment.
+// Falls back to a stable hash when the character isn't in the list (e.g. preview
+// before persist), so the result is always a valid non-negative index.
+export function sortedCharacterIndex(
   characterId: string,
+  characters: ReadonlyArray<Pick<StoryCharacter, "id">>,
+): number {
+  const ids = characters.map((c) => c.id).sort();
+  const at = ids.indexOf(characterId);
+  return at === -1 ? hashString(characterId) : at;
+}
+
+// Deterministic voice for a character with no explicit voice set: pick from the
+// pool by the character's stable index, so the first pool.length characters get
+// DISTINCT voices (only wrapping/colliding once the pool is exhausted). Returns
+// null when the pool is empty.
+export function autoVoiceForCharacter(
+  index: number,
   voicePool: readonly string[],
   narratorVoice: string,
 ): string | null {
@@ -70,7 +84,7 @@ export function autoVoiceForCharacter(
   if (!pool.length) {
     return null;
   }
-  return pool[hashString(characterId) % pool.length];
+  return pool[index % pool.length];
 }
 
 export type VoiceSegment = {
@@ -81,19 +95,23 @@ export type VoiceSegment = {
 };
 
 // The voice a specific character should be read in. Honors multi-voice only when
-// enabled; then prefers the character's explicit voice, else a deterministic
-// voice auto-assigned from `voicePool`, else the single narrator voice. Safe to
+// enabled; then prefers the character's explicit voice, else a distinct voice
+// auto-assigned from `voicePool` by the character's position in `characters`,
+// else the single narrator voice. Pass the full character list for distinct
+// assignment; omit it and auto-assignment falls back to a stable hash. Safe to
 // call unconditionally.
 export function voiceForCharacter(
   settings: Pick<StorySettings, "voice" | "multiVoice">,
   character: Pick<StoryCharacter, "id" | "voice"> | null | undefined,
   voicePool: readonly string[] = [],
+  characters: ReadonlyArray<Pick<StoryCharacter, "id">> = [],
 ): string {
   if (settings.multiVoice && character) {
     if (character.voice && character.voice.trim()) {
       return character.voice.trim();
     }
-    const auto = autoVoiceForCharacter(character.id, voicePool, settings.voice);
+    const index = sortedCharacterIndex(character.id, characters);
+    const auto = autoVoiceForCharacter(index, voicePool, settings.voice);
     if (auto) {
       return auto;
     }
@@ -121,8 +139,8 @@ function charactersByName(
 // substring with a length floor (JS \b is unreliable outside ASCII). Mirrors the
 // matching rule already used for item names in the images route.
 function mentionsName(haystackLower: string, nameLower: string): boolean {
-  // Floor kept at <3 to match the images-route copy (same input → same result).
-  if (nameLower.length < 3) {
+  // Floor at <2 so 2-letter character names still attribute.
+  if (nameLower.length < 2) {
     return false;
   }
   if (/^[\x00-\x7f]+$/.test(nameLower)) {
@@ -221,15 +239,9 @@ export function splitDialogueSegments(
 
     const quoted = text.slice(nextOpen, closeAt + span.close.length);
     const speaker = detectSpeaker(leading, characters);
-    // Explicit voice wins, else a deterministic auto-assigned one, else narrator.
-    let voice = narratorVoice;
-    if (speaker) {
-      if (speaker.voice && speaker.voice.trim()) {
-        voice = speaker.voice.trim();
-      } else {
-        voice = autoVoiceForCharacter(speaker.id, voicePool, narratorVoice) ?? narratorVoice;
-      }
-    }
+    // Explicit voice wins, else a distinct auto-assigned one, else narrator —
+    // the shared ladder, with the full list so auto-assignment stays distinct.
+    const voice = voiceForCharacter(settings, speaker, voicePool, characters);
     segments.push({
       text: quoted.trim(),
       voice,
@@ -239,11 +251,40 @@ export function splitDialogueSegments(
     cursor = closeAt + span.close.length;
   }
 
+  // Fold tiny narration fragments (a lone speaker tag / ":" / "." — under 14
+  // chars or punctuation-only) into a neighbor, so none is synthesized as its
+  // own 1-2 word clip. Attach to the previous segment when there is one, else
+  // buffer it as a prefix for the next.
+  const isTinyNarration = (segment: VoiceSegment) =>
+    segment.characterId === null &&
+    (segment.text.length < 14 || /^[\s\p{P}\p{S}]+$/u.test(segment.text));
+  const merged: VoiceSegment[] = [];
+  let pending = "";
+  for (const segment of segments) {
+    if (isTinyNarration(segment)) {
+      const last = merged[merged.length - 1];
+      if (last) {
+        last.text = `${last.text} ${segment.text}`.trim();
+      } else {
+        pending = `${pending} ${segment.text}`.trim();
+      }
+      continue;
+    }
+    merged.push(
+      pending ? { ...segment, text: `${pending} ${segment.text}`.trim() } : segment,
+    );
+    pending = "";
+  }
+  // A leftover prefix means every segment was tiny narration — keep it as one.
+  if (pending && !merged.length) {
+    merged.push({ text: pending, voice: narratorVoice, characterId: null });
+  }
+
   // Collapse to the single-voice contract if nothing actually got a distinct
   // voice — keeps callers that expect one segment on the happy path.
-  if (segments.every((segment) => segment.voice === narratorVoice)) {
+  if (merged.every((segment) => segment.voice === narratorVoice)) {
     return [{ text, voice: narratorVoice, characterId: null }];
   }
 
-  return segments.length ? segments : [{ text, voice: narratorVoice, characterId: null }];
+  return merged.length ? merged : [{ text, voice: narratorVoice, characterId: null }];
 }

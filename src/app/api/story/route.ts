@@ -1278,12 +1278,16 @@ export async function POST(request: Request) {
         } catch (resolveError) {
           // Dice/DB/persistence AFTER the stream read must not hang the client:
           // emit an error event and close instead of rejecting start() with no `done`.
+          // RPG state (and possibly the assistant message) is already persisted by
+          // this point, so flag it: the client must KEEP its bubble to stay in sync
+          // with what a reload would restore.
           controller.enqueue(
             sse("error", {
               error:
                 resolveError instanceof Error
                   ? resolveError.message
                   : "Не удалось завершить ход.",
+              persisted: true,
             }),
           );
           controller.close();

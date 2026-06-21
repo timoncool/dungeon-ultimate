@@ -124,7 +124,14 @@ export function extractGameUpdate(text: string): { clean: string; update: GameUp
   }
   const clean = text.replace(GAME_BLOCK, "").trim();
   let update: GameUpdate | null = null;
+  // A local 12B model often repeats the same block verbatim; merging it twice
+  // would double every mechanic. Skip blocks whose raw JSON we've already seen,
+  // while still merging genuinely-distinct ones.
+  const seen = new Set<string>();
   for (const match of matches) {
+    const raw = match[1].trim();
+    if (seen.has(raw)) continue;
+    seen.add(raw);
     let parsedJson: unknown;
     try {
       parsedJson = JSON.parse(match[1]);
