@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { customChatEndpoint } from "@/lib/llm";
 import { serverEnv } from "@/lib/server-env";
 
 export const runtime = "nodejs";
@@ -20,13 +21,6 @@ const requestSchema = z.object({
     })
     .default({ customBaseUrl: "", customModel: "", customApiKey: "" }),
 });
-
-function customChatEndpoint(baseUrl: string): string {
-  const url = baseUrl.trim().replace(/\/+$/, "");
-  if (/\/chat\/completions$/.test(url)) return url;
-  if (/\/v\d+$/.test(url)) return `${url}/chat/completions`;
-  return `${url}/v1/chat/completions`;
-}
 
 // Parse "emoji | action text" lines (lenient: also accepts plain lines and
 // numbered/bulleted lists). Returns up to four {emoji,label} actions.

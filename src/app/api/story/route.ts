@@ -21,6 +21,7 @@ import { applyGameUpdate, type ActorMap } from "@/lib/rpg/apply";
 import { extractGameUpdate } from "@/lib/rpg/parse";
 import { buildRpgSection } from "@/lib/rpg/prompt";
 import type { Enemy, GameEvent, RpgSnapshot } from "@/lib/rpg/types";
+import { customChatEndpoint } from "@/lib/llm";
 import { serverEnv } from "@/lib/server-env";
 import {
   buildStoryMessages,
@@ -423,16 +424,6 @@ function toOllamaMessages(messages: OpenRouterMessage[]): OllamaChatMessage[] {
       ...(images.length ? { images } : {}),
     };
   });
-}
-
-// Resolve a user-entered backend URL to its /chat/completions endpoint.
-// Accepts a bare host (http://127.0.0.1:8080), a versioned base (.../v1), or
-// the full endpoint, so people can paste whatever their server prints.
-function customChatEndpoint(baseUrl: string): string {
-  const url = baseUrl.trim().replace(/\/+$/, "");
-  if (/\/chat\/completions$/.test(url)) return url;
-  if (/\/v\d+$/.test(url)) return `${url}/chat/completions`;
-  return `${url}/v1/chat/completions`;
 }
 
 // Any OpenAI-compatible server: llama.cpp, LM Studio, vLLM, TabbyAPI,

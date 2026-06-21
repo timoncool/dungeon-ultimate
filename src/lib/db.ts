@@ -1252,3 +1252,14 @@ export function listItems(chatId: string): Item[] {
     .map((row) => parseJson<unknown>(row.data_json, undefined) as Item | undefined)
     .filter((item): item is Item => Boolean(item));
 }
+
+export function getItem(chatId: string, itemId: string): Item | null {
+  const db = getDatabase();
+  const row = db
+    .prepare("SELECT data_json FROM items WHERE chat_id = ? AND id = ?")
+    .get(chatId, itemId) as { data_json: string } | undefined;
+  if (!row) {
+    return null;
+  }
+  return (parseJson<unknown>(row.data_json, undefined) as Item | undefined) ?? null;
+}

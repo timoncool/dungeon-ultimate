@@ -1,11 +1,10 @@
 import {
   getChat,
-  listItems,
+  getItem,
   setItemImage,
 } from "@/lib/db";
-import { serverEnv } from "@/lib/server-env";
+import { callFluxWorker, resolveImageBackend } from "@/lib/flux-worker";
 import { applyImageStylePrefix, dimensionsForImage } from "@/lib/story-prompt";
-import type { GeneratedImage } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +57,7 @@ export async function POST(request: Request, context: ItemImageRouteContext) {
   if (!chat) {
     return Response.json({ error: "Chat not found." }, { status: 404 });
   }
-  const item = listItems(chatId).find((entry) => entry.id === itemId);
+  const item = getItem(chatId, itemId);
   if (!item) {
     return Response.json({ error: "Item not found." }, { status: 404 });
   }
@@ -84,55 +83,24 @@ export async function POST(request: Request, context: ItemImageRouteContext) {
     itemPortraitPrompt(item.name, item.imagePromptEn || item.description, item.rarity, item.slot);
   const prompt = applyImageStylePrefix(basePrompt, settings.imageStylePrefix ?? "");
 
-  const workerUrl = serverEnv("FLUX_WORKER_URL", "http://127.0.0.1:7869");
   const dimensions = dimensionsForImage(settings.imageMode, "square");
-  const defaultBackend = serverEnv("IMAGE_SERVER_DEFAULT_BACKEND", "flux-uncensored");
-  const requested = settings.imageBackend;
-  const backend =
-    requested === "mflux-hs" || requested === "sdnq-hs" ? defaultBackend : requested;
 
-  try {
-    const upstream = await fetch(`${workerUrl.replace(/\/$/, "")}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt,
-        mode: settings.imageMode,
-        backend,
-        aspect: "square",
-        width: dimensions.width,
-        height: dimensions.height,
-        // steps/guidance are honored only by the Apple-Silicon mflux path; the
-        // Windows/Linux full-step backends (flux-uncensored, sdnq-hs) force
-        // steps>=12 and guidance=3.5 in the worker, so these are inert there.
-        steps: 4,
-        guidance: 0.0,
-        references: [],
-      }),
-    });
-
-    if (!upstream.ok) {
-      const detail = await upstream.text();
-      return Response.json(
-        { error: `Flux worker failed (${upstream.status}).`, detail: detail.slice(0, 1000) },
-        { status: 502 },
-      );
-    }
-
-    const generatedImage = (await upstream.json()) as GeneratedImage;
-    const updated = generatedImage?.url
-      ? setItemImage(chatId, { id: itemId }, generatedImage.url, { overwrite: true })
-      : null;
-    return Response.json({ item: updated ?? item, image: generatedImage });
-  } catch (error) {
-    return Response.json(
-      {
-        error: "Flux worker is not running.",
-        detail: error instanceof Error ? error.message : String(error),
-        expected:
-          "Откройте Images и нажмите Start, или запустите npm run image:server из папки Open Dungeon.",
-      },
-      { status: 503 },
-    );
+  const result = await callFluxWorker({
+    prompt,
+    mode: settings.imageMode,
+    backend: resolveImageBackend(settings.imageBackend),
+    aspect: "square",
+    width: dimensions.width,
+    height: dimensions.height,
+    references: [],
+  });
+  if (!result.ok) {
+    return result.response;
   }
+
+  const generatedImage = result.image;
+  const updated = generatedImage?.url
+    ? setItemImage(chatId, { id: itemId }, generatedImage.url, { overwrite: true })
+    : null;
+  return Response.json({ item: updated ?? item, image: generatedImage });
 }

@@ -10,10 +10,10 @@ import {
   setItemImage,
   updateMessageGeneratedImage,
 } from "@/lib/db";
-import { serverEnv } from "@/lib/server-env";
+import { callFluxWorker, resolveImageBackend } from "@/lib/flux-worker";
 import { dimensionsForImage } from "@/lib/story-prompt";
 import type { Item } from "@/lib/rpg/types";
-import type { Attachment, GeneratedImage } from "@/lib/types";
+import type { Attachment } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -201,85 +201,55 @@ export async function POST(request: Request) {
   }
 
   const boundedReferences = references.slice(0, MAX_IMAGE_REFERENCES);
-  const workerUrl = serverEnv("FLUX_WORKER_URL", "http://127.0.0.1:7869");
   const dimensions = dimensionsForImage(body.mode, body.aspect);
-  // MFLUX is Apple-Silicon only; on Windows/Linux use the uncensored FLUX.2-klein CUDA backend.
-  // Both the Mac default (mflux-hs) and the stock censored SDNQ (sdnq-hs) resolve to it so this
-  // NSFW app always runs the uncensored text encoder unless flux-uncensored is sent explicitly.
-  const defaultBackend = serverEnv("IMAGE_SERVER_DEFAULT_BACKEND", "flux-uncensored");
-  const backend =
-    body.backend === "mflux-hs" || body.backend === "sdnq-hs" ? defaultBackend : body.backend;
 
-  try {
-    const upstream = await fetch(`${workerUrl.replace(/\/$/, "")}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: body.prompt,
-        mode: body.mode,
-        backend,
-        aspect: body.aspect,
-        width: dimensions.width,
-        height: dimensions.height,
-        steps: 4,
-        guidance: 0.0,
-        seed: body.seed,
-        references: boundedReferences.map((reference) => ({
-          name: reference.name,
-          dataUrl: reference.dataUrl,
-          url: reference.url,
-        })),
-      }),
-    });
-
-    if (!upstream.ok) {
-      const detail = await upstream.text();
-      return Response.json(
-        { error: `Flux worker failed (${upstream.status}).`, detail: detail.slice(0, 1000) },
-        { status: 502 },
-      );
-    }
-
-    const generatedImage = (await upstream.json()) as GeneratedImage;
-
-    if (body.messageId) {
-      updateMessageGeneratedImage(body.messageId, generatedImage);
-    }
-
-    // Persist this scene as the hero's evolving reference, and tag any recurring
-    // named item with its portrait, so the next generation reuses both. Purely
-    // additive bookkeeping — never block returning the image on it.
-    if (chatId && generatedImage?.url) {
-      if (heroInScene && hero) {
-        try {
-          setCharacterReference(chatId, hero.id, {
-            id: generatedImage.id || `ref-${hero.id}`,
-            name: `${hero.name} (scene reference)`,
-            type: "image/png",
-            url: generatedImage.url,
-          });
-        } catch {
-          // ignore — reference refresh is best-effort
-        }
-      }
-      for (const item of mentionedItems) {
-        try {
-          setItemImage(chatId, { name: item.name.trim() }, generatedImage.url);
-        } catch {
-          // ignore — item image tagging is best-effort
-        }
-      }
-    }
-
-    return Response.json(generatedImage);
-  } catch (error) {
-    return Response.json(
-      {
-        error: "Flux worker is not running.",
-        detail: error instanceof Error ? error.message : String(error),
-        expected: "Откройте Images и нажмите Start, или запустите npm run image:server из папки Open Dungeon.",
-      },
-      { status: 503 },
-    );
+  const result = await callFluxWorker({
+    prompt: body.prompt,
+    mode: body.mode,
+    backend: resolveImageBackend(body.backend),
+    aspect: body.aspect,
+    width: dimensions.width,
+    height: dimensions.height,
+    seed: body.seed,
+    references: boundedReferences.map((reference) => ({
+      name: reference.name,
+      dataUrl: reference.dataUrl,
+      url: reference.url,
+    })),
+  });
+  if (!result.ok) {
+    return result.response;
   }
+  const generatedImage = result.image;
+
+  if (body.messageId) {
+    updateMessageGeneratedImage(body.messageId, generatedImage);
+  }
+
+  // Persist this scene as the hero's evolving reference, and tag any recurring
+  // named item with its portrait, so the next generation reuses both. Purely
+  // additive bookkeeping — never block returning the image on it.
+  if (chatId && generatedImage?.url) {
+    if (heroInScene && hero) {
+      try {
+        setCharacterReference(chatId, hero.id, {
+          id: generatedImage.id || `ref-${hero.id}`,
+          name: `${hero.name} (scene reference)`,
+          type: "image/png",
+          url: generatedImage.url,
+        });
+      } catch {
+        // ignore — reference refresh is best-effort
+      }
+    }
+    for (const item of mentionedItems) {
+      try {
+        setItemImage(chatId, { name: item.name.trim() }, generatedImage.url);
+      } catch {
+        // ignore — item image tagging is best-effort
+      }
+    }
+  }
+
+  return Response.json(generatedImage);
 }
