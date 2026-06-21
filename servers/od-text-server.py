@@ -36,18 +36,27 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _BUNDLED_MT = os.path.join(_HERE, "models", "mt")        # <repo>/servers/models/mt
 _DEV_DEFAULT_MT = r"D:\Projects\TEMP\shorts-dub\models\mt"  # original dev box only
 _MT = os.environ.get("OD_MODELS_DIR") or (
-    _BUNDLED_MT if os.path.isdir(_BUNDLED_MT) else _DEV_DEFAULT_MT
+    # Prefer the original dev-box weights when they're actually on disk (no re-download
+    # on that machine); otherwise the bundled portable folder, which the GGUFs
+    # auto-download into on first run.
+    _DEV_DEFAULT_MT if os.path.isdir(_DEV_DEFAULT_MT) else _BUNDLED_MT
 )
 
-# id -> metadata. Both are Gemma 4 12B → same chat handler.
+# id -> metadata. Both are Gemma 4 12B → same chat handler. `repo` is the Hugging
+# Face source each GGUF auto-downloads from on first use (portable: no manual weight
+# provisioning). The default (uncensored) repo is ungated and works out of the box;
+# the standard QAT lives in Google's gated repo, so it downloads only when the user
+# has accepted its license / set an HF token — the app still runs on the uncensored.
 MODELS = {
     "gemma-4-12b-it-qat": {
         "label": "Gemma 4 12B — обычная",
+        "repo": "google/gemma-4-12B-it-qat-q4_0-gguf",
         "gguf": os.path.join(_MT, "gemma-4-12b-it-qat-q4_0.gguf"),
         "mmproj": os.path.join(_MT, "mmproj-gemma-4-12b-it-qat-q4_0.gguf"),
     },
     "gemma-4-12b-uncensored": {
         "label": "Gemma 4 12B — Uncensored (NSFW)",
+        "repo": "zaakirio/gemma-4-12b-it-uncensored-GGUF",
         "gguf": os.path.join(_MT, "unc", "gemma-4-12b-it-uncensored-Q4_K_M.gguf"),
         "mmproj": os.path.join(_MT, "unc", "mmproj-gemma-4-12B-it-bf16.gguf"),
     },
@@ -62,6 +71,27 @@ _lock = threading.Lock()  # protects model load + create_chat_completion (not th
 _llm = None
 _handler = None
 _current_id = None
+
+
+def _ensure_weights(spec):
+    """Portable auto-download: fetch the GGUF + its mmproj from Hugging Face on first
+    use if they aren't already on disk, so the user never has to provision weights by
+    hand. Files land in the bundled servers/models/mt tree. A failure (e.g. a gated
+    repo with no token) is logged and re-raised so the caller can fall back."""
+    repo = spec.get("repo")
+    if not repo:
+        return
+    from huggingface_hub import hf_hub_download
+
+    for key in ("gguf", "mmproj"):
+        target = spec[key]
+        if os.path.isfile(target):
+            continue
+        dest_dir = os.path.dirname(target)
+        os.makedirs(dest_dir, exist_ok=True)
+        fname = os.path.basename(target)
+        print(f"[od-text-server] downloading {fname} from {repo} (first run)...", flush=True)
+        hf_hub_download(repo_id=repo, filename=fname, local_dir=dest_dir)
 
 
 def _load(model_id):
@@ -85,6 +115,17 @@ def _load(model_id):
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
     spec = MODELS[model_id]
+    try:
+        _ensure_weights(spec)
+    except Exception as err:
+        # A gated/unavailable model can't be fetched — fall back to the default
+        # (ungated, uncensored) so the app still runs out of the box on first launch.
+        print(f"[od-text-server] {model_id} weights unavailable ({err}); "
+              f"falling back to {DEFAULT_ID}", flush=True)
+        if model_id != DEFAULT_ID:
+            model_id = DEFAULT_ID
+            spec = MODELS[model_id]
+            _ensure_weights(spec)
     print(f"[od-text-server] loading {model_id} ({spec['label']})...", flush=True)
     _handler = Gemma4ChatHandler(clip_model_path=spec["mmproj"], enable_thinking=False)
     _llm = Llama(

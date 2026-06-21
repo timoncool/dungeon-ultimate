@@ -8,6 +8,8 @@
 
 # Портативный Python (embed + venv CUDA llama-cpp-python для текст-сервера)
 /python/
+/python-text/
+/python-image/
 /python311._pth
 cuda_version.txt
 *.venv/
@@ -30,8 +32,13 @@ cuda_version.txt
 /public/generated
 /public/uploads
 
-# Встроенный клон image-воркера (ultra-fast-image-gen) — нестится внутрь папки
+# Встроенные клоны бэкендов (image-воркер + TTS-движок) — install.bat клонит внутрь
 /ultra-fast-image-gen/
+/shorts-dub/
+
+# Сессионные артефакты ассистента / тестовые логи
+/.claude/
+/stub.log
 
 # ─────────────────────────────────────────────────────────────
 #  Node / Next.js

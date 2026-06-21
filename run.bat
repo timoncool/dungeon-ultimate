@@ -29,11 +29,14 @@ REM shorts-dub venv so the original dev box still runs unchanged.
 if not exist "%TEXT_VENV%"  if exist "D:\Projects\TEMP\shorts-dub\.venv\Scripts\python.exe" set "TEXT_VENV=D:\Projects\TEMP\shorts-dub\.venv\Scripts\python.exe"
 if not exist "%IMAGE_VENV%" if exist "D:\ultra-fast-image-gen\.venv\Scripts\python.exe"   set "IMAGE_VENV=D:\ultra-fast-image-gen\.venv\Scripts\python.exe"
 
-REM === Image backend location (ultra-fast-image-gen — external, user-provided) ===
+REM === Image backend (ultra-fast-image-gen — auto-cloned into this folder by
+REM     install.bat; the dev-box path is only a last-resort fallback) ===
+if not defined ULTRA_DIR if exist "%APP_DIR%ultra-fast-image-gen\generate.py" set "ULTRA_DIR=%APP_DIR%ultra-fast-image-gen"
 if not defined ULTRA_DIR set "ULTRA_DIR=D:\ultra-fast-image-gen"
 
-REM === shorts-dub checkout (provides the Qwen3-TTS engine for od-tts-server) ===
-REM Read by od-tts-server.py. Point at your shorts-dub clone if not the default.
+REM === shorts-dub checkout (Qwen3-TTS engine for od-tts-server — auto-cloned by
+REM     install.bat; dev-box path is the fallback) ===
+if not defined SHORTS_DUB_DIR if exist "%APP_DIR%shorts-dub\shorts_dub\tts.py" set "SHORTS_DUB_DIR=%APP_DIR%shorts-dub"
 if not defined SHORTS_DUB_DIR set "SHORTS_DUB_DIR=D:\Projects\TEMP\shorts-dub"
 
 REM === Isolation: keep caches on D:/in-folder, nothing in C: ===

@@ -14,20 +14,17 @@ echo   * python-image: torch 2.11 stack - runs image_server (FLUX.2 SDNQ, 7869)
 echo   * portable Node + npm install (the Next.js web app on 3000)
 echo Both Pythons are embedded; everything stays in this folder (nothing in C:).
 echo.
-echo YOU MUST PROVIDE (these are NOT downloaded automatically):
-echo   1. An NVIDIA GPU + recent driver. CUDA toolkit is bundled via the torch
-echo      wheels, but the driver itself must already be installed.
-echo   2. Gemma 4 12B GGUF weights (normal + uncensored) + their mmproj files.
-echo      Put them in  servers\models\mt\  (and ...\mt\unc\ for the uncensored
-echo      pair), OR set OD_MODELS_DIR. See servers\README.md for exact filenames.
-echo   3. A shorts-dub checkout (provides the Qwen3-TTS engine for the TTS server).
-echo      Set SHORTS_DUB_DIR to it. Without it, TTS is disabled (text still works).
-echo   4. A voice pack: <name>.mp3 reference clips in servers\voices\ (or set
-echo      OD_VOICES_DIR). Needed only for TTS. See servers\README.md.
-echo   5. ultra-fast-image-gen checkout for image generation. Set
-echo      ULTRA_FAST_IMAGE_GEN_DIR. Without it, images are disabled.
-echo The Gemma GGUF / FLUX SDNQ / ASR model weights that ARE on Hugging Face get
-echo pulled on first run; the items above are user-supplied.
+echo Fully automatic - nothing to provide by hand. This installer fetches the
+echo embedded Pythons + Node, all Python deps, and the two backend checkouts
+echo (shorts-dub for TTS, ultra-fast-image-gen for images). On the FIRST run, every
+echo model downloads itself from Hugging Face: the Gemma 4 12B GGUFs (text), FLUX.2
+echo SDNQ + the uncensored text encoder (images), and Parakeet (voice input).
+echo.
+echo The ONLY prerequisite: an NVIDIA GPU with a recent driver (the CUDA runtime is
+echo bundled via the torch wheels; the driver itself must already be installed).
+echo.
+echo (Optional: a TTS voice pack - drop ^<name^>.mp3 clips in servers\voices\, or set
+echo  OD_VOICES_DIR. Without one, narration read-aloud stays off; everything else runs.)
 echo.
 pause
 
@@ -122,7 +119,7 @@ echo [5/9] Installing text/TTS dependencies...
 if defined LLAMA_WHL python-text\python.exe -m pip install "%LLAMA_WHL%" --no-warn-script-location
 python-text\python.exe -m pip install "triton-windows>=3.7,<3.8" --no-warn-script-location
 if "%INSTALL_FLASH%"=="1" if defined FLASH_WHL python-text\python.exe -m pip install "%FLASH_WHL%" --no-warn-script-location
-python-text\python.exe -m pip install "transformers==4.57.3" accelerate bitsandbytes==0.49.2 soundfile rotary-embedding-torch torchdiffeq fastapi "uvicorn[standard]" sentencepiece --no-warn-script-location
+python-text\python.exe -m pip install "transformers==4.57.3" accelerate bitsandbytes==0.49.2 soundfile rotary-embedding-torch torchdiffeq fastapi "uvicorn[standard]" sentencepiece "huggingface_hub>=0.34" hf-xet --no-warn-script-location
 python-text\python.exe -m pip install faster-qwen3-tts==0.2.6 qwen-tts==0.1.1 --no-warn-script-location
 REM qwen3-tts-triton: vendored source (was installed from a local F: path in dev). Edit path if needed.
 if exist "servers\qwen3-tts-triton\pyproject.toml" (
@@ -169,6 +166,20 @@ REM required. We still try it (so `npm start` works too); a build failure here
 REM is non-fatal for dev mode.
 call "%SCRIPT_DIR%node\npm.cmd" run build || echo [!] build failed - that's OK, run.bat uses `npm run dev`. Run `npm run build` later if you want `npm start`.
 
+REM ============================================================
+REM  Step 6: backend checkouts (public repos, cloned into this folder)
+REM ============================================================
+echo [+] Fetching backend checkouts...
+where git >nul 2>&1
+if errorlevel 1 goto :no_git_backends
+if not exist "shorts-dub\shorts_dub\tts.py" git clone --depth 1 https://github.com/timoncool/shorts-dub.git shorts-dub
+if not exist "ultra-fast-image-gen\generate.py" git clone --depth 1 https://github.com/newideas99/ultra-fast-image-gen.git ultra-fast-image-gen
+goto :backends_done
+:no_git_backends
+echo [!] Git not found - install it from https://git-scm.com/downloads and re-run install.bat.
+echo     Without git the TTS + image backends are missing; text still works.
+:backends_done
+
 echo %CUDA_VERSION%> cuda_version.txt
 
 echo.
@@ -176,11 +187,10 @@ echo ========================================
 echo   Installation complete.
 echo   Start with: run.bat   (launches text 8080, image 7869, TTS 8081, ASR 8082, web 3000)
 echo.
-echo   On first run, Hugging Face models (FLUX SDNQ, uncensored TE, ASR) download
-echo   automatically. The Gemma GGUFs, the shorts-dub TTS engine, the voice pack
-echo   and ultra-fast-image-gen are USER-SUPPLIED - see the list above and
-echo   servers\README.md. Without them, those features stay disabled but the rest
-echo   of the app still runs.
+echo   On first run, every model downloads itself from Hugging Face automatically:
+echo   Gemma 4 12B GGUFs (text), FLUX.2 SDNQ + uncensored TE (images), Parakeet (ASR).
+echo   The TTS + image backends were just cloned into this folder. Only a TTS voice
+echo   pack stays optional (drop clips in servers\voices\); without it read-aloud is off.
 echo ========================================
 pause
 exit /b 0

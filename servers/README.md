@@ -16,13 +16,18 @@ launched with the embedded Python and write logs to `../logs/`.
 
 ---
 
-## What you must provide (NOT shipped in the repo)
+## Model weights & backends (auto-installed — not stored in git)
 
-These are large/gated/external, so they are **not** in git and **not** auto-installed:
+These are large/external, so they are **not** committed, but you don't supply them
+by hand: the GGUFs **auto-download from Hugging Face on first run**, and `install.bat`
+**auto-clones** the TTS engine (`shorts-dub`) and the image backend
+(`ultra-fast-image-gen`). The details below are for overriding the defaults.
 
 ### 1. Gemma 4 12B GGUF weights — required for text (the core of the app)
-`od-text-server.py` loads two Gemma 4 12B models (you can ship just one and edit
-the `MODELS` dict, but both are referenced by default). Place the files here:
+`od-text-server.py` loads two Gemma 4 12B models and **auto-downloads** each from
+Hugging Face on first use (default/uncensored from `zaakirio/gemma-4-12b-it-uncensored-GGUF`,
+standard QAT from Google's gated `google/gemma-4-12B-it-qat-q4_0-gguf`). To supply
+them yourself instead, place the files here:
 
 ```
 servers/models/mt/
