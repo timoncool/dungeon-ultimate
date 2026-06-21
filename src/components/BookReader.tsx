@@ -124,7 +124,9 @@ export default function BookReader({
   speakingId,
 }: {
   messages: StoryMessage[];
-  onSpeak?: (message: StoryMessage) => void;
+  // Voice an arbitrary chunk of prose (a whole open spread) under a stable id, so the
+  // one "Озвучить" reads BOTH open pages, not a single message.
+  onSpeak?: (id: string, text: string) => void;
   speakingId?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -141,8 +143,11 @@ export default function BookReader({
     () => messages.filter((message) => message.content.trim() || message.events?.length),
     [messages],
   );
-  const [dims, setDims] = useState({ pageW: 520, pageH: 760 });
+  const [dims, setDims] = useState({ pageW: 520, pageH: 760, twoUp: true });
   const [pages, setPages] = useState<Block[][]>([]);
+  // Which page is open (left page of the current spread), tracked from react-pageflip
+  // so the single "Озвучить" knows which spread to read.
+  const [currentPage, setCurrentPage] = useState(0);
 
   // Page size from the container: a two-page spread on wide screens, one on narrow.
   useEffect(() => {
@@ -154,7 +159,11 @@ export default function BookReader({
       const twoUp = W >= 720;
       const pageW = Math.min(twoUp ? Math.floor(W / 2) - 10 : W - 12, 560);
       const pageH = Math.min(Math.max(H, 460), 940);
-      setDims((prev) => (prev.pageW === pageW && prev.pageH === pageH ? prev : { pageW, pageH }));
+      setDims((prev) =>
+        prev.pageW === pageW && prev.pageH === pageH && prev.twoUp === twoUp
+          ? prev
+          : { pageW, pageH, twoUp },
+      );
     };
     recompute();
     const ro = new ResizeObserver(recompute);
@@ -322,6 +331,7 @@ export default function BookReader({
     const id = window.setTimeout(() => {
       try {
         bookRef.current?.pageFlip().turnToPage(lastPage);
+        setCurrentPage(lastPage);
       } catch {
         // flipbook not mounted yet — harmless
       }
@@ -348,6 +358,20 @@ export default function BookReader({
     );
   }
 
+  // The open spread = the left page (normalised to even in two-up mode) plus its
+  // facing page; the single "Озвучить" reads the prose of BOTH pages, in order.
+  const spreadLeft = dims.twoUp ? currentPage - (currentPage % 2) : currentPage;
+  const blockProse = (block: Block): string =>
+    block.kind === "text" || block.kind === "action" ? block.text : "";
+  const pageProse = (p?: Block[]) => (p ?? []).map(blockProse).filter(Boolean).join("\n\n");
+  const spreadText = [
+    pageProse(pages[spreadLeft]),
+    dims.twoUp ? pageProse(pages[spreadLeft + 1]) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const spreadId = `spread:${spreadLeft}`;
+
   return (
     <div ref={wrapRef} className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-3 py-1">
       {measurer}
@@ -368,6 +392,9 @@ export default function BookReader({
           showCover={false}
           mobileScrollSupport
           useMouseEvents
+          onFlip={(e: { data?: number }) =>
+            setCurrentPage(typeof e?.data === "number" ? e.data : 0)
+          }
           className="rpg-book"
         >
           {pages.map((page, index) => (
@@ -430,23 +457,7 @@ export default function BookReader({
                       );
                     })}
                   </div>
-                  <div className="mt-2 flex shrink-0 items-center justify-between border-t border-[#9c7b46]/30 pt-2">
-                    {onSpeak && page[0] ? (
-                      <button
-                        type="button"
-                        onClick={() => onSpeak(page[0].message)}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-[#9c7b46]/50 px-2.5 py-1 text-[11px] font-medium text-[#5a4326] transition hover:bg-[#9c7b46]/15"
-                      >
-                        {speakingId === page[0].message.id ? (
-                          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <Volume2 className="size-3.5" aria-hidden="true" />
-                        )}
-                        Озвучить
-                      </button>
-                    ) : (
-                      <span />
-                    )}
+                  <div className="mt-2 flex shrink-0 items-center justify-center border-t border-[#9c7b46]/30 pt-2">
                     <span className="font-serif text-xs italic text-[#8a6a3a]">— {index + 1} —</span>
                   </div>
                 </div>
@@ -455,20 +466,38 @@ export default function BookReader({
           ))}
         </HTMLFlipBook>
       )}
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => bookRef.current?.pageFlip().flipPrev()}
-          className="inline-flex size-10 items-center justify-center rounded-full border border-stone-700 text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
+          className="inline-flex size-9 items-center justify-center rounded-full border border-stone-700 text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
           aria-label="Предыдущая страница"
         >
           <ChevronLeft className="size-5" aria-hidden="true" />
         </button>
-        <span className="font-serif text-xs italic text-stone-500">листай страницы · {pages.length}</span>
+        {onSpeak && spreadText ? (
+          <button
+            type="button"
+            onClick={() => onSpeak(spreadId, spreadText)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
+            title="Озвучить открытый разворот"
+          >
+            {speakingId === spreadId ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Volume2 className="size-4" aria-hidden="true" />
+            )}
+            Озвучить
+          </button>
+        ) : (
+          <span className="font-serif text-xs italic text-stone-500">
+            листай · {pages.length}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => bookRef.current?.pageFlip().flipNext()}
-          className="inline-flex size-10 items-center justify-center rounded-full border border-stone-700 text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
+          className="inline-flex size-9 items-center justify-center rounded-full border border-stone-700 text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
           aria-label="Следующая страница"
         >
           <ChevronRight className="size-5" aria-hidden="true" />
