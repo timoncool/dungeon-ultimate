@@ -74,7 +74,7 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 - **Node.js:** bundled — `install.bat` downloads a portable Node 22 runtime into the project folder
 - **Python:** bundled — `install.bat` creates two embedded Python 3.11 environments (text/TTS and image)
 - **Disk:** ~30+ GB for the embedded runtimes plus model weights
-- **Model weights you supply / download on first run:** the local text GGUF model, the FLUX.2-klein image weights + uncensored text encoder, the Parakeet ASR model and the TTS voices. Nothing is bundled in the repo — point the launcher at your weights and the runtimes fetch what's missing on first start.
+- **Model weights — all auto-downloaded on first run:** nothing to provide by hand. `install.bat` also clones the two backend checkouts (TTS, image); on the first launch every model pulls itself from Hugging Face — the Gemma 4 12B GGUFs (text), the FLUX.2 SDNQ image weights + uncensored text encoder, and the Parakeet ASR model. A TTS voice pack is the only optional extra — drop `.mp3` clips in `servers/voices/` for read-aloud.
 
 > The app is engineered to stay self-contained: temp files, Hugging Face caches, Torch caches and model stores are all redirected onto the project drive — nothing is written to `C:` or the registry.
 
