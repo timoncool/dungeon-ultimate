@@ -1302,6 +1302,12 @@ export default function Home() {
     storyAbortRef.current = controller;
     stoppedByUserRef.current = false;
     const timeoutId = window.setTimeout(() => controller.abort(), STORY_REQUEST_TIMEOUT_MS);
+    // Returned to the caller so playInput can chain the roll-outcome beat.
+    let turnResult: { events: GameEvent[]; content: string; id: string } = {
+      events: [],
+      content: "",
+      id: "",
+    };
 
     try {
       const response = await fetch("/api/story", {
@@ -1467,6 +1473,11 @@ export default function Home() {
               content: data.content ?? assembled,
               imageRequest: data.imageRequest,
             });
+            turnResult = {
+              events: Array.isArray(data.events) ? (data.events as GameEvent[]) : [],
+              content: (data.content ?? assembled ?? "").trim(),
+              id: streamMessageId,
+            };
             if (Array.isArray(data.events) && data.events.length) {
               const incoming = data.events as GameEvent[];
               setJournal((current) => [...current, ...incoming]);
@@ -1543,6 +1554,11 @@ export default function Home() {
           content: assistantMessage.content,
           imageRequest: payload.imageRequest,
         });
+        turnResult = {
+          events: payload.events ?? [],
+          content: (payload.content ?? "").trim(),
+          id: assistantMessage.id,
+        };
         if (payload.events?.length) {
           setJournal((current) => [...current, ...payload.events!]);
           setMessages((current) =>
@@ -1576,6 +1592,7 @@ export default function Home() {
       window.clearTimeout(timeoutId);
       setBusy(false);
     }
+    return turnResult;
   }
 
   async function kickoffStory(chat: StoryChat, hint?: string) {
@@ -1880,7 +1897,7 @@ export default function Home() {
     setAttachments([]);
     setSuggestedActions([]);
 
-    await runTurn({
+    const result = await runTurn({
       chatId: selectedChatId,
       mode: "turn",
       userMessageId: userMessage.id,
@@ -1889,6 +1906,32 @@ export default function Home() {
       attachments: turnAttachments,
       settings,
     });
+
+    // Roll-then-outcome loop: if this action rolled a check, auto-narrate the
+    // RESULT (success → reward, failure → complication / trap) as its own beat,
+    // feeding the roll outcome to the narrator, BEFORE the player's next move. The
+    // follow-up is a plain continue (not playInput), so it never chains again.
+    const rolls = (result?.events ?? []).filter((event) => event.kind === "roll");
+    if (rolls.length && result?.content && selectedChatId) {
+      const outcome = rolls.map((event) => event.text.replace(/^🎲\s*/, "")).join("; ");
+      const followHistory: StoryMessage[] = [
+        ...conversationBeforeTurn,
+        userMessage,
+        {
+          id: result.id || makeId(),
+          role: "assistant",
+          content: result.content,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      await runTurn({
+        chatId: selectedChatId,
+        mode: "continue",
+        input: `Только что разрешилась проверка: ${outcome}. Опиши КОНКРЕТНОЕ последствие этого исхода в истории — при успехе удачный результат, при провале осложнение, ловушку или неудачу — и при необходимости начисли урон или лут через механику. Заверши на моменте, приглашающем следующее действие игрока. НЕ вводи новую проверку в этом отрывке.`,
+        history: followHistory,
+        settings,
+      });
+    }
   }
 
   async function submitTurn(event: FormEvent<HTMLFormElement>) {
