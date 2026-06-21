@@ -1721,6 +1721,7 @@ export default function Home() {
   async function beginStory(options: {
     title: string;
     world: string;
+    hero: { name: string; persona: string };
     opening: { mode: "narrator"; hint: string } | { mode: "self"; text: string };
   }) {
     setNewStoryOpen(false);
@@ -1733,11 +1734,25 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: seedSettings, title: options.title }),
       });
-      const payload = await readApi<ChatResponse>(response);
+      let payload = await readApi<ChatResponse>(response);
       setChats((current) => [
         payload.chat,
         ...current.filter((chat) => chat.id !== payload.chat.id),
       ]);
+
+      // In D&D mode the game needs a protagonist: create one from the "кто ты"
+      // description so the HUD is populated and the engine has a hero for the very
+      // first turn to bind HP/effects/loot to (otherwise a fresh game is heroless).
+      if (seedSettings.rpgEnabled) {
+        await fetch(`/api/chats/${payload.chat.id}/characters`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: options.hero.name, details: options.hero.persona }),
+        }).catch(() => {});
+        // Re-fetch so heroId + heroRpg hydrate the HUD before the kickoff runs.
+        payload = await readApi<ChatResponse>(await fetch(`/api/chats/${payload.chat.id}`));
+      }
+
       applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
       void refreshChats();
 
@@ -1753,6 +1768,12 @@ export default function Home() {
       } else {
         await kickoffStory(payload.chat, options.opening.hint);
       }
+
+      // Resync the HUD/journal off the new chat id directly: the post-turn refresh
+      // inside runTurn keys off selectedChatId, which can still be the stale value
+      // this early, so the freshly-created hero's first-turn HP/effects wouldn't
+      // show until a reload.
+      if (seedSettings.rpgEnabled) await refreshRpg(payload.chat.id, true);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Не удалось создать историю.");
     }
@@ -2505,6 +2526,7 @@ function NewStoryDialog({
   onBegin: (options: {
     title: string;
     world: string;
+    hero: { name: string; persona: string };
     opening: { mode: "narrator"; hint: string } | { mode: "self"; text: string };
   }) => void;
 }) {
@@ -2530,7 +2552,12 @@ function NewStoryDialog({
 
     if (isCustom) {
       const world = customWorld.trim();
-      onBegin({ world, title: titleFromInput(world), opening });
+      onBegin({
+        world,
+        title: titleFromInput(world),
+        hero: { name: name.trim() || "Герой", persona: role.trim() },
+        opening,
+      });
       return;
     }
 
@@ -2541,6 +2568,7 @@ function NewStoryDialog({
       title: titleFromInput(
         name.trim() ? `${name.trim()} · ${preset.label}` : `${preset.label} · ${persona}`,
       ),
+      hero: { name: name.trim() || "Герой", persona },
       opening,
     });
   }
