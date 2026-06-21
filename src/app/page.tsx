@@ -6007,26 +6007,35 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
       divided={divided}
     >
       <p className="text-pretty text-xs leading-relaxed text-stone-500">
-        Open Dungeon is free and open source. If it earns a spot on your machine, a tip
-        keeps development going.
+        Dungeon Ultimate — бесплатный проект с открытым исходным кодом от Nerual
+        Dreming и Нейро-Софт. Если он нашёл место на твоей машине, поддержка
+        помогает делать новые портативные нейросети.
       </p>
       <div className="flex flex-col gap-2">
         <a
-          href="https://github.com/sponsors/newideas99"
+          href="https://boosty.to/neuro_art"
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex w-full items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/40 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-700/60 hover:bg-stone-900"
         >
           <Heart className="size-4 text-amber-200" aria-hidden="true" />
-          Поддержать на GitHub
+          Поддержать на Boosty
         </a>
         <a
-          href="https://ko-fi.com/opendungeon"
+          href="https://github.com/timoncool/ACE-Step-Studio/blob/master/DONATE.md"
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex w-full items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/40 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-700/60 hover:bg-stone-900"
         >
-          Поддержать на Ko-fi
+          Все способы доната
+        </a>
+        <a
+          href="https://t.me/neuroport"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex w-full items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/40 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-700/60 hover:bg-stone-900"
+        >
+          Telegram — Нейро-Софт
         </a>
       </div>
     </PanelSection>

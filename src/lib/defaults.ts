@@ -29,7 +29,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   aspect: "square",
   imageGenerationEnabled: true,
   autoImages: true,
-  rpgEnabled: false,
+  rpgEnabled: true,
   randomEvents: true,
   diceEnabled: true,
   diceSound: true,
