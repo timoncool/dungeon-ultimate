@@ -72,6 +72,7 @@ import {
   type StoryMessage,
   type StorySettings,
 } from "@/lib/types";
+import { promptsFor } from "@/lib/prompts";
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "@/lib/rpg/dice";
 import { deriveForOwner, type DerivedRpg } from "@/lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
@@ -85,12 +86,6 @@ const BookReader = dynamic(() => import("@/components/BookReader"), { ssr: false
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
 const STORY_REQUEST_TIMEOUT_MS = 7 * 60 * 1000;
-
-const KICKOFF_DIRECTIVE =
-  "Начни историю прямо сейчас. Напиши вводный отрывок: установи сцену, персонажа игрока и немедленную ситуацию от второго лица, завершив на моменте, который приглашает первое действие игрока. Не задавай игроку вопросы по настройке; история уже началась.";
-
-const CONTINUE_DIRECTIVE =
-  "Продолжи историю ровно там, где она прервалась. Игрок не совершает действия на этом ходу — развивай сцену естественно через повествование, диалог или события, затем сделай паузу на моменте, который приглашает его следующее действие.";
 
 const SIDEBAR_ICONS = {
   chats: "/sidebar-icons/chats.png",
@@ -1575,9 +1570,10 @@ export default function Home() {
 
   async function kickoffStory(chat: StoryChat, hint?: string) {
     const trimmedHint = hint?.trim();
+    const kickoff = promptsFor(chat.settings.language).kickoff;
     const input = trimmedHint
-      ? `${KICKOFF_DIRECTIVE} Направление начала от игрока (выстрой сцену вокруг этого): ${trimmedHint}`
-      : KICKOFF_DIRECTIVE;
+      ? `${kickoff} Направление начала от игрока (выстрой сцену вокруг этого): ${trimmedHint}`
+      : kickoff;
     await runTurn({
       chatId: chat.id,
       mode: "kickoff",
@@ -1594,7 +1590,7 @@ export default function Home() {
     await runTurn({
       chatId: selectedChatId,
       mode: "continue",
-      input: CONTINUE_DIRECTIVE,
+      input: promptsFor(settings.language).continue,
       history: messages,
       settings,
     });
@@ -1643,7 +1639,7 @@ export default function Home() {
       await runTurn({
         chatId: selectedChatId,
         mode: "kickoff",
-        input: KICKOFF_DIRECTIVE,
+        input: promptsFor(settings.language).kickoff,
         history: [],
         settings,
       });

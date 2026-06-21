@@ -34,7 +34,12 @@ import {
   LOCAL_TEXT_MODEL_IDS,
   localModelContextWindow,
 } from "@/lib/text-models";
-import { LANGUAGE_VALUES, PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
+import {
+  LANGUAGE_PROMPT_NAMES,
+  LANGUAGE_VALUES,
+  PROSE_SIZE_VALUES,
+  RESPONSE_LENGTH_VALUES,
+} from "@/lib/types";
 import type { Attachment, StoryCharacter, StoryMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -921,7 +926,10 @@ async function summarizeEvictedPassages(
     .map((message) => `${message.role === "user" ? "Игрок" : "Рассказчик"}: ${message.content}`)
     .join("\n\n");
   const messages: OpenRouterMessage[] = [
-    { role: "system", content: SUMMARIZER_SYSTEM },
+    {
+      role: "system",
+      content: `${SUMMARIZER_SYSTEM}\n\nWrite the summary in ${LANGUAGE_PROMPT_NAMES[settings.language]}.`,
+    },
     {
       role: "user",
       content: `Существующее резюме:\n${existingSummary || "(ещё нет)"}\n\nНовые отрывки для включения:\n${transcript}`,

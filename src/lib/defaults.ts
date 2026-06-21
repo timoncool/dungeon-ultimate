@@ -1,5 +1,4 @@
 import { DEFAULT_LOCAL_TEXT_MODEL } from "@/lib/text-models";
-import { DEFAULT_SYSTEM, IMAGE_SYSTEM } from "@/lib/story-prompt";
 import type { StorySettings } from "@/lib/types";
 
 export const DEFAULT_CHAT_TITLE = "Безымянная история";
@@ -9,8 +8,8 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
     "Сцена интерактивной прозы с острым диалогом, высокими ставками и пространством для управления сюжетом игроком.",
   style:
     "Классическая текстовая авантюрная нарратология: прямое второе лицо, яркая, но сдержанная проза, естественный диалог и без витиеватого описания.",
-  narratorPrompt: DEFAULT_SYSTEM,
-  imagePrompt: IMAGE_SYSTEM,
+  narratorPrompt: "",
+  imagePrompt: "",
   imageStylePrefix: "",
   antiRepetition: true,
   causeAwareEnding: true,

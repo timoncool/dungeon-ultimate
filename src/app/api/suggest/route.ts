@@ -1,23 +1,14 @@
 import { z } from "zod";
 import { requestChatCompletion } from "@/lib/llm";
-import { LANGUAGE_PROMPT_NAMES, LANGUAGE_VALUES } from "@/lib/types";
+import { LANGUAGE_VALUES } from "@/lib/types";
+import { promptsFor } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 
 // "Surprise me" 🎲 field generator. Asks the same local Gemma server that runs
 // the story to invent a value for one blank setup field, so the player never
-// faces an empty page. Non-streaming, short, no image tool.
-
-const FIELD_PROMPTS: Record<string, string> = {
-  world:
-    "Придумай ОДНУ свежую, конкретную завязку мира/сценария для приватной текстовой ролевой игры. 1–2 предложения, без банальщины (избегай шаблонных таверн и «избранных»). Выведи ТОЛЬКО текст завязки, без преамбул и кавычек.",
-  style:
-    "Придумай тон и стиль прозы для текстовой ролевой игры — одна короткая ёмкая фраза (например: «мрачный нуар, скупые рубленые фразы»). Выведи ТОЛЬКО фразу, без преамбул.",
-  character:
-    "Придумай концепт яркого персонажа для ролевой игры: имя и краткое описание (внешность, характер, одна зацепка). 1–2 предложения. Выведи ТОЛЬКО текст, без преамбул.",
-  opening:
-    "Придумай цепляющую первую сцену для старта текстовой ролевой игры: 2–3 предложения живой прозы, во втором лице («ты…»), заканчивается моментом, приглашающим действие игрока. Выведи ТОЛЬКО сцену.",
-};
+// faces an empty page. Non-streaming, short, no image tool. Prompts come from
+// the localized set, already written in the player's chosen language.
 
 const requestSchema = z.object({
   field: z.enum(["world", "style", "character", "opening"]),
@@ -41,20 +32,19 @@ const requestSchema = z.object({
 
 export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
-  const instruction = FIELD_PROMPTS[body.field];
-  const langName = LANGUAGE_PROMPT_NAMES[body.settings.language];
-  const answerInLanguage = `Write your answer in ${langName}.`;
+  const prompts = promptsFor(body.settings.language).suggest;
+  const instruction = prompts.fields[body.field];
 
   const messages = [
     {
       role: "system" as const,
-      content: `Ты — генератор идей для приватной ролевой игры. Отвечай кратко, только запрошенным текстом, без вступлений, пояснений и кавычек. ${answerInLanguage}`,
+      content: prompts.system,
     },
     {
       role: "user" as const,
       content: body.context
-        ? `${instruction}\n\n${answerInLanguage}\n\nКонтекст уже заданного (учитывай, не повторяй дословно):\n${body.context}`
-        : `${instruction}\n\n${answerInLanguage}`,
+        ? `${instruction}\n\nКонтекст уже заданного (учитывай, не повторяй дословно):\n${body.context}`
+        : instruction,
     },
   ];
 

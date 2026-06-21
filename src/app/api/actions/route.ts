@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requestChatCompletion } from "@/lib/llm";
-import { LANGUAGE_PROMPT_NAMES, LANGUAGE_VALUES } from "@/lib/types";
+import { LANGUAGE_VALUES } from "@/lib/types";
+import { promptsFor } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 
@@ -70,12 +71,10 @@ export async function POST(request: Request) {
   }
   const body = parsed.data;
 
-  const langName = LANGUAGE_PROMPT_NAMES[body.settings.language];
-
   const messages = [
     {
       role: "system" as const,
-      content: `Ты — генератор быстрых действий для текстовой ролевой игры (D&D). НЕ анализируй, НЕ комментируй и НЕ пересказывай текст. Прочитай последнюю сцену и предложи РОВНО 3–4 коротких, конкретных и РАЗНЫХ действия, которые герой-игрок может совершить прямо сейчас (повелительно, 3–6 слов). Каждое — на отдельной строке СТРОГО в формате: эмодзи | действие. Никаких заголовков, нумерации, пояснений, разбора — ТОЛЬКО 3–4 такие строки. Текст действий пиши на языке: ${langName}.\n\nПример формата (язык твоих действий — ${langName}):\n⚔️ | Атаковать ближайшую тварь\n🛡️ | Закрыться и отступить к стене\n👁️ | Осмотреть тёмный проход\n🗣️ | Крикнуть, чтобы спугнуть их`,
+      content: promptsFor(body.settings.language).actions.system,
     },
     {
       role: "user" as const,

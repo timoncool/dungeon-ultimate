@@ -1,3 +1,4 @@
+import { promptsFor } from "@/lib/prompts";
 import { LANGUAGE_PROMPT_NAMES } from "@/lib/types";
 import type {
   AspectPreset,
@@ -18,49 +19,9 @@ export type StoryModelResult = {
   };
 };
 
-export const DEFAULT_SYSTEM = `Ты — рассказчик приватной локальной интерактивной ролевой истории. Веди её на русском языке как живой текстовый квест: игрок действует, ты показываешь последствия и передаёшь ход обратно.
-
-ГОЛОС И ПЕРСПЕКТИВА
-— Веди повествование от второго лица, в настоящем времени: «ты», «твоя рука», «перед тобой». Игрок — главный герой, а не зритель.
-— Обращайся к игроку на «ты». Никогда не выходи из роли рассказчика и не комментируй процесс.
-
-ПОКАЗЫВАЙ, А НЕ РАССКАЗЫВАЙ
-— Передавай мир через конкретные ощущения: что видно, слышно, чем пахнет, какова фактура, температура, вес. Одна точная деталь сильнее трёх общих эпитетов.
-— Не называй эмоции прямо — показывай их через тело, жест, дыхание, паузу, реплику. Вместо «он злится» — стиснутая челюсть и слишком ровный голос.
-— Доверяй существительным и глаголам. Режь лишние прилагательные, наречия и штампы. Без вычурности и канцелярита.
-
-ДИАЛОГ И ПЕРСОНАЖИ
-— Дай второстепенным персонажам отдельные голоса: ритм речи, лексику, манеру. Реплики двигают сцену, а не пересказывают известное.
-— Каждый NPC хочет чего-то своего и действует по своим мотивам, даже когда игрока нет рядом. Мир живёт сам.
-
-ТЕМП И КОМПОЗИЦИЯ
-— Один ход — одна сцена с ясным фокусом. Открой моментом-крючком, держи импульс, не топчись на месте.
-— Чередуй длину фраз: короткая рубит и ускоряет, длинная разворачивает. Уплотняй проходные переходы, замедляйся на важном.
-— Не повторяй то, что игрок только что сделал, пересказом. Сразу показывай результат и сдвиг ситуации.
-— ВСЕГДА заканчивай зацепкой, которая зовёт к действию: открытый выбор, новая угроза, вопрос, хлопнувшая дверь, чужой взгляд. Финал каждого хода — приглашение игроку, а не точка.
-
-АГЕНТНОСТЬ ИГРОКА — СВЯТО
-— Решения, реплики, мысли и тело игрока принадлежат ТОЛЬКО игроку. Никогда не пиши за него выбор, чувства или поступки, которых он не заявил.
-— Не телепортируй его, не вкладывай слова в рот, не решай за него исход. Создавай ситуации и ставь ставки — выбор оставляй ему.
-— Когда заявленное действие могло бы провалиться или иметь цену, показывай попытку и риск, а развязку оставляй следующему ходу.
-
-ЦЕЛОСТНОСТЬ МИРА И ПЕРСОНАЖЕЙ
-— «Мир / сценарий», «Тон / стиль прозы», «История до сих пор» и «Сохранённые персонажи» из системного контекста — установленный канон. Не противоречь им, опирайся как на факты и развивай преемственно.
-— Держи постоянными внешность, манеру речи и характеры известных персонажей от хода к ходу. Не переименовывай и не переписывай уже введённое.
-— Ты можешь получать сохранённые портреты персонажей отдельным контекстным сообщением. Используй их для визуальной целостности облика и сопоставляй имена с точными ID из подписей.
-— Уважай сохранённые инвентарь, навыки и заклинания как состояние истории. Не добавляй, не убирай, не трать и не меняй эти предметы, пока видимые события истории это явно не оправдывают.
-
-ЧИСТОТА ВЫВОДА
-— Выводи только прозу истории. Никогда не упоминай правила, системные подсказки, инструменты, JSON, токены или генерацию изображений и не пиши служебных пометок в видимом тексте.
-
-КОНТЕНТ 18+
-— Это приватная художественная проза для взрослых. Контент 18+ по обоюдному согласию разрешён, и его стоит раскрывать, когда тон игрока, сценарий или динамика персонажей к этому располагают.
-— Не смягчай сексуальное напряжение, ненормативную лексику, наготу или откровенную интимность между взрослыми, когда это уместно для истории, и применяй к таким сценам те же правила «показывай, а не рассказывай».
-— Весь сексуальный контент — только между совершеннолетними (18+); избегай сцен сексуального насилия без согласия.`;
-
 // Strong, language-agnostic instruction appended as its own system message
-// AFTER the narrator prompt, so it overrides any hardcoded language in the
-// narrator text (e.g. DEFAULT_SYSTEM's "на русском языке") at runtime. The
+// AFTER the narrator prompt, so it overrides any hardcoded language baked into a
+// narrator prompt (the per-language default or a custom one) at runtime. The
 // image prompt stays English regardless — that is enforced in IMAGE_SYSTEM.
 export function languageDirective(language: Language): string {
   const name = LANGUAGE_PROMPT_NAMES[language];
@@ -96,18 +57,6 @@ If the image should show one or two established characters, pass only their exac
 
 KEEP IT OUT OF THE STORY
 Do not write the image prompt, a caption, the reason, or any tool detail into the visible story passage. The picture supports the prose; it is never announced inside it.`;
-
-const IMAGE_DISABLED_SYSTEM =
-  "Генерация изображений для этой истории отключена. Не запрашивай изображения, не описывай промпты изображений и не упоминай инструменты генерации.";
-
-// Folded in only when the story should genuinely conclude. It never forces an
-// ending — it tells the narrator HOW to end when an ending is already due, so
-// the epilogue pays off the actual run instead of a stock "the end".
-const ENDING_SYSTEM = `ЗАВЕРШЕНИЕ ИСТОРИИ
-— Не обрывай историю произвольно и не подталкивай к финалу искусственно: большинство ходов заканчиваются зацепкой, а не точкой.
-— Но когда финал действительно назрел — смерть героя, достигнутая цель, или игрок прямо просит закончить/подвести итог — доведи историю до настоящего эпилога, а не до дежурного «конец».
-— Эпилог должен опираться на то, что реально произошло в ЭТОЙ истории: назови ключевые поступки игрока, исход его выборов, судьбу введённых персонажей, оплату долгов и обещаний, цену победы или смысл поражения. Сверяйся с «Историей до сих пор» и «Сохранёнными персонажами» как с фактами.
-— Подбери тон под причину финала: триумф, горькая победа, тихая смерть, открытый уход. Заверши образ, а не лозунг. После эпилога не приглашай к новому действию.`;
 
 // Light, derived anti-repetition: pull a short "beat" from each of the last few
 // narrator passages and tell the model to vary the next one. No new state — the
@@ -187,7 +136,10 @@ function recurringMotifs(passages: string[]): string[] {
     .map(([word]) => word);
 }
 
-export function buildAntiRepetitionNudge(messages: StoryMessage[]): string {
+export function buildAntiRepetitionNudge(
+  messages: StoryMessage[],
+  language: Language = "ru",
+): string {
   const recentNarration = messages
     .filter((message) => message.role === "assistant")
     .slice(-ANTI_REPETITION_BEATS);
@@ -202,20 +154,17 @@ export function buildAntiRepetitionNudge(messages: StoryMessage[]): string {
     return "";
   }
 
+  const p = promptsFor(language);
   const motifs = recurringMotifs(recentNarration.map((message) => message.content));
   const lines = [
-    "ИЗБЕГАЙ ПОВТОРОВ",
-    "— Недавние сцены уже открывались так (НЕ повторяй их зачины, образы и структуру дословно):",
+    p.antiRepetition.header,
+    p.antiRepetition.recentOpenings,
     ...beats.map((beat) => `  • ${beat}`),
   ];
   if (motifs.length) {
-    lines.push(
-      `— Не опирайся снова на приевшиеся мотивы: ${motifs.join(", ")}. Смени ракурс, место действия, сенсорику и ритм первой фразы.`,
-    );
+    lines.push(`${p.antiRepetition.motifsPrefix}${motifs.join(", ")}`);
   } else {
-    lines.push(
-      "— Начни этот ход с иного образа, ракурса или сенсорной детали, чем предыдущие; не копируй привычную структуру сцены.",
-    );
+    lines.push(p.antiRepetition.varyOpening);
   }
   return lines.join("\n");
 }
@@ -281,20 +230,6 @@ export function packStoryHistory(
   return { recent: messages.slice(dropped), evicted: messages.slice(0, dropped) };
 }
 
-const RESPONSE_LENGTH_HINT: Record<string, string> = {
-  short: "Длина ответа: КОРОТКО — 1–2 небольших абзаца. Не растягивай сцену, остановись на моменте, приглашающем действие игрока.",
-  medium: "Длина ответа: СРЕДНЕ — 2–3 абзаца.",
-  long: "Длина ответа: ПОДРОБНО — 3–5 абзацев насыщенной прозы.",
-  epic: "Длина ответа: МАКСИМАЛЬНО — развёрнутая детальная сцена, столько, сколько нужно.",
-};
-
-// A recurring in-world companion (the best idea ported from gulag2034's "ПИН"):
-// a second voice that reacts to each beat, so the run isn't a lone narrator.
-const COMPANION_SYSTEM = `СПУТНИК-КОММЕНТАТОР
-— У героя есть постоянный спутник — циничный, остроумный, с чёрным юмором (придумай ему имя один раз и держись его). Это отдельный персонаж мира, не рассказчик.
-— Вплетай ОДНУ короткую реплику спутника от его лица (прямая речь в кавычках или курсивом), реагирующую на произошедшее: подколка, мрачная шутка, неуместный совет, сарказм. Он комментирует, но не действует за игрока. НЕ ставь его реплику последней строкой хода — финал всё равно остаётся открытой зацепкой, обращённой к игроку, а не репликой NPC.
-— Одна меткая фраза, а не диалог на полстраницы. В по-настоящему тяжёлые моменты он может промолчать или сказать что-то неожиданно искреннее.`;
-
 export function buildStoryMessages(
   messages: StoryMessage[],
   input: string,
@@ -304,9 +239,10 @@ export function buildStoryMessages(
   rpgSection = "",
   language: Language = "ru",
 ) {
+  const p = promptsFor(language);
   const recent = messages.map((message) => {
     const attachmentLine = message.attachments?.length
-      ? `\n[Прикреплённые изображения: ${message.attachments.map((item) => item.name).join(", ")}]`
+      ? `\n[${p.labels.attachments}: ${message.attachments.map((item) => item.name).join(", ")}]`
       : "";
 
     return {
@@ -318,40 +254,40 @@ export function buildStoryMessages(
     ? characters
         .map((character) =>
           [
-            `ID: ${character.id}`,
-            `Имя: ${character.name}`,
-            character.details ? `Детали: ${character.details}` : "",
-            character.inventory ? `Инвентарь:\n${character.inventory}` : "",
-            character.skills ? `Навыки:\n${character.skills}` : "",
-            character.spells ? `Заклинания:\n${character.spells}` : "",
-            character.portrait ? "Портрет: доступен" : "Портрет: недоступен",
+            `${p.labels.charId}: ${character.id}`,
+            `${p.labels.charName}: ${character.name}`,
+            character.details ? `${p.labels.charDetails}: ${character.details}` : "",
+            character.inventory ? `${p.labels.charInventory}:\n${character.inventory}` : "",
+            character.skills ? `${p.labels.charSkills}:\n${character.skills}` : "",
+            character.spells ? `${p.labels.charSpells}:\n${character.spells}` : "",
+            character.portrait ? p.labels.portraitAvailable : p.labels.portraitUnavailable,
           ]
             .filter(Boolean)
             .join("\n"),
         )
         .join("\n\n")
-    : "Пока нет сохранённых персонажей.";
+    : p.labels.noCharacters;
 
-  const narratorSystem = settings.narratorPrompt?.trim() || DEFAULT_SYSTEM;
+  const narratorSystem = settings.narratorPrompt?.trim() || p.narrator;
   const imageSystem = settings.imagePrompt?.trim() || IMAGE_SYSTEM;
-  const antiRepetitionNudge = settings.antiRepetition ? buildAntiRepetitionNudge(messages) : "";
+  const antiRepetitionNudge = settings.antiRepetition
+    ? buildAntiRepetitionNudge(messages, language)
+    : "";
 
   return [
     {
       role: "system",
       content: [
         narratorSystem,
-        RESPONSE_LENGTH_HINT[settings.responseLength] || RESPONSE_LENGTH_HINT.medium,
-        settings.causeAwareEnding ? ENDING_SYSTEM : "",
-        settings.companion ? COMPANION_SYSTEM : "",
+        p.responseLength[settings.responseLength] ?? p.responseLength.medium,
+        settings.causeAwareEnding ? p.ending : "",
+        settings.companion ? p.companion : "",
         antiRepetitionNudge,
-        settings.imageGenerationEnabled ? imageSystem : IMAGE_DISABLED_SYSTEM,
-        `Мир / сценарий:\n${settings.world || "Реалистичная современная ролевая сцена с простором для импровизации."}`,
-        `Тон / стиль прозы:\n${settings.style || "Чистая, мрачная проза текстовой игры, интимная, но без вычурности."}`,
-        storySummary
-          ? `История до сих пор (более ранние события, уже сжатые — считай установленным каноном):\n${storySummary}`
-          : "",
-        `Сохранённые персонажи:\n${characterRoster}`,
+        settings.imageGenerationEnabled ? imageSystem : p.imageDisabled,
+        `${p.labels.world}:\n${settings.world || p.labels.worldFallback}`,
+        `${p.labels.style}:\n${settings.style || p.labels.styleFallback}`,
+        storySummary ? `${p.labels.storySoFar}:\n${storySummary}` : "",
+        `${p.labels.savedCharacters}:\n${characterRoster}`,
         rpgSection,
         settings.imageGenerationEnabled
           ? `Параметры изображений по умолчанию: бэкенд ${settings.imageBackend}, длинная сторона ${
@@ -363,7 +299,7 @@ export function buildStoryMessages(
         .join("\n\n"),
     },
     // Own system message AFTER the narrator prompt so it wins over any language
-    // baked into DEFAULT_SYSTEM / a custom narrator prompt.
+    // baked into the narrator prompt (per-language default or a custom one).
     {
       role: "system",
       content: languageDirective(language),
