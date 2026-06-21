@@ -64,7 +64,7 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 - **Voice narration (TTS)** — turns can be read aloud by a local text-to-speech server.
 - **One model on the GPU at a time** — the text LLM unloads while images render and reloads on the next turn, so each gets the whole GPU.
 - **Editable prompts & per-chat settings** — narrator prompt, image prompt, world, style, characters, response length, voice.
-- **Russian-first UI** — the whole interface is localized (image prompts stay English for FLUX).
+- **7 play languages** — the narrator, action chips, suggestions and TTS all follow your chosen language (Russian, English, Spanish, French, German, Chinese, Japanese), switchable in-app. The UI chrome is Russian; image prompts stay English for FLUX.
 - **Portable Windows launchers** — `install.bat` / `run.bat` / `stop.bat`; models, runtimes and caches stay on a non-system drive.
 
 ## Requirements
