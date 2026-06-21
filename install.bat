@@ -26,7 +26,8 @@ echo.
 echo (Optional: a TTS voice pack - drop ^<name^>.mp3 clips in servers\voices\, or set
 echo  OD_VOICES_DIR. Without one, narration read-aloud stays off; everything else runs.)
 echo.
-pause
+REM Set OD_NONINTERACTIVE=1 (and GPU_CHOICE=1..5) to run install.bat unattended.
+if not defined OD_NONINTERACTIVE pause
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
@@ -44,17 +45,17 @@ echo Select your GPU:
 echo.
 echo   1. NVIDIA RTX 40xx (Ada)       - cu128  [fully supported]
 echo   2. NVIDIA RTX 50xx (Blackwell) - cu128  [fully supported]
-echo   3. NVIDIA RTX 30xx (Ampere)    - cu126  [needs matching llama-cpp/flash wheels]
-echo   4. NVIDIA RTX 20xx (Turing)    - cu126  [no flash-attn]
-echo   5. NVIDIA GTX 10xx (Pascal)    - cu118  [no flash-attn]
+echo   3. NVIDIA RTX 30xx (Ampere)    - cu126  [fully supported]
+echo   4. NVIDIA RTX 20xx (Turing)    - cu126  [fully supported, no flash-attn]
+echo   5. NVIDIA GTX 10xx (Pascal)    - cu126  [needs a CUDA 12.x driver]
 echo.
-set /p GPU_CHOICE="Enter number (1-5): "
+if not defined GPU_CHOICE set /p GPU_CHOICE="Enter number (1-5): "
 
 if "%GPU_CHOICE%"=="1" goto :gpu_cu128
 if "%GPU_CHOICE%"=="2" goto :gpu_cu128
 if "%GPU_CHOICE%"=="3" goto :gpu_cu126
 if "%GPU_CHOICE%"=="4" goto :gpu_cu126
-if "%GPU_CHOICE%"=="5" goto :gpu_cu118
+if "%GPU_CHOICE%"=="5" goto :gpu_cu126
 echo Invalid choice!
 pause
 exit /b 1
@@ -69,27 +70,16 @@ set "INSTALL_FLASH=1"
 goto :gpu_done
 
 :gpu_cu126
+REM RTX 30xx/20xx and (via a CUDA 12.x driver) Pascal GTX 10xx. The llama.cpp wheel
+REM ships its own flash-attn kernels, so the text model stays fast; the optional
+REM PyTorch flash-attn package has no cu126/torch2.8 Windows wheel, so it is skipped
+REM (TTS/diffusers fall back to standard attention - correct, just a touch slower).
 set "CUDA_VERSION=cu126"
 set "TORCH_TEXT=2.8.0"
 set "TORCH_IMAGE=2.11.0"
-set "LLAMA_WHL="
+set "LLAMA_WHL=https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.40-cu126-win-20260608/llama_cpp_python-0.3.40+cu126-cp311-cp311-win_amd64.whl"
 set "FLASH_WHL="
 set "INSTALL_FLASH=0"
-echo.
-echo [!] cu126 selected: pick the matching cu126 llama-cpp wheel from
-echo     https://github.com/JamePeng/llama-cpp-python/releases  and set LLAMA_WHL.
-goto :gpu_done
-
-:gpu_cu118
-set "CUDA_VERSION=cu118"
-set "TORCH_TEXT=2.8.0"
-set "TORCH_IMAGE=2.11.0"
-set "LLAMA_WHL="
-set "FLASH_WHL="
-set "INSTALL_FLASH=0"
-echo.
-echo [!] cu118 selected: pick the matching cu118 llama-cpp wheel from
-echo     https://github.com/JamePeng/llama-cpp-python/releases  and set LLAMA_WHL.
 goto :gpu_done
 
 :gpu_done
@@ -139,10 +129,14 @@ REM  Step 4: IMAGE env  (torch %TORCH_IMAGE% + diffusers + sdnq)
 REM ============================================================
 echo [6/9] Installing PyTorch %TORCH_IMAGE% (%CUDA_VERSION%) into python-image...
 python-image\python.exe -m pip install torch==%TORCH_IMAGE% torchvision --index-url https://download.pytorch.org/whl/%CUDA_VERSION% --no-warn-script-location
+REM SDNQ's pyproject uses a PEP 639 SPDX license string -> needs setuptools >=77 to parse;
+REM torch/optimum-quanto cap it at <82. The embedded env ships 70.x, so bump it here.
+python-image\python.exe -m pip install "setuptools>=77,<82" wheel --no-warn-script-location
 
 echo [7/9] Installing image dependencies (diffusers + SDNQ)...
 python-image\python.exe -m pip install "git+https://github.com/huggingface/diffusers@7bf00006aa005eae37bcc639fd0f010c183365b4" --no-warn-script-location
-python-image\python.exe -m pip install "git+https://github.com/Disty0/sdnq.git@b7f7dcd548487788c65038832183446c99311adf" --no-warn-script-location
+REM --no-build-isolation so the build uses the setuptools>=77 we just installed (PEP 639)
+python-image\python.exe -m pip install "git+https://github.com/Disty0/sdnq.git@b7f7dcd548487788c65038832183446c99311adf" --no-build-isolation --no-warn-script-location
 python-image\python.exe -m pip install gguf==0.19.0 optimum-quanto==0.2.7 transformers accelerate sentencepiece fastapi "uvicorn[standard]" python-dotenv --no-warn-script-location
 
 REM ============================================================
@@ -152,9 +146,12 @@ if exist "node\node.exe" (
     echo [OK] Node.js already installed
 ) else (
     echo [8/9] Downloading Node.js 22 LTS...
+    if exist "node" rmdir /s /q "node"
     powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://nodejs.org/dist/v22.18.0/node-v22.18.0-win-x64.zip' -OutFile 'downloads\node.zip'}"
     powershell -Command "& {Expand-Archive -Path 'downloads\node.zip' -DestinationPath 'downloads\node-extract' -Force}"
-    powershell -Command "& {Get-ChildItem 'downloads\node-extract\node-*\*' | Move-Item -Destination 'node' -Force}"
+    REM Move the inner versioned folder AS A WHOLE so node\node_modules\npm survives intact
+    REM (the old 'Get-ChildItem node-*\* | Move-Item' flattened node_modules and broke npm).
+    powershell -Command "& {$d=(Get-ChildItem 'downloads\node-extract' -Directory)[0].FullName; Move-Item -LiteralPath $d -Destination 'node' -Force}"
     if exist "downloads\node-extract" rmdir /s /q "downloads\node-extract"
 )
 set "PATH=%SCRIPT_DIR%node;%PATH%"
@@ -192,7 +189,7 @@ echo   Gemma 4 12B GGUFs (text), FLUX.2 SDNQ + uncensored TE (images), Parakeet 
 echo   The TTS + image backends were just cloned into this folder. Only a TTS voice
 echo   pack stays optional (drop clips in servers\voices\); without it read-aloud is off.
 echo ========================================
-pause
+if not defined OD_NONINTERACTIVE pause
 exit /b 0
 
 REM ============================================================
