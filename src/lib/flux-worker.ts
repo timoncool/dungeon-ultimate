@@ -32,8 +32,13 @@ const WORKER_DOWN_EXPECTED =
 // (mflux-hs) backends resolve to the uncensored FLUX.2-klein CUDA backend so this
 // NSFW app keeps the uncensored text encoder unless flux-uncensored is explicit.
 export function resolveImageBackend(requested: ImageBackend): string {
+  // Default to the UNGATED sdnq-hs backend (FLUX.2-klein SDNQ). The
+  // flux-uncensored model pulls its text encoder from a gated HF repo
+  // (ponpoke/flux2-klein-4b-uncensored-text-encoder) and 401s without an HF
+  // token, so it must stay opt-in via IMAGE_SERVER_DEFAULT_BACKEND — never the
+  // out-of-the-box default, or image generation fails on a fresh install.
   return requested === "mflux-hs" || requested === "sdnq-hs"
-    ? serverEnv("IMAGE_SERVER_DEFAULT_BACKEND", "flux-uncensored")
+    ? serverEnv("IMAGE_SERVER_DEFAULT_BACKEND", "sdnq-hs")
     : requested;
 }
 
