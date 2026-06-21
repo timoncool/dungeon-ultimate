@@ -537,7 +537,7 @@ export default function Home() {
     ) => {
       setSelectedChatId(chat.id);
       window.localStorage.setItem(SELECTED_CHAT_KEY, chat.id);
-      setMessages(chat.messages);
+      setMessages(attachEventsToMessages(chat.messages, events));
       setCharacters(chat.characters || []);
       setCharacterDraft(emptyCharacterDraft());
       setSettings(chat.settings);
@@ -1470,6 +1470,11 @@ export default function Home() {
             if (Array.isArray(data.events) && data.events.length) {
               const incoming = data.events as GameEvent[];
               setJournal((current) => [...current, ...incoming]);
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === streamMessageId ? { ...message, events: incoming } : message,
+                ),
+              );
               const jobs = rollJobsFromEvents(incoming);
               if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
               if (
@@ -1540,6 +1545,11 @@ export default function Home() {
         });
         if (payload.events?.length) {
           setJournal((current) => [...current, ...payload.events!]);
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantMessage.id ? { ...message, events: payload.events } : message,
+            ),
+          );
           const jobs = rollJobsFromEvents(payload.events);
           if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
           if (
@@ -2186,11 +2196,26 @@ export default function Home() {
                 </div>
               )}
               {showBook ? (
-                <BookReader
-                  messages={messages}
-                  speakingId={speakingId}
-                  onSpeak={(message) => speakText(message.id, message.content)}
-                />
+                <div className="flex min-h-0 flex-1 flex-col gap-2">
+                  <div className="min-h-0 flex-1">
+                    <BookReader
+                      messages={messages}
+                      speakingId={speakingId}
+                      onSpeak={(message) => speakText(message.id, message.content)}
+                    />
+                  </div>
+                  {settings.rpgEnabled &&
+                    (() => {
+                      const last = [...messages]
+                        .reverse()
+                        .find((message) => message.role === "assistant" && message.events?.length);
+                      return last?.events?.length ? (
+                        <div className="mx-auto max-h-44 w-full max-w-[1000px] shrink-0 overflow-y-auto px-1">
+                          <EventCards events={last.events} />
+                        </div>
+                      ) : null;
+                    })()}
+                </div>
               ) : (
               <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain pr-1 pb-3 sm:space-y-10">
                 {libraryLoading || loadingChat ? (
@@ -2272,6 +2297,7 @@ export default function Home() {
                               }
                             />
                           )}
+                          {settings.rpgEnabled && <EventCards events={message.events} />}
                           <MessageActions
                             align="start"
                             disabled={busy}
@@ -4853,6 +4879,119 @@ function DiceRollBadge({ result }: { result: RollResult }) {
     >
       {result.d20}
     </span>
+  );
+}
+
+const RARITY_RING: Record<string, string> = {
+  common: "border-stone-600/70",
+  uncommon: "border-emerald-600/70",
+  rare: "border-sky-600/70",
+  epic: "border-fuchsia-600/70",
+  legendary: "border-amber-500/80",
+};
+
+// One resolved game event as a styled inline card in the story flow: a rolled die,
+// a loot drop with its rarity + portrait, a foe entering, damage/heal, a buff or
+// debuff. The engine already wrote the player-facing text + emoji; the card frames
+// it like a real game UI instead of a flat journal line.
+function EventCard({ event }: { event: GameEvent }) {
+  if (event.kind === "item") {
+    const item = (event.data as { item?: Item } | undefined)?.item;
+    const ring = RARITY_RING[item?.rarity ?? "common"] ?? RARITY_RING.common;
+    return (
+      <div className={cn("flex items-center gap-3 rounded-xl border bg-stone-950/70 px-3 py-2.5", ring)}>
+        {item?.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.imageUrl} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
+        ) : (
+          <span
+            className="grid size-12 shrink-0 place-items-center rounded-lg bg-stone-900 text-2xl"
+            aria-hidden="true"
+          >
+            📦
+          </span>
+        )}
+        <div className="min-w-0">
+          <div className="truncate font-medium text-stone-100">{item?.name ?? "Предмет"}</div>
+          <div className="truncate text-xs text-stone-400">
+            {event.text.replace(/^📦\s*Получен предмет:\s*/, "Добыча — ")}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (event.kind === "roll") {
+    const result = (event.data as { result?: RollResult } | undefined)?.result;
+    return (
+      <div className="flex items-center gap-2.5 rounded-xl border border-stone-700/70 bg-stone-950/60 px-3 py-2 text-sm text-stone-200">
+        {result ? <DiceRollBadge result={result} /> : <span aria-hidden="true">🎲</span>}
+        <span className="min-w-0">{event.text.replace(/^🎲\s*/, "")}</span>
+      </div>
+    );
+  }
+  const heal = event.kind === "hp" && /[💚✨]/u.test(event.text);
+  const tone =
+    event.kind === "combat"
+      ? "border-red-900/50 bg-red-950/25 text-red-100"
+      : event.kind === "death"
+        ? "border-stone-700 bg-stone-950/80 text-stone-300"
+        : event.kind === "hp"
+          ? heal
+            ? "border-emerald-900/50 bg-emerald-950/20 text-emerald-100"
+            : "border-rose-900/50 bg-rose-950/20 text-rose-100"
+          : event.kind === "effect"
+            ? "border-amber-900/50 bg-amber-950/20 text-amber-100"
+            : "border-stone-800 bg-stone-950/50 text-stone-400";
+  return (
+    <div className={cn("rounded-xl border px-3 py-2 text-sm", tone, event.kind === "note" && "italic")}>
+      {event.text}
+    </div>
+  );
+}
+
+// This turn's resolved events, as a stack of cards under the narration passage.
+function EventCards({ events }: { events?: GameEvent[] }) {
+  if (!events?.length) {
+    return null;
+  }
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      {events.map((event) => (
+        <EventCard key={event.id} event={event} />
+      ))}
+    </div>
+  );
+}
+
+// Attach each chat-level journal event to the assistant message it was resolved
+// for, so the inline event cards survive a reload. Both lists are createdAt-ASC;
+// an event belongs to the latest assistant message at-or-before its timestamp
+// (the turn that produced it), since the engine writes events right after saving
+// the passage.
+function attachEventsToMessages(messages: StoryMessage[], events: GameEvent[]): StoryMessage[] {
+  if (!events.length) {
+    return messages;
+  }
+  const assistantIdx = messages.flatMap((message, index) =>
+    message.role === "assistant" ? [{ index, at: message.createdAt }] : [],
+  );
+  if (!assistantIdx.length) {
+    return messages;
+  }
+  const byIndex = new Map<number, GameEvent[]>();
+  for (const event of events) {
+    let pick = assistantIdx[0].index;
+    for (const { index, at } of assistantIdx) {
+      if (at <= event.createdAt) {
+        pick = index;
+      } else {
+        break;
+      }
+    }
+    byIndex.set(pick, [...(byIndex.get(pick) ?? []), event]);
+  }
+  return messages.map((message, index) =>
+    byIndex.has(index) ? { ...message, events: byIndex.get(index) } : message,
   );
 }
 

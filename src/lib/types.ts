@@ -1,5 +1,5 @@
 import type { LocalTextModelId, TextProvider } from "@/lib/text-models";
-import type { RpgSnapshot } from "@/lib/rpg/types";
+import type { GameEvent, RpgSnapshot } from "@/lib/rpg/types";
 
 export type StoryRole = "user" | "assistant";
 
@@ -119,6 +119,7 @@ export type StoryMessage = {
   imageRequest?: ImageRequest;
   generatedImage?: GeneratedImage;
   rpgSnapshot?: RpgSnapshot; // pre-turn RPG state, for Retry/Erase rollback
+  events?: GameEvent[]; // this turn's resolved game events, for inline event cards (client-side)
 };
 
 export type GeneratedImage = {
