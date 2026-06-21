@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Loader2, Volume2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import HTMLFlipBook from "react-pageflip";
 import { cn } from "@/lib/cn";
+import { splitSentences } from "@/lib/text";
 import type { StoryMessage } from "@/lib/types";
 
 type FlipApi = { pageFlip: () => { flipNext: () => void; flipPrev: () => void } };
@@ -23,10 +24,6 @@ const CHROME = PAD * 2 + 2;
 // matches what is painted (the floated text-5xl capital is taller than one line).
 const DROP_CAP =
   "[&::first-letter]:float-left [&::first-letter]:mr-1 [&::first-letter]:mt-0.5 [&::first-letter]:font-bold [&::first-letter]:text-5xl [&::first-letter]:leading-[0.8] [&::first-letter]:text-[#7a3b18]";
-
-function splitSentences(paragraph: string): string[] {
-  return paragraph.match(/[^.!?…]+[.!?…]*\s*/g) ?? [paragraph];
-}
 
 // A storybook reader: the whole story FLOWS across parchment pages, packed so each
 // page fills with text (no scrollbars — like a real book). Scene images appear

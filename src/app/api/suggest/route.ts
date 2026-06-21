@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { customChatEndpoint } from "@/lib/llm";
-import { serverEnv } from "@/lib/server-env";
+import { requestChatCompletion } from "@/lib/llm";
 
 export const runtime = "nodejs";
 
@@ -36,14 +35,6 @@ export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
   const instruction = FIELD_PROMPTS[body.field];
 
-  const baseUrl =
-    body.settings.customBaseUrl.trim() ||
-    serverEnv("OPENAI_COMPAT_BASE_URL", "http://127.0.0.1:8080/v1");
-  const model =
-    body.settings.customModel.trim() ||
-    serverEnv("OPENAI_COMPAT_MODEL", "gemma-4-12b-uncensored");
-  const apiKey = body.settings.customApiKey.trim() || serverEnv("OPENAI_COMPAT_API_KEY");
-
   const messages = [
     {
       role: "system" as const,
@@ -58,54 +49,27 @@ export async function POST(request: Request) {
     },
   ];
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
-  try {
-    const upstream = await fetch(customChatEndpoint(baseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 1.0,
-        max_tokens: 300,
-      }),
-      signal: controller.signal,
-    });
+  const result = await requestChatCompletion({
+    settings: body.settings,
+    messages,
+    temperature: 1.0,
+    maxTokens: 300,
+    timeoutMs: 60_000,
+  });
 
-    if (!upstream.ok) {
-      const detail = await upstream.text();
-      return Response.json(
-        { error: `Сервер не ответил (${upstream.status}).`, detail: detail.slice(0, 500) },
-        { status: 502 },
-      );
-    }
-
-    const data = (await upstream.json()) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
-    const raw = data?.choices?.[0]?.message?.content;
-    const value = (typeof raw === "string" ? raw : "")
-      .replace(/^["'«»\s]+|["'«»\s]+$/g, "")
-      .trim();
-
-    if (!value) {
-      return Response.json({ error: "Пустой ответ от модели." }, { status: 502 });
-    }
-
-    return Response.json({ value });
-  } catch (error) {
+  if (!result.ok) {
+    // status 0 = the request never reached the server (down / timed out).
     return Response.json(
-      {
-        error: "Не удалось получить идею. Запущен ли текстовый сервер?",
-        detail: error instanceof Error ? error.message : String(error),
-      },
+      result.status
+        ? { error: `Сервер не ответил (${result.status}).`, detail: result.detail }
+        : { error: "Не удалось получить идею. Запущен ли текстовый сервер?", detail: result.detail },
       { status: 502 },
     );
-  } finally {
-    clearTimeout(timeout);
   }
+
+  const value = result.content.replace(/^["'«»\s]+|["'«»\s]+$/g, "").trim();
+  if (!value) {
+    return Response.json({ error: "Пустой ответ от модели." }, { status: 502 });
+  }
+  return Response.json({ value });
 }

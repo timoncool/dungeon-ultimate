@@ -71,6 +71,7 @@ import type {
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "@/lib/rpg/dice";
 import { deriveForOwner, type DerivedRpg } from "@/lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
+import { splitSentences } from "@/lib/text";
 import { splitDialogueSegments, voiceForCharacter } from "@/lib/tts";
 import type DiceBox from "@3d-dice/dice-box-threejs";
 
@@ -387,14 +388,13 @@ function chatToSummary(chat: StoryChat): StoryChatSummary {
 }
 
 // Split a passage into sentence-ish chunks so TTS can stream: play the first
-// while the next is still synthesizing. Russian punctuation aware; tiny
-// fragments merge into the neighbour so we don't synth two-word clips.
-function splitSentences(text: string): string[] {
+// while the next is still synthesizing. Uses the shared sentence splitter, then
+// collapses whitespace and merges tiny fragments so we don't synth two-word clips.
+function splitForSpeech(text: string): string[] {
   const raw = text.replace(/\s+/g, " ").trim();
   if (!raw) return [];
-  const parts = raw.match(/[^.!?…]+[.!?…]+(?:["”»)]*)|\S[^.!?…]*$/g) || [raw];
   const out: string[] = [];
-  for (const part of parts) {
+  for (const part of splitSentences(raw)) {
     const s = part.trim();
     if (!s) continue;
     if (out.length && (s.length < 14 || out[out.length - 1].length < 14)) {
@@ -1247,12 +1247,12 @@ export default function Home() {
     // runs never collide.
     const chunks: Array<{ text: string; voice: string }> = settings.multiVoice
       ? splitDialogueSegments(text, settings, characters, voices).flatMap((segment) =>
-          splitSentences(segment.text).map((sentence) => ({
+          splitForSpeech(segment.text).map((sentence) => ({
             text: sentence,
             voice: segment.voice,
           })),
         )
-      : splitSentences(text).map((sentence) => ({ text: sentence, voice: settings.voice }));
+      : splitForSpeech(text).map((sentence) => ({ text: sentence, voice: settings.voice }));
     if (!chunks.length) {
       setSpeakingId("");
       return;

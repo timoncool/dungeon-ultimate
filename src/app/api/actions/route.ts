@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { customChatEndpoint } from "@/lib/llm";
-import { serverEnv } from "@/lib/server-env";
+import { requestChatCompletion } from "@/lib/llm";
 
 export const runtime = "nodejs";
 
@@ -66,14 +65,6 @@ export async function POST(request: Request) {
   }
   const body = parsed.data;
 
-  const baseUrl =
-    body.settings.customBaseUrl.trim() ||
-    serverEnv("OPENAI_COMPAT_BASE_URL", "http://127.0.0.1:8080/v1");
-  const model =
-    body.settings.customModel.trim() ||
-    serverEnv("OPENAI_COMPAT_MODEL", "gemma-4-12b-uncensored");
-  const apiKey = body.settings.customApiKey.trim() || serverEnv("OPENAI_COMPAT_API_KEY");
-
   const messages = [
     {
       role: "system" as const,
@@ -86,35 +77,13 @@ export async function POST(request: Request) {
     },
   ];
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45_000);
-  try {
-    const upstream = await fetch(customChatEndpoint(baseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({ model, messages, temperature: 0.5, max_tokens: 200 }),
-      signal: controller.signal,
-    });
-
-    if (!upstream.ok) {
-      return Response.json({ actions: [] });
-    }
-
-    const data = (await upstream.json()) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
-    const raw = typeof data?.choices?.[0]?.message?.content === "string"
-      ? (data.choices[0].message!.content as string)
-      : "";
-
-    return Response.json({ actions: parseActions(raw) });
-  } catch {
-    // Best-effort: no chips on failure, never blocks play.
-    return Response.json({ actions: [] });
-  } finally {
-    clearTimeout(timeout);
-  }
+  // Best-effort: any failure (server down, non-ok, timeout) degrades to no chips.
+  const result = await requestChatCompletion({
+    settings: body.settings,
+    messages,
+    temperature: 0.5,
+    maxTokens: 200,
+    timeoutMs: 45_000,
+  });
+  return Response.json({ actions: result.ok ? parseActions(result.content) : [] });
 }
