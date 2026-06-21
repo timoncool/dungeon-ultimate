@@ -162,6 +162,20 @@ def _clean_content(content):
     content = re.sub(r"<\|?tool_call\|?>", "", content)         # <|tool_call|> / <tool_call|>
     content = re.sub(r"<\|?[^<>]*?\|?>", "", content)           # any leftover <|...|>/<|...>/<...|>/<|">
     content = re.sub(r"(?m)^\s*call:\s*$", "", content)         # stray bare "call:" line
+    # Combat/status UI tags + status lines the model sometimes dumps into the prose.
+    # Mechanics belong in the HUD + the trailing [[GAME]] block, never the narration.
+    content = re.sub(
+        r"\[\s*(?:COMB|ACTION|STATUS|STRATEGY|STRATEGY_OPTIONS|COMBAT|TURN|EFFECT|DAMAGE|ROLL|RESULT|ENEMY|STATE|DICE|YOUR[_ ]?TURN|OPTIONS)\b[^\]\n]*\]",
+        "",
+        content,
+        flags=re.I,
+    )
+    content = re.sub(
+        r"(?im)^[ \t>*_\-]*(?:Roll|Result|Action|Effect|Damage|DC|Attack|Outcome|Stability|Distance|Position|Enemy[ _]Turn|Status|Бросок|Итог|Результат|Урон|Эффект|Статус)\s*:.*$",
+        "",
+        content,
+    )
+    content = re.sub(r"\n{3,}", "\n\n", content)
     return content.strip()
 
 

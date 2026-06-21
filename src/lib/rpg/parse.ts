@@ -3,7 +3,7 @@ import type { GameUpdate } from "./types";
 
 const ability = z.enum(["str", "dex", "con", "int", "wis", "cha"]);
 
-const gameUpdateSchema = z
+export const gameUpdateSchema = z
   .object({
     rolls: z
       .array(

@@ -18,10 +18,10 @@ import {
   updateChatTitleFromInput,
 } from "@/lib/db";
 import { applyGameUpdate, type ActorMap } from "@/lib/rpg/apply";
-import { extractGameUpdate } from "@/lib/rpg/parse";
+import { extractGameUpdate, gameUpdateSchema } from "@/lib/rpg/parse";
 import { buildRpgSection } from "@/lib/rpg/prompt";
-import type { Enemy, GameEvent, RpgSnapshot } from "@/lib/rpg/types";
-import { customChatEndpoint } from "@/lib/llm";
+import type { Enemy, GameEvent, GameUpdate, RpgSnapshot } from "@/lib/rpg/types";
+import { customChatEndpoint, requestStructuredJson } from "@/lib/llm";
 import { serverEnv } from "@/lib/server-env";
 import {
   buildStoryMessages,
@@ -52,6 +52,12 @@ const MAX_IMAGE_REFERENCES = 3;
 // Of those, how many are character portraits the narrator may name — kept below
 // the total so the scene/item references always have room.
 const MAX_CHARACTER_REFERENCES = 2;
+// Run the structured rules-engine pass (a separate grammar-constrained call that
+// emits the GameUpdate JSON). OFF by default: the local 12B fills the complex
+// combat schema with garbage (invented ids), so combat rides the narrator's
+// [[GAME]] block instead. Set STRUCTURED_GAME_EVENTS=1 to enable it for a stronger
+// model — the pass is already ID-gated, so it can only ever help, never regress.
+const STRUCTURED_GAME_EVENTS = serverEnv("STRUCTURED_GAME_EVENTS", "") === "1";
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const MAX_CONFIGURABLE_OUTPUT_TOKENS = 65_536;
 const DEFAULT_LOCAL_MAX_OUTPUT_TOKENS = 4_096;
@@ -971,9 +977,224 @@ async function summarizeEvictedPassages(
   return summary ? summary.slice(0, 8_000) : null;
 }
 
-// Resolve the narrator's [[GAME]] block (when RPG is on): roll dice server-side,
-// apply HP/death, persist character state + journal events, and return the prose
-// with the block stripped plus the events to surface to the client.
+// Second-pass "rules engine": a SEPARATE grammar-constrained call that reads the
+// narration just written + the game state and emits the mechanics as strict JSON.
+// Decoupled from the prose (best practice: deterministic rules in code, the model
+// only declares WHAT happens), so combat no longer depends on the narrator hand-
+// writing a valid [[GAME]] block. The schema constrains the SHAPE; this prompt
+// describes the FIELDS (the schema is never shown to the model).
+const GAME_ENGINE_SYSTEM = `You are the deterministic D&D rules engine for one roleplay turn. You receive the current game state (character/enemy IDs, HP, AC) and the narration of what just happened. Output ONLY a JSON object of the mechanics this turn triggers — the engine rolls the dice and applies damage/death; you only declare WHAT happens. Output {} when the turn is purely narrative.
+
+Fields (all optional — include ONLY what the scene actually triggers):
+- rolls: ability checks the player attempts — [{"ability":"str|dex|con|int|wis|cha","dc":5..20,"label":"short","actorId":"EXACT_ID"}] (dc 5 easy, 15 medium, 20 very hard).
+- attacks: an attack on a target — [{"attackerId":"ID","targetId":"ID","ability":"str|dex|con|int|wis|cha","damage":"1d8+2","label":"short"}]. In active combat EVERY living enemy attacks the player via attacks (attackerId = enemy ID, targetId = player ID).
+- spawnEnemies: foes entering combat — [{"name":"Goblin","hp":12,"ac":13,"level":1,"stats":{"str":12,"dex":14}}].
+- hpDelta: out-of-combat damage(-) / heal(+) — [{"characterId":"ID","amount":-6,"reason":"short"}].
+- applyEffects: buffs/debuffs/poison/blessing — [{"characterId":"ID","name":"short","kind":"buff|debuff","modifiers":{"str":2},"turns":3}].
+- clearEffects: remove an effect — [{"characterId":"ID","name":"name or *"}].
+- grantItems: loot — [{"name":"short","slot":"weapon|armor|shield|trinket|consumable|misc","rarity":"common|uncommon|rare|epic|legendary","damage":"1d8","withImage":true,"imagePromptEn":"short ENGLISH visual"}].
+
+Reference combatants ONLY by their EXACT IDs from the state. NEVER decide hit/miss/damage/death yourself — the engine does. Do not invent IDs.`;
+
+const ABILITY_ENUM = ["str", "dex", "con", "int", "wis", "cha"];
+const NUM_RECORD = { type: "object", additionalProperties: { type: "number" } };
+// JSON-Schema mirror of gameUpdateSchema: the local server turns it into a GBNF
+// grammar so the engine pass always returns a valid GameUpdate shape.
+const GAME_UPDATE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    rolls: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ability: { type: "string", enum: ABILITY_ENUM },
+          dc: { type: "number" },
+          label: { type: "string" },
+          actorId: { type: "string" },
+          kind: { type: "string", enum: ["skill", "attack", "save"] },
+          targetId: { type: "string" },
+        },
+        required: ["ability", "dc"],
+      },
+    },
+    attacks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          attackerId: { type: "string" },
+          targetId: { type: "string" },
+          ability: { type: "string", enum: ABILITY_ENUM },
+          damage: { type: "string" },
+          label: { type: "string" },
+        },
+        required: ["targetId"],
+      },
+    },
+    spawnEnemies: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          hp: { type: "number" },
+          ac: { type: "number" },
+          level: { type: "number" },
+          stats: NUM_RECORD,
+        },
+        required: ["name"],
+      },
+    },
+    hpDelta: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          characterId: { type: "string" },
+          amount: { type: "number" },
+          reason: { type: "string" },
+        },
+        required: ["characterId", "amount"],
+      },
+    },
+    applyEffects: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          characterId: { type: "string" },
+          name: { type: "string" },
+          kind: { type: "string", enum: ["buff", "debuff"] },
+          modifiers: NUM_RECORD,
+          turns: { type: "number" },
+          note: { type: "string" },
+        },
+        required: ["name"],
+      },
+    },
+    clearEffects: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { characterId: { type: "string" }, name: { type: "string" } },
+        required: ["name"],
+      },
+    },
+    grantItems: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ownerId: { type: "string" },
+          name: { type: "string" },
+          slot: {
+            type: "string",
+            enum: ["weapon", "armor", "shield", "trinket", "consumable", "misc"],
+          },
+          rarity: {
+            type: "string",
+            enum: ["common", "uncommon", "rare", "epic", "legendary"],
+          },
+          description: { type: "string" },
+          damage: { type: "string" },
+          modifiers: NUM_RECORD,
+          qty: { type: "number" },
+          withImage: { type: "boolean" },
+          imagePromptEn: { type: "string" },
+        },
+        required: ["name"],
+      },
+    },
+    note: { type: "string" },
+  },
+};
+
+// Compact, ID-first state line for the engine pass — "use these exact IDs".
+function rpgStateForEngine(actors: ActorMap, enemies: Enemy[]): string {
+  const lines: string[] = [];
+  for (const [id, actor] of actors) {
+    lines.push(`- ${actor.name} (ID ${id}): HP ${actor.rpg.hp.current}/${actor.rpg.hp.max}, AC ${actor.rpg.ac}`);
+  }
+  for (const enemy of enemies) {
+    lines.push(`- ENEMY ${enemy.name} (ID ${enemy.id}): HP ${enemy.rpg.hp.current}/${enemy.rpg.hp.max}, AC ${enemy.rpg.ac}`);
+  }
+  return lines.length ? `CURRENT GAME STATE (use these EXACT IDs):\n${lines.join("\n")}` : "No combatants on the field yet.";
+}
+
+// Run the structured rules-engine pass for this turn. Returns a validated
+// GameUpdate, or null on failure / a purely-narrative turn — in which case
+// resolveRpgTurn falls back to a [[GAME]] block in the prose (if any).
+async function requestGameEvent(
+  settings: StoryRequestSettings,
+  actors: ActorMap,
+  enemies: Enemy[],
+  playerInput: string,
+  narration: string,
+): Promise<GameUpdate | null> {
+  const messages = [
+    {
+      role: "system" as const,
+      content: `${GAME_ENGINE_SYSTEM}\n\n${rpgStateForEngine(actors, enemies)}\n\nWrite every human-facing string (label/name/reason/note) in ${LANGUAGE_PROMPT_NAMES[settings.language]}.`,
+    },
+    {
+      role: "user" as const,
+      content: `Player action: ${playerInput?.trim() || "(none — narrative beat)"}\n\nWhat just happened (narration):\n${narration.slice(-3000)}\n\nOutput the mechanics JSON for this turn ({} if nothing mechanical).`,
+    },
+  ];
+  const result = await requestStructuredJson<unknown>({
+    settings,
+    messages,
+    schema: GAME_UPDATE_SCHEMA,
+    temperature: 0.3,
+    maxTokens: 500,
+    timeoutMs: 60_000,
+  });
+  if (!result.ok) {
+    return null;
+  }
+  const parsed = gameUpdateSchema.safeParse(result.data);
+  if (!parsed.success) {
+    return null;
+  }
+  const update = parsed.data as GameUpdate;
+  const hasMechanics = Object.values(update).some((value) =>
+    Array.isArray(value) ? value.length > 0 : value !== undefined,
+  );
+  if (!hasMechanics) {
+    return null;
+  }
+  // Semantic gate (format != meaning): the local 12B sometimes fills a VALID shape
+  // with garbage — invented ids, a copied placeholder. Accept the structured update
+  // only if every id it references is a real combatant; otherwise return null so
+  // resolveRpgTurn falls back to a narrator [[GAME]] block. spawnEnemies have no id
+  // yet, so they don't gate.
+  const knownIds = new Set<string>([...actors.keys(), ...enemies.map((enemy) => enemy.id)]);
+  const referenced: Array<string | undefined> = [
+    ...(update.rolls ?? []).flatMap((roll) => [roll.actorId, roll.targetId]),
+    ...(update.attacks ?? []).flatMap((attack) => [attack.attackerId, attack.targetId]),
+    ...(update.hpDelta ?? []).map((entry) => entry.characterId),
+    ...(update.applyEffects ?? []).map((effect) => effect.characterId),
+    ...(update.clearEffects ?? []).map((effect) => effect.characterId),
+    ...(update.grantItems ?? []).map((item) => item.ownerId),
+  ];
+  const allIdsValid = referenced.every((id) => !id || knownIds.has(id));
+  return allIdsValid ? update : null;
+}
+
+// Resolve this turn's mechanics (when RPG is on): roll dice server-side, apply
+// HP/death, persist character state + journal events, and return the prose with
+// any [[GAME]] block stripped plus the events to surface to the client. The
+// structured `providedUpdate` (from the rules-engine pass) wins; a narrator-written
+// [[GAME]] block in the text is the fallback.
 function resolveRpgTurn(
   chatId: string | undefined,
   enabled: boolean,
@@ -981,11 +1202,15 @@ function resolveRpgTurn(
   enemies: Enemy[],
   storyText: string,
   randomEvents = false,
+  providedUpdate?: GameUpdate | null,
 ): { clean: string; events: GameEvent[]; snapshot?: RpgSnapshot } {
   if (!enabled) {
     return { clean: storyText, events: [] };
   }
-  const { clean, update } = extractGameUpdate(storyText);
+  // Always strip a [[GAME]] block from the prose (clean text), but prefer the
+  // structured engine update over whatever the narrator may have hand-written.
+  const { clean, update: textUpdate } = extractGameUpdate(storyText);
+  const update = providedUpdate ?? textUpdate;
   if (!update) {
     return { clean, events: [] };
   }
@@ -1266,6 +1491,11 @@ export async function POST(request: Request) {
 
         try {
         const trimmedStory = extractStoryText(storyText);
+        // Structured rules-engine pass over the finished narration (RPG only).
+        const gameUpdate =
+          rpgEnabled && STRUCTURED_GAME_EVENTS
+            ? await requestGameEvent(body.settings, rpgActors, rpgEnemies, body.input, trimmedStory)
+            : null;
         const rpg = resolveRpgTurn(
           chatId,
           rpgEnabled,
@@ -1273,6 +1503,7 @@ export async function POST(request: Request) {
           rpgEnemies,
           trimmedStory,
           body.settings.randomEvents,
+          gameUpdate,
         );
         const characterIds = withHeroReference(
           imageToolArgs?.characterIds
@@ -1358,6 +1589,11 @@ export async function POST(request: Request) {
   }
 
   const storyText = extractStoryText(message?.content);
+  // Structured rules-engine pass over the finished narration (RPG only).
+  const gameUpdate =
+    rpgEnabled && STRUCTURED_GAME_EVENTS
+      ? await requestGameEvent(body.settings, rpgActors, rpgEnemies, body.input, storyText)
+      : null;
   const rpg = resolveRpgTurn(
     body.chatId,
     rpgEnabled,
@@ -1365,6 +1601,7 @@ export async function POST(request: Request) {
     rpgEnemies,
     storyText,
     body.settings.randomEvents,
+    gameUpdate,
   );
   const imageToolArgs = parseGenerateImageToolCall(message?.tool_calls);
 

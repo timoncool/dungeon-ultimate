@@ -2343,10 +2343,14 @@ export default function Home() {
                       key={`${index}-${action.label}`}
                       type="button"
                       onClick={() => void playInput(action.label)}
-                      className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-full border border-amber-900/60 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-100 transition hover:border-amber-300 hover:bg-amber-900/30"
+                      className="inline-flex max-w-[26rem] items-start gap-1.5 rounded-2xl border border-amber-900/60 bg-amber-950/20 px-3 py-1.5 text-left text-sm text-amber-100 transition hover:border-amber-300 hover:bg-amber-900/30"
                     >
-                      {action.emoji && <span aria-hidden="true">{action.emoji}</span>}
-                      <span className="truncate">{action.label}</span>
+                      {action.emoji && (
+                        <span aria-hidden="true" className="pt-0.5">
+                          {action.emoji}
+                        </span>
+                      )}
+                      <span className="whitespace-normal leading-snug">{action.label}</span>
                     </button>
                   ))}
                 </div>
