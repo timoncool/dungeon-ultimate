@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requestChatCompletion } from "@/lib/llm";
+import { LANGUAGE_PROMPT_NAMES, LANGUAGE_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -17,8 +18,9 @@ const requestSchema = z.object({
       customBaseUrl: z.string().trim().max(500).default(""),
       customModel: z.string().trim().max(200).default(""),
       customApiKey: z.string().trim().max(400).default(""),
+      language: z.enum(LANGUAGE_VALUES).default("ru"),
     })
-    .default({ customBaseUrl: "", customModel: "", customApiKey: "" }),
+    .default({ customBaseUrl: "", customModel: "", customApiKey: "", language: "ru" }),
 });
 
 // Parse "emoji | action text" lines (lenient: also accepts plain lines and
@@ -65,11 +67,12 @@ export async function POST(request: Request) {
   }
   const body = parsed.data;
 
+  const langName = LANGUAGE_PROMPT_NAMES[body.settings.language];
+
   const messages = [
     {
       role: "system" as const,
-      content:
-        "Ты — генератор быстрых действий для текстовой ролевой игры (D&D). НЕ анализируй, НЕ комментируй и НЕ пересказывай текст. Прочитай последнюю сцену и предложи РОВНО 3–4 коротких, конкретных и РАЗНЫХ действия, которые герой-игрок может совершить прямо сейчас (повелительно, 3–6 слов). Каждое — на отдельной строке СТРОГО в формате: эмодзи | действие. Никаких заголовков, нумерации, пояснений, разбора — ТОЛЬКО 3–4 такие строки.\n\nПример:\n⚔️ | Атаковать ближайшую тварь\n🛡️ | Закрыться и отступить к стене\n👁️ | Осмотреть тёмный проход\n🗣️ | Крикнуть, чтобы спугнуть их",
+      content: `Ты — генератор быстрых действий для текстовой ролевой игры (D&D). НЕ анализируй, НЕ комментируй и НЕ пересказывай текст. Прочитай последнюю сцену и предложи РОВНО 3–4 коротких, конкретных и РАЗНЫХ действия, которые герой-игрок может совершить прямо сейчас (повелительно, 3–6 слов). Каждое — на отдельной строке СТРОГО в формате: эмодзи | действие. Никаких заголовков, нумерации, пояснений, разбора — ТОЛЬКО 3–4 такие строки. Текст действий пиши на языке: ${langName}.\n\nПример формата (язык твоих действий — ${langName}):\n⚔️ | Атаковать ближайшую тварь\n🛡️ | Закрыться и отступить к стене\n👁️ | Осмотреть тёмный проход\n🗣️ | Крикнуть, чтобы спугнуть их`,
     },
     {
       role: "user" as const,

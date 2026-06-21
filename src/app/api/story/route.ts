@@ -34,7 +34,7 @@ import {
   LOCAL_TEXT_MODEL_IDS,
   localModelContextWindow,
 } from "@/lib/text-models";
-import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
+import { LANGUAGE_VALUES, PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 import type { Attachment, StoryCharacter, StoryMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -134,6 +134,7 @@ const requestSchema = z.object({
     diceVolume: z.number().default(55),
     proseSize: z.enum(PROSE_SIZE_VALUES).default("medium"),
     responseLength: z.enum(RESPONSE_LENGTH_VALUES).default("medium"),
+    language: z.enum(LANGUAGE_VALUES).default("ru"),
     voice: z.string().default("RU_Male_Gabidullin_ruslan"),
     autoplay: z.boolean().default(false),
     ttsVolume: z.number().default(1),
@@ -1045,7 +1046,12 @@ export async function POST(request: Request) {
     rpgEnabled && body.chatId ? getCharacterRpgMap(body.chatId) : new Map();
   const rpgEnemies: Enemy[] = rpgEnabled && body.chatId ? getCombatants(body.chatId) : [];
   const rpgSection = rpgEnabled
-    ? buildRpgSection(rpgActors, body.chatId ? listItems(body.chatId) : [], rpgEnemies)
+    ? buildRpgSection(
+        rpgActors,
+        body.chatId ? listItems(body.chatId) : [],
+        rpgEnemies,
+        body.settings.language,
+      )
     : "";
   const userMessage: StoryMessage = {
     id: body.userMessageId || crypto.randomUUID(),
@@ -1128,6 +1134,7 @@ export async function POST(request: Request) {
     characters,
     storySummary,
     rpgSection,
+    body.settings.language,
   ) as OpenRouterMessage[];
   const characterVisionMessage = buildCharacterVisionMessage(characters);
   const messages = characterVisionMessage

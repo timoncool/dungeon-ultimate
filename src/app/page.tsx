@@ -16,6 +16,7 @@ import {
   Dices,
   Eraser,
   FolderOpen,
+  Globe,
   Heart,
   ImagePlus,
   Library,
@@ -54,19 +55,22 @@ import dynamic from "next/dynamic";
 import { cn } from "@/lib/cn";
 import { DEFAULT_STORY_SETTINGS, titleFromInput } from "@/lib/defaults";
 import { LOCAL_TEXT_MODELS, type LocalTextModelId, type TextProvider } from "@/lib/text-models";
-import type {
-  AspectPreset,
-  Attachment,
-  GeneratedImage,
-  ImageBackend,
-  ImageMode,
-  ProseSize,
-  ResponseLength,
-  StoryChat,
-  StoryCharacter,
-  StoryChatSummary,
-  StoryMessage,
-  StorySettings,
+import {
+  LANGUAGE_LABELS,
+  LANGUAGE_VALUES,
+  type AspectPreset,
+  type Attachment,
+  type GeneratedImage,
+  type ImageBackend,
+  type ImageMode,
+  type Language,
+  type ProseSize,
+  type ResponseLength,
+  type StoryChat,
+  type StoryCharacter,
+  type StoryChatSummary,
+  type StoryMessage,
+  type StorySettings,
 } from "@/lib/types";
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "@/lib/rpg/dice";
 import { deriveForOwner, type DerivedRpg } from "@/lib/rpg/derive";
@@ -1215,7 +1219,7 @@ export default function Home() {
       const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice }),
+        body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice, language: settings.language }),
       });
       if (!response.ok) return null;
       const data = (await response.json()) as { url?: string };
@@ -2507,6 +2511,11 @@ export default function Home() {
                     setSettings={setSettings}
                     idPrefix="desktop-rail"
                   />
+                  <LanguageControl
+                    settings={settings}
+                    setSettings={setSettings}
+                    idPrefix="desktop-rail"
+                  />
                 </>
               )}
             </div>
@@ -3148,6 +3157,42 @@ function CharacterPanel({
   voices: string[];
   compact?: boolean;
 } & PanelControlProps) {
+  // Ask the text model to invent a fresh protagonist for the blank draft form.
+  const [autofilling, setAutofilling] = useState(false);
+  const autofillDraft = async () => {
+    setAutofilling(true);
+    try {
+      const response = await fetch("/api/character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            customBaseUrl: settings.customBaseUrl,
+            customModel: settings.customModel,
+            customApiKey: settings.customApiKey,
+            language: settings.language,
+          },
+        }),
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        character?: Partial<CharacterDraft>;
+      } & Partial<CharacterDraft>;
+      const c = data.character ?? data;
+      onDraftChange((current) => ({
+        ...current,
+        name: c.name ?? current.name,
+        details: c.details ?? current.details,
+        inventory: c.inventory ?? current.inventory,
+        skills: c.skills ?? current.skills,
+        spells: c.spells ?? current.spells,
+      }));
+    } catch {
+      // best-effort: leave the draft untouched on failure
+    } finally {
+      setAutofilling(false);
+    }
+  };
   return (
     <PanelSection
       icon={UserRound}
@@ -3180,7 +3225,23 @@ function CharacterPanel({
       </label>
       <div className="space-y-3 rounded border border-stone-800 bg-stone-950/70 p-3">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Имя</span>
+          <span className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase text-stone-500">
+            Имя
+            <button
+              type="button"
+              onClick={() => void autofillDraft()}
+              disabled={autofilling}
+              title="Заполнить персонажа за меня"
+              className="inline-flex items-center gap-1 rounded border border-stone-700 px-1.5 py-0.5 text-[10px] font-normal normal-case text-stone-400 transition hover:border-amber-300 hover:text-amber-300 disabled:opacity-50"
+            >
+              {autofilling ? (
+                <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles size={13} aria-hidden="true" />
+              )}
+              {autofilling ? "…" : "Заполнить"}
+            </button>
+          </span>
           <input
             id="new-character-name"
             name="new-character-name"
@@ -3970,6 +4031,52 @@ function ResponseLengthControl({
           <span key={option.value}>{option.label}</span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Story language: drives the narrator, suggestions, action chips and TTS. A
+// plain native-name picker bound to settings.language.
+function LanguageControl({
+  settings,
+  setSettings,
+  idPrefix,
+  className,
+}: {
+  settings: StorySettings;
+  setSettings: Dispatch<SetStateAction<StorySettings>>;
+  idPrefix: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-2",
+        className,
+      )}
+    >
+      <label
+        htmlFor={`${idPrefix}-language`}
+        className="flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500"
+      >
+        <Globe className="size-3.5" aria-hidden="true" />
+        Язык
+      </label>
+      <select
+        id={`${idPrefix}-language`}
+        name={`${idPrefix}-language`}
+        value={settings.language}
+        onChange={(event) =>
+          setSettings((current) => ({ ...current, language: event.target.value as Language }))
+        }
+        className="w-full rounded border border-stone-700 bg-stone-950 px-2 py-1 text-sm text-stone-200 outline-none focus:border-amber-300"
+      >
+        {LANGUAGE_VALUES.map((value) => (
+          <option key={value} value={value}>
+            {LANGUAGE_LABELS[value]}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -5029,6 +5136,7 @@ function StorySettingsPanel({
         <>
           <FontSizeSlider settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
           <ResponseLengthControl settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
+          <LanguageControl settings={settings} setSettings={setSettings} idPrefix={idPrefix} />
           <VoiceControl settings={settings} setSettings={setSettings} />
         </>
       )}

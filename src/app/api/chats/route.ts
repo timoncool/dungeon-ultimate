@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createChat, listChats } from "@/lib/db";
 import { LOCAL_TEXT_MODEL_IDS } from "@/lib/text-models";
-import { PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
+import { LANGUAGE_VALUES, PROSE_SIZE_VALUES, RESPONSE_LENGTH_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +35,7 @@ const settingsSchema = z.object({
   companion: z.boolean().optional(),
   proseSize: z.enum(PROSE_SIZE_VALUES).optional(),
   responseLength: z.enum(RESPONSE_LENGTH_VALUES).optional(),
+  language: z.enum(LANGUAGE_VALUES).optional(),
   voice: z.string().optional(),
   autoplay: z.boolean().optional(),
   ttsVolume: z.number().optional(),

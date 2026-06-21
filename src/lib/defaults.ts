@@ -37,6 +37,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   diceVolume: 75,
   proseSize: "medium",
   responseLength: "medium",
+  language: "ru",
   voice: "RU_Male_Gabidullin_ruslan",
   autoplay: false,
   ttsVolume: 1,

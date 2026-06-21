@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requestChatCompletion } from "@/lib/llm";
+import { LANGUAGE_PROMPT_NAMES, LANGUAGE_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -9,13 +10,13 @@ export const runtime = "nodejs";
 
 const FIELD_PROMPTS: Record<string, string> = {
   world:
-    "Придумай ОДНУ свежую, конкретную завязку мира/сценария для приватной текстовой ролевой игры. 1–2 предложения, по-русски, без банальщины (избегай шаблонных таверн и «избранных»). Выведи ТОЛЬКО текст завязки, без преамбул и кавычек.",
+    "Придумай ОДНУ свежую, конкретную завязку мира/сценария для приватной текстовой ролевой игры. 1–2 предложения, без банальщины (избегай шаблонных таверн и «избранных»). Выведи ТОЛЬКО текст завязки, без преамбул и кавычек.",
   style:
-    "Придумай тон и стиль прозы для текстовой ролевой игры — одна короткая ёмкая фраза по-русски (например: «мрачный нуар, скупые рубленые фразы»). Выведи ТОЛЬКО фразу, без преамбул.",
+    "Придумай тон и стиль прозы для текстовой ролевой игры — одна короткая ёмкая фраза (например: «мрачный нуар, скупые рубленые фразы»). Выведи ТОЛЬКО фразу, без преамбул.",
   character:
-    "Придумай концепт яркого персонажа для ролевой игры: имя и краткое описание (внешность, характер, одна зацепка). 1–2 предложения по-русски. Выведи ТОЛЬКО текст, без преамбул.",
+    "Придумай концепт яркого персонажа для ролевой игры: имя и краткое описание (внешность, характер, одна зацепка). 1–2 предложения. Выведи ТОЛЬКО текст, без преамбул.",
   opening:
-    "Придумай цепляющую первую сцену для старта текстовой ролевой игры: 2–3 предложения живой прозы по-русски, во втором лице («ты…»), заканчивается моментом, приглашающим действие игрока. Выведи ТОЛЬКО сцену.",
+    "Придумай цепляющую первую сцену для старта текстовой ролевой игры: 2–3 предложения живой прозы, во втором лице («ты…»), заканчивается моментом, приглашающим действие игрока. Выведи ТОЛЬКО сцену.",
 };
 
 const requestSchema = z.object({
@@ -27,25 +28,33 @@ const requestSchema = z.object({
       customBaseUrl: z.string().trim().max(500).default(""),
       customModel: z.string().trim().max(200).default(""),
       customApiKey: z.string().trim().max(400).default(""),
+      language: z.enum(LANGUAGE_VALUES).default("ru"),
     })
-    .default({ textProvider: "custom", customBaseUrl: "", customModel: "", customApiKey: "" }),
+    .default({
+      textProvider: "custom",
+      customBaseUrl: "",
+      customModel: "",
+      customApiKey: "",
+      language: "ru",
+    }),
 });
 
 export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
   const instruction = FIELD_PROMPTS[body.field];
+  const langName = LANGUAGE_PROMPT_NAMES[body.settings.language];
+  const answerInLanguage = `Write your answer in ${langName}.`;
 
   const messages = [
     {
       role: "system" as const,
-      content:
-        "Ты — генератор идей для приватной ролевой игры. Отвечай кратко, по-русски, только запрошенным текстом, без вступлений, пояснений и кавычек.",
+      content: `Ты — генератор идей для приватной ролевой игры. Отвечай кратко, только запрошенным текстом, без вступлений, пояснений и кавычек. ${answerInLanguage}`,
     },
     {
       role: "user" as const,
       content: body.context
-        ? `${instruction}\n\nКонтекст уже заданного (учитывай, не повторяй дословно):\n${body.context}`
-        : instruction,
+        ? `${instruction}\n\n${answerInLanguage}\n\nКонтекст уже заданного (учитывай, не повторяй дословно):\n${body.context}`
+        : `${instruction}\n\n${answerInLanguage}`,
     },
   ];
 

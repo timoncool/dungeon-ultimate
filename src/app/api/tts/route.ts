@@ -4,6 +4,7 @@ import path from "node:path";
 import { getCharactersByIds } from "@/lib/db";
 import { serverEnv } from "@/lib/server-env";
 import { safeName } from "@/lib/tts";
+import { LANGUAGE_TTS_CODES, isLanguage } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,9 @@ export async function POST(request: Request) {
     // line without knowing the voice id. Bare { text, voice } is unaffected.
     chatId?: unknown;
     characterId?: unknown;
+    // The story's language (client sends settings.language); maps to the TTS
+    // worker's language code. Falls back to "ru" when absent or unrecognized.
+    language?: unknown;
   };
   const text = typeof body.text === "string" ? body.text : "";
   if (!text.trim()) {
@@ -41,6 +45,7 @@ export async function POST(request: Request) {
       voice = character.voice.trim();
     }
   }
+  const language = isLanguage(body.language) ? LANGUAGE_TTS_CODES[body.language] : "ru";
   const messageId = typeof body.messageId === "string" ? body.messageId : "";
   const chunkIndex = typeof body.chunkIndex === "number" ? body.chunkIndex : null;
   const base = serverEnv("TTS_WORKER_URL", "http://127.0.0.1:8081").replace(/\/$/, "");
@@ -53,7 +58,7 @@ export async function POST(request: Request) {
       upstream = await fetch(`${base}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice, language: "ru" }),
+        body: JSON.stringify({ text, voice, language }),
       });
     } catch {
       return Response.json(

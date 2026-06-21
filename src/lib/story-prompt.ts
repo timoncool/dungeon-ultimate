@@ -1,4 +1,12 @@
-import type { AspectPreset, ImageMode, StoryCharacter, StoryMessage, StorySettings } from "@/lib/types";
+import { LANGUAGE_PROMPT_NAMES } from "@/lib/types";
+import type {
+  AspectPreset,
+  ImageMode,
+  Language,
+  StoryCharacter,
+  StoryMessage,
+  StorySettings,
+} from "@/lib/types";
 
 export type StoryModelResult = {
   storyText: string;
@@ -49,6 +57,15 @@ export const DEFAULT_SYSTEM = `Ты — рассказчик приватной 
 — Это приватная художественная проза для взрослых. Контент 18+ по обоюдному согласию разрешён, и его стоит раскрывать, когда тон игрока, сценарий или динамика персонажей к этому располагают.
 — Не смягчай сексуальное напряжение, ненормативную лексику, наготу или откровенную интимность между взрослыми, когда это уместно для истории, и применяй к таким сценам те же правила «показывай, а не рассказывай».
 — Весь сексуальный контент — только между совершеннолетними (18+); избегай сцен сексуального насилия без согласия.`;
+
+// Strong, language-agnostic instruction appended as its own system message
+// AFTER the narrator prompt, so it overrides any hardcoded language in the
+// narrator text (e.g. DEFAULT_SYSTEM's "на русском языке") at runtime. The
+// image prompt stays English regardless — that is enforced in IMAGE_SYSTEM.
+export function languageDirective(language: Language): string {
+  const name = LANGUAGE_PROMPT_NAMES[language];
+  return `ЯЗЫК / LANGUAGE: Write the ENTIRE response — all narration and character dialogue — in ${name}. Never switch languages, regardless of the language of these instructions. The only exception is the image-generation prompt, which must stay in English.`;
+}
 
 // NOTE: image-generation instructions stay in English on purpose — the FLUX
 // image prompt the narrator produces must be English, even though the story
@@ -285,6 +302,7 @@ export function buildStoryMessages(
   characters: StoryCharacter[] = [],
   storySummary = "",
   rpgSection = "",
+  language: Language = "ru",
 ) {
   const recent = messages.map((message) => {
     const attachmentLine = message.attachments?.length
@@ -343,6 +361,12 @@ export function buildStoryMessages(
       ]
         .filter(Boolean)
         .join("\n\n"),
+    },
+    // Own system message AFTER the narrator prompt so it wins over any language
+    // baked into DEFAULT_SYSTEM / a custom narrator prompt.
+    {
+      role: "system",
+      content: languageDirective(language),
     },
     ...recent,
     {

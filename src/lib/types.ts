@@ -35,6 +35,49 @@ export function isResponseLength(value: unknown): value is ResponseLength {
   return typeof value === "string" && RESPONSE_LENGTH_VALUES.includes(value as ResponseLength);
 }
 
+// Story language: the narrator, the "surprise me" suggestions, the quick-action
+// chips and the TTS all speak the player's chosen language.
+export const LANGUAGE_VALUES = ["ru", "en", "es", "fr", "de", "zh", "ja"] as const;
+
+export type Language = (typeof LANGUAGE_VALUES)[number];
+
+export function isLanguage(value: unknown): value is Language {
+  return typeof value === "string" && LANGUAGE_VALUES.includes(value as Language);
+}
+
+// Native names for the language picker.
+export const LANGUAGE_LABELS: Record<Language, string> = {
+  ru: "Русский",
+  en: "English",
+  es: "Español",
+  fr: "Français",
+  de: "Deutsch",
+  zh: "中文",
+  ja: "日本語",
+};
+
+// How each language is named TO the model, with a native sample so it commits.
+export const LANGUAGE_PROMPT_NAMES: Record<Language, string> = {
+  ru: "Russian (русский)",
+  en: "English",
+  es: "Spanish (español)",
+  fr: "French (français)",
+  de: "German (Deutsch)",
+  zh: "Simplified Chinese (简体中文)",
+  ja: "Japanese (日本語)",
+};
+
+// BCP-47-ish code the TTS worker expects (best-effort; falls back to the voice).
+export const LANGUAGE_TTS_CODES: Record<Language, string> = {
+  ru: "ru",
+  en: "en",
+  es: "es",
+  fr: "fr",
+  de: "de",
+  zh: "zh",
+  ja: "ja",
+};
+
 export type Attachment = {
   id: string;
   name: string;
@@ -124,6 +167,7 @@ export type StorySettings = {
   diceVolume: number;
   proseSize: ProseSize;
   responseLength: ResponseLength;
+  language: Language;
   voice: string;
   autoplay: boolean;
   ttsVolume: number;
