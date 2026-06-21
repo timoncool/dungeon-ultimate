@@ -31,23 +31,28 @@ export function languageDirective(language: Language): string {
 // NOTE: image-generation instructions stay in English on purpose — the FLUX
 // image prompt the narrator produces must be English, even though the story
 // itself is written in Russian.
-export const IMAGE_SYSTEM = `You have access to a function tool named generate_image. Write the story passage as normal assistant text first. Then, if and only if a visual beat is truly worth it, call generate_image exactly once to illustrate THIS passage.
+export const IMAGE_SYSTEM = `You have access to a function tool named generate_image. Write the story passage as normal assistant text first. Then call generate_image exactly once to illustrate THIS passage with one key image.
 
 WHEN TO CALL IT
-Use images sparingly, for moments that reward a picture: a major character introduction, a striking setting reveal, a dramatic outfit or scene change, or an emotionally charged tableau. Skip it for ordinary conversation, small movements, or incremental turns. Most turns need no image. Never request more than one image per turn.
+Illustrate every meaningful turn: give the player one strong, vivid key image of the moment that just happened — a new location, a character beat, an action, a dramatic reveal, a change of scene. Skip the image only when the passage is purely mechanical or meta (a short clarifying question back to the player, a menu-like aside). Never request more than one image per turn.
 
 WHAT TO DEPICT
 Illustrate a single coherent moment drawn straight from the passage you just wrote — one scene, one camera, one instant in time. Never combine several moments, locations, or panels into one image.
 
+SCENE CONTINUITY (important)
+Set generate_image.location to a short, STABLE label for the physical place of the shot (e.g. "green meadow", "crypt of ash", "tavern common room"). Reuse the EXACT same label on every turn the scene stays in that place, so the picture can evolve continuously instead of being redrawn from scratch.
+Set generate_image.sameLocation to true when this shot is the same physical place as the previous illustrated turn — the engine then keeps the established look and changes only what the story changed (e.g. goblins arriving onto the same meadow). Set it to false when the place truly changes (a new room, a hard cut, a flashback) or when the framing jumps to a tight close-up.
+Set generate_image.shot to "wide", "medium", or "close".
+
 HOW TO WRITE generate_image.prompt
-Write it in English (the image model only understands English), even though the story is Russian. Make it concrete and cinematic, as a single flowing description, not a bullet list. Cover, in roughly this order:
+Write it in English (the image model only understands English), even though the story is in another language. Make it concrete and cinematic, as a single flowing description, not a bullet list. Cover, in roughly this order:
 — Subject: who or what the shot is about, with their key visible action, pose, and expression.
 — Setting: the specific place and the few foreground/background details that establish it.
 — Lighting: the light source, direction, quality, color, and the shadows it casts (e.g. low warm torchlight raking across stone, cold blue dusk through tall windows, harsh noon glare).
 — Mood / atmosphere: the emotional tone and any air, weather, smoke, dust, or haze that carries it.
 — Composition & camera: framing and distance (wide establishing shot, medium, close-up), angle (eye level, low, high, over-the-shoulder), and depth of field.
 — Style: the visual medium and finish (e.g. cinematic concept art, painterly digital illustration, gritty photoreal render), naming an art idiom rather than any living artist.
-Favor specific, observable nouns over vague adjectives. Keep everything in the prompt physically consistent — one time of day, one weather, one light logic.
+Favor specific, observable nouns over vague adjectives. Keep everything in the prompt physically consistent — one time of day, one weather, one light logic. When sameLocation is true, describe the SAME place consistently with the previous turn and let the new detail be what actually changed.
 
 DESCRIBING PEOPLE
 For established characters, do NOT use character names as visual descriptors inside the prompt. Describe each person by visible physical features and whether they are a man or woman: approximate age range, build, hair, face, skin tone, clothing, pose, and expression, lit to match the scene. Keep their look consistent with any saved portrait and with how they were described earlier.
@@ -195,6 +200,22 @@ export function applyImageStylePrefix(prompt: string, stylePrefix: string): stri
 export function finalizeScenePrompt(prompt: string, stylePrefix: string): string {
   const styled = applyImageStylePrefix(prompt, stylePrefix).replace(/\s*$/, "");
   return `${styled}. No text, no letters, no words, no captions, no watermark, no UI.`;
+}
+
+// Preservation directive prepended to a scene prompt when the engine EVOLVES the
+// previous image of a location (img2img continuity) instead of redrawing it. Per
+// FLUX edit guidance, the reliable lever is naming what must NOT change (omitted
+// regions are exactly what drifts); the scene prompt that follows carries what
+// changed. Idempotent so a retry never double-applies it.
+const EDIT_CONTINUITY_DIRECTIVE =
+  "Continue the EXACT same scene as the reference image: keep the same location, layout, composition, camera angle, lighting, and color palette. Change only what the following description adds or alters.";
+
+export function applyEditContinuity(prompt: string): string {
+  const trimmed = prompt.trim();
+  if (trimmed.toLowerCase().startsWith("continue the exact same scene")) {
+    return trimmed;
+  }
+  return `${EDIT_CONTINUITY_DIRECTIVE} ${trimmed}`;
 }
 
 // Evicting history one message at a time would change the start of the prompt

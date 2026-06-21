@@ -44,7 +44,14 @@ import type { Attachment, StoryCharacter, StoryMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const MAX_IMAGE_REFERENCES = 2;
+// Total references sent to the worker per image: character portrait(s) + the
+// scene-continuity image + a recurring item portrait. FLUX.2 Klein's strongest
+// regime is 2-3 references (character first, then scene, then item), so the cap
+// is 3 rather than the model's 10-reference ceiling.
+const MAX_IMAGE_REFERENCES = 3;
+// Of those, how many are character portraits the narrator may name — kept below
+// the total so the scene/item references always have room.
+const MAX_CHARACTER_REFERENCES = 2;
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const MAX_CONFIGURABLE_OUTPUT_TOKENS = 65_536;
 const DEFAULT_LOCAL_MAX_OUTPUT_TOKENS = 4_096;
@@ -152,7 +159,7 @@ const generateImageTool = {
   function: {
     name: "generate_image",
     description:
-      "Request one local FLUX image for a meaningful visual beat in the current roleplay scene. Use sparingly.",
+      "Request one local FLUX image illustrating the current roleplay moment. Call it every meaningful turn to give the player one key image.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -162,13 +169,28 @@ const generateImageTool = {
           description:
             "Detailed visual prompt. Include subject, environment, composition, lighting, camera style, mood, and avoid text overlays. For established characters, describe visible physical features and whether each person is a man or woman; do not rely on character names inside the prompt. Write this prompt in English.",
         },
+        location: {
+          type: "string",
+          description:
+            "Short, STABLE label for the physical place of the shot (e.g. 'green meadow', 'crypt of ash'). Reuse the exact same label on every turn the scene stays in that place.",
+        },
+        sameLocation: {
+          type: "boolean",
+          description:
+            "True if this shot is the SAME physical place as the previous illustrated turn (so the established look is kept and only what changed is changed). False on a new place, a hard cut, or a jump to a close-up.",
+        },
+        shot: {
+          type: "string",
+          enum: ["wide", "medium", "close"],
+          description: "Camera distance for the shot.",
+        },
         reason: {
           type: "string",
           description: "Short private reason this scene benefits from an image.",
         },
         characterIds: {
           type: "array",
-          maxItems: MAX_IMAGE_REFERENCES,
+          maxItems: MAX_CHARACTER_REFERENCES,
           items: { type: "string" },
           description:
             "Exact saved character IDs to pass as visual references. Use at most two, and only when those characters should appear.",
@@ -181,8 +203,11 @@ const generateImageTool = {
 
 const imageToolArgsSchema = z.object({
   prompt: z.string().min(1),
+  location: z.string().max(120).optional(),
+  sameLocation: z.boolean().optional(),
+  shot: z.enum(["wide", "medium", "close"]).optional(),
   reason: z.string().optional(),
-  characterIds: z.array(z.string()).max(MAX_IMAGE_REFERENCES).optional(),
+  characterIds: z.array(z.string()).max(MAX_CHARACTER_REFERENCES).optional(),
 });
 
 function mimeFromAttachment(attachment: Attachment) {
@@ -1044,10 +1069,10 @@ export async function POST(request: Request) {
   // and refreshes even if the narrator didn't name them. Keeps within the
   // reference cap and only adds a known id once.
   const withHeroReference = (ids: string[]): string[] => {
-    if (!heroId || ids.includes(heroId) || ids.length >= MAX_IMAGE_REFERENCES) {
+    if (!heroId || ids.includes(heroId) || ids.length >= MAX_CHARACTER_REFERENCES) {
       return ids;
     }
-    return [heroId, ...ids].slice(0, MAX_IMAGE_REFERENCES);
+    return [heroId, ...ids].slice(0, MAX_CHARACTER_REFERENCES);
   };
   const rpgEnabled = body.settings.rpgEnabled;
   const rpgActors: ActorMap =
@@ -1252,7 +1277,7 @@ export async function POST(request: Request) {
         const characterIds = withHeroReference(
           imageToolArgs?.characterIds
             ?.filter((id) => knownCharacterIds.has(id))
-            .slice(0, MAX_IMAGE_REFERENCES) || [],
+            .slice(0, MAX_CHARACTER_REFERENCES) || [],
         );
         const assistantMessage: StoryMessage = {
           id: crypto.randomUUID(),
@@ -1272,6 +1297,9 @@ export async function POST(request: Request) {
                   aspect: body.settings.aspect,
                   reason: imageToolArgs.reason,
                   characterIds,
+                  location: imageToolArgs.location,
+                  sameLocation: imageToolArgs.sameLocation,
+                  shot: imageToolArgs.shot,
                 }
               : { needed: false },
           rpgSnapshot: rpg.snapshot,
@@ -1353,7 +1381,7 @@ export async function POST(request: Request) {
   const characterIds = withHeroReference(
     imageToolArgs?.characterIds
       ?.filter((id) => knownCharacterIds.has(id))
-      .slice(0, MAX_IMAGE_REFERENCES) || [],
+      .slice(0, MAX_CHARACTER_REFERENCES) || [],
   );
   const assistantMessage: StoryMessage = {
     id: crypto.randomUUID(),
@@ -1370,6 +1398,9 @@ export async function POST(request: Request) {
             aspect: body.settings.aspect,
             reason: imageToolArgs.reason,
             characterIds,
+            location: imageToolArgs.location,
+            sameLocation: imageToolArgs.sameLocation,
+            shot: imageToolArgs.shot,
           }
         : { needed: false },
     rpgSnapshot: rpg.snapshot,

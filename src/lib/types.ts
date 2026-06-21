@@ -9,6 +9,11 @@ export type ImageMode = "fast" | "slow";
 
 export type ImageBackend = "mflux-hs" | "sdnq-hs" | "flux-uncensored";
 
+// Camera distance the narrator picks for a shot. A hard change of shot (e.g. wide
+// vista -> tight close-up) is treated as a new framing, so the scene engine
+// regenerates rather than editing the previous wide establishing image.
+export type ImageShot = "wide" | "medium" | "close";
+
 export const PROSE_SIZE_VALUES = [
   "tiny",
   "xsmall",
@@ -94,6 +99,15 @@ export type ImageRequest = {
   aspect?: AspectPreset;
   reason?: string;
   characterIds?: string[];
+  // Scene continuity hints the narrator emits with each image. `location` is a
+  // short stable label for the physical place (reused verbatim while the scene
+  // stays there); `sameLocation` says this shot is the same place as the previous
+  // illustrated turn (so the engine evolves the established image instead of
+  // redrawing); `shot` is the camera distance. Resolved server-side into an
+  // edit-vs-fresh decision against the per-chat scene state.
+  location?: string;
+  sameLocation?: boolean;
+  shot?: ImageShot;
 };
 
 export type StoryMessage = {
@@ -119,6 +133,12 @@ export type GeneratedImage = {
   elapsedSeconds?: number;
   seed?: number;
   warnings?: string[];
+  // Scene continuity bookkeeping (set server-side). `sceneLocation` is the
+  // normalized place this image belongs to; `editedFrom` is the URL of the prior
+  // scene image this one evolved from (null on a fresh establishing shot), for
+  // the gallery/debug and to trace the edit chain.
+  sceneLocation?: string;
+  editedFrom?: string;
 };
 
 export type StorySettings = {

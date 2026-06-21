@@ -156,7 +156,22 @@ function ensureSchema(db: Database.Database) {
   if (!chatColumns.some((column) => column.name === "combatants_json")) {
     db.exec(`ALTER TABLE chats ADD COLUMN combatants_json TEXT NOT NULL DEFAULT ''`);
   }
+  // Scene continuity (img2img): the chat's currently-active location label, so the
+  // image engine knows which scene the next shot evolves from. Per-location anchor
+  // / last image live in the scenes table below.
+  if (!chatColumns.some((column) => column.name === "current_scene")) {
+    db.exec(`ALTER TABLE chats ADD COLUMN current_scene TEXT NOT NULL DEFAULT ''`);
+  }
   db.exec(`
+    CREATE TABLE IF NOT EXISTS scenes (
+      chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+      location TEXT NOT NULL,
+      anchor_json TEXT,
+      last_json TEXT,
+      hops INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (chat_id, location)
+    );
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
@@ -1271,4 +1286,124 @@ export function getItem(chatId: string, itemId: string): Item | null {
     return null;
   }
   return (parseJson<unknown>(row.data_json, undefined) as Item | undefined) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Scene continuity (img2img): per-location anchor / last image, so a scene can
+// EVOLVE across turns (a meadow, then the same meadow with goblins) instead of
+// being redrawn from scratch. One active location per chat (chats.current_scene);
+// each location keeps its establishing "anchor" image, the most recent "last"
+// image, and an edit-hop counter so the engine edits from the prior image and
+// re-anchors after a few hops to bound iterative drift.
+// ---------------------------------------------------------------------------
+
+export type SceneState = {
+  location: string;
+  anchor: Attachment | null;
+  last: Attachment | null;
+  hops: number;
+};
+
+type SceneRow = {
+  location: string;
+  anchor_json: string | null;
+  last_json: string | null;
+  hops: number;
+};
+
+function mapSceneRow(row: SceneRow): SceneState {
+  return {
+    location: row.location,
+    anchor: parseJson<Attachment | null>(row.anchor_json, null),
+    last: parseJson<Attachment | null>(row.last_json, null),
+    hops: Number(row.hops || 0),
+  };
+}
+
+// Normalize a narrator-supplied location label into a stable key: lowercased,
+// trimmed, whitespace-collapsed, a leading article and surrounding punctuation
+// stripped, capped — so "The Green Meadow." and "green meadow" map together.
+export function normalizeLocation(label: string | undefined | null): string {
+  if (!label) {
+    return "";
+  }
+  return label
+    .toLowerCase()
+    .replace(/[«»"'`.,;:!?()[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(the|a|an|le|la|les|el|los|der|die|das)\s+/u, "")
+    .trim()
+    .slice(0, 80);
+}
+
+export function getScene(chatId: string, location: string): SceneState | null {
+  const key = normalizeLocation(location);
+  if (!key) {
+    return null;
+  }
+  const row = getDatabase()
+    .prepare(
+      "SELECT location, anchor_json, last_json, hops FROM scenes WHERE chat_id = ? AND location = ?",
+    )
+    .get(chatId, key) as SceneRow | undefined;
+  return row ? mapSceneRow(row) : null;
+}
+
+export function getActiveScene(chatId: string): SceneState | null {
+  const db = getDatabase();
+  const chat = db.prepare("SELECT current_scene FROM chats WHERE id = ?").get(chatId) as
+    | { current_scene?: string }
+    | undefined;
+  const key = chat?.current_scene;
+  if (!key) {
+    return null;
+  }
+  const row = db
+    .prepare(
+      "SELECT location, anchor_json, last_json, hops FROM scenes WHERE chat_id = ? AND location = ?",
+    )
+    .get(chatId, key) as SceneRow | undefined;
+  return row ? mapSceneRow(row) : null;
+}
+
+// Persist the image just rendered for a location and make it the chat's active
+// scene. `anchor: true` (re)establishes the location — the image becomes both
+// anchor and last and the hop counter resets; `anchor: false` records an edit,
+// advancing only `last` and the hop counter while keeping the original
+// establishing anchor for re-anchoring later.
+export function recordSceneImage(
+  chatId: string,
+  location: string,
+  image: Attachment,
+  options: { anchor: boolean },
+): void {
+  const key = normalizeLocation(location);
+  if (!key) {
+    return;
+  }
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const imageJson = JSON.stringify(image);
+  const run = db.transaction(() => {
+    const existing = db
+      .prepare("SELECT hops FROM scenes WHERE chat_id = ? AND location = ?")
+      .get(chatId, key) as { hops?: number } | undefined;
+    if (!existing || options.anchor) {
+      db.prepare(
+        "INSERT INTO scenes (chat_id, location, anchor_json, last_json, hops, updated_at) VALUES (?, ?, ?, ?, 0, ?) " +
+          "ON CONFLICT(chat_id, location) DO UPDATE SET anchor_json = excluded.anchor_json, last_json = excluded.last_json, hops = 0, updated_at = excluded.updated_at",
+      ).run(chatId, key, imageJson, imageJson, now);
+    } else {
+      db.prepare(
+        "UPDATE scenes SET last_json = ?, hops = hops + 1, updated_at = ? WHERE chat_id = ? AND location = ?",
+      ).run(imageJson, now, chatId, key);
+    }
+    db.prepare("UPDATE chats SET current_scene = ?, updated_at = ? WHERE id = ?").run(
+      key,
+      now,
+      chatId,
+    );
+  });
+  run();
 }

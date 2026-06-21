@@ -2,22 +2,32 @@ import { z } from "zod";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  getActiveScene,
   getCharacterReference,
   getHeroCharacter,
   getMessageContext,
+  getScene,
   listItems,
+  normalizeLocation,
+  recordSceneImage,
   setCharacterReference,
   setItemImage,
   updateMessageGeneratedImage,
 } from "@/lib/db";
 import { callFluxWorker, resolveImageBackend } from "@/lib/flux-worker";
-import { dimensionsForImage } from "@/lib/story-prompt";
+import { applyEditContinuity, dimensionsForImage } from "@/lib/story-prompt";
 import type { Item } from "@/lib/rpg/types";
-import type { Attachment } from "@/lib/types";
+import type { Attachment, GeneratedImage } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const MAX_IMAGE_REFERENCES = 2;
+// Total references sent to the worker (character portrait(s) + the scene
+// continuity image + a recurring item portrait). FLUX.2 Klein's strongest regime
+// is 2-3 references; character first, then scene, then item.
+const MAX_IMAGE_REFERENCES = 3;
+// Bound iterative img2img drift: after this many consecutive edits of a location
+// the engine re-anchors with a clean establishing render instead of editing on.
+const MAX_EDIT_HOPS = 6;
 
 const referenceSchema = z.object({
   id: z.string(),
@@ -148,63 +158,127 @@ function recurringItemReferences(items: Item[]): Attachment[] {
 export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
 
-  // Recover img2img context from the message this image belongs to. Best-effort:
-  // a missing/legacy message just means no server-side reference enrichment.
+  // Recover scene/img2img context from the message this image belongs to.
+  // Best-effort: a missing/legacy message just means no server-side enrichment.
   const context = body.messageId ? getMessageContext(body.messageId) : null;
   const chatId = context?.chatId;
-  const sceneCharacterIds = context?.imageRequest?.characterIds ?? [];
   const hero = chatId ? getHeroCharacter(chatId) : null;
-  // The hero appears when explicitly referenced, or in an unattributed scene
-  // (no characterIds) — the protagonist is the default subject of the story.
-  const heroInScene =
-    !!hero && (sceneCharacterIds.length === 0 || sceneCharacterIds.includes(hero.id));
+  // Characters in this shot: the narrator's saved IDs, or — for an unattributed
+  // scene — the protagonist, the default subject of the story.
+  let sceneCharacterIds = context?.imageRequest?.characterIds ?? [];
+  if (chatId && hero && sceneCharacterIds.length === 0) {
+    sceneCharacterIds = [hero.id];
+  }
 
-  // Start from the client-provided references, then enrich. Inlining first means
-  // injected generated images are carried as data URLs for the MPS worker too.
-  const references: ImageReference[] = body.references
-    .slice(0, MAX_IMAGE_REFERENCES)
-    .map(inlineLocalReference);
+  // --- Edit-vs-fresh decision against the chat's scene state -----------------
+  // The narrator labels each shot with a stable `location` plus a `sameLocation`
+  // hint. If this shot continues the active scene (same place, drift not yet
+  // capped) the previous image is evolved; returning to a known place re-derives
+  // from that place's anchor; a brand-new place is a fresh establishing shot.
+  const requestedLocation = normalizeLocation(context?.imageRequest?.location);
+  const sameLocationHint = context?.imageRequest?.sameLocation === true;
+  let editFrom: Attachment | null = null;
+  let willEdit = false;
+  let sceneLocationKey = "";
+  let priorHops = 0;
 
-  // (1) Evolving hero reference: prefer the latest illustrated look over the
-  // static portrait the client may have attached, and ensure it's present.
-  if (chatId && heroInScene && hero) {
-    const heroReference = getCharacterReference(chatId, hero.id);
-    if (heroReference) {
-      const inlined = inlineLocalReference(attachmentToReference(heroReference));
-      // Drop a stale portrait of the same hero so the evolving ref can take the
-      // slot, then (re)insert the evolving reference at the front.
-      const heroUrls = new Set(
-        [hero.portrait?.url, heroReference.url].filter((value): value is string => !!value),
-      );
-      const withoutHeroPortrait = references.filter(
-        (reference) => !heroUrls.has(reference.url) || reference.url === inlined.url,
-      );
-      references.length = 0;
-      references.push(...withoutHeroPortrait);
-      if (!references.some((reference) => reference.url === inlined.url)) {
-        references.unshift(inlined);
-        references.splice(MAX_IMAGE_REFERENCES);
+  if (chatId) {
+    const active = getActiveScene(chatId);
+    const continuesActive =
+      !!active &&
+      ((!!requestedLocation && active.location === requestedLocation) ||
+        (sameLocationHint && !!(active.last || active.anchor)));
+
+    if (continuesActive && active) {
+      sceneLocationKey = active.location;
+      priorHops = active.hops;
+      const priorImage = active.last ?? active.anchor;
+      if (priorImage && active.hops < MAX_EDIT_HOPS) {
+        editFrom = priorImage;
+        willEdit = true;
+      }
+      // hop cap reached -> fall through to a fresh re-anchor of the same place
+    } else if (requestedLocation) {
+      sceneLocationKey = requestedLocation;
+      const past = getScene(chatId, requestedLocation);
+      if (past?.anchor) {
+        // Revisit: re-establish from the location's anchor for visual continuity.
+        editFrom = past.anchor;
+        willEdit = true;
+      }
+      // else brand-new location -> fresh establishing shot
+    }
+    // no location label and not the active scene -> untracked one-off fresh image
+  }
+
+  // --- Build the reference set (character -> scene -> item -> client) --------
+  const references: ImageReference[] = [];
+
+  // (1) Character references first: identity is the highest-drift risk, so the
+  // saved portrait / evolving look leads. On a re-encounter this is the stored
+  // userpic being reused. Hero is already in sceneCharacterIds.
+  if (chatId) {
+    for (const id of sceneCharacterIds) {
+      if (references.length >= MAX_IMAGE_REFERENCES) {
+        break;
+      }
+      const characterReference = getCharacterReference(chatId, id);
+      if (characterReference) {
+        pushUniqueReference(
+          references,
+          inlineLocalReference({
+            ...attachmentToReference(characterReference),
+            id: `character-${id}`,
+          }),
+        );
       }
     }
   }
 
-  // Items whose name the prompt mentions — scanned once, reused for reference
-  // enrichment below and for post-generation portrait tagging.
-  const mentionedItems = chatId ? itemsMentionedIn(chatId, body.prompt) : [];
+  // (2) Scene continuity reference: the prior image of this location, so the edit
+  // evolves the established scene instead of redrawing it.
+  if (willEdit && editFrom) {
+    pushUniqueReference(
+      references,
+      inlineLocalReference({ ...attachmentToReference(editFrom), id: `scene-${sceneLocationKey}` }),
+    );
+  }
 
-  // (2) Recurring named items: attach stored item portraits referenced by name.
+  // (3) Recurring named item portraits, scanned once and reused for tagging below.
+  const mentionedItems = chatId ? itemsMentionedIn(chatId, body.prompt) : [];
   for (const itemAttachment of recurringItemReferences(mentionedItems)) {
-    pushUniqueReference(references, inlineLocalReference(attachmentToReference(itemAttachment)));
     if (references.length >= MAX_IMAGE_REFERENCES) {
       break;
     }
+    pushUniqueReference(references, inlineLocalReference(attachmentToReference(itemAttachment)));
+  }
+
+  // (4) Fill any remaining slots with client-provided references (this-turn
+  // attachments the player added).
+  for (const clientReference of body.references) {
+    if (references.length >= MAX_IMAGE_REFERENCES) {
+      break;
+    }
+    pushUniqueReference(references, inlineLocalReference(clientReference));
   }
 
   const boundedReferences = references.slice(0, MAX_IMAGE_REFERENCES);
   const dimensions = dimensionsForImage(body.mode, body.aspect);
+  // An edit prepends the continuity-preservation directive so the model keeps the
+  // referenced scene and changes only what the passage added.
+  const finalPrompt = willEdit ? applyEditContinuity(body.prompt) : body.prompt;
+
+  console.info(
+    `[images] ${willEdit ? `edit(hop ${priorHops + 1})` : "fresh"} chat=${
+      chatId?.slice(0, 8) ?? "-"
+    } loc="${sceneLocationKey || "-"}" shot=${context?.imageRequest?.shot ?? "-"} refs=[${
+      boundedReferences.map((reference) => reference.name).join(" + ") || "none"
+    }] mode=${body.mode}`,
+  );
+  const startedAt = Date.now();
 
   const result = await callFluxWorker({
-    prompt: body.prompt,
+    prompt: finalPrompt,
     mode: body.mode,
     backend: resolveImageBackend(body.backend),
     aspect: body.aspect,
@@ -218,35 +292,71 @@ export async function POST(request: Request) {
     })),
   });
   if (!result.ok) {
+    console.warn(
+      `[images] failed chat=${chatId?.slice(0, 8) ?? "-"} loc="${sceneLocationKey || "-"}"`,
+    );
     return result.response;
   }
-  const generatedImage = result.image;
+
+  const generatedImage: GeneratedImage = {
+    ...result.image,
+    ...(sceneLocationKey ? { sceneLocation: sceneLocationKey } : {}),
+    ...(willEdit && editFrom ? { editedFrom: editFrom.url } : {}),
+  };
+  console.info(
+    `[images] done chat=${chatId?.slice(0, 8) ?? "-"} url=${generatedImage.url} ${
+      Math.round((Date.now() - startedAt) / 100) / 10
+    }s`,
+  );
 
   if (body.messageId) {
     updateMessageGeneratedImage(body.messageId, generatedImage);
   }
 
-  // Persist this scene as the hero's evolving reference, and tag any recurring
-  // named item with its portrait, so the next generation reuses both. Purely
-  // additive bookkeeping — never block returning the image on it.
-  if (chatId && generatedImage?.url) {
-    if (heroInScene && hero) {
+  // Additive continuity bookkeeping — never block returning the image on it.
+  if (chatId && generatedImage.url) {
+    const sceneAttachment: Attachment = {
+      id: generatedImage.id || `scene-${sceneLocationKey || "img"}`,
+      name: sceneLocationKey ? `scene: ${sceneLocationKey}` : "scene reference",
+      type: "image/png",
+      url: generatedImage.url,
+    };
+
+    // Record this image for its location (anchor on a fresh/establishing shot,
+    // edit otherwise) so the next turn in this place can evolve it.
+    if (sceneLocationKey) {
       try {
-        setCharacterReference(chatId, hero.id, {
-          id: generatedImage.id || `ref-${hero.id}`,
-          name: `${hero.name} (scene reference)`,
-          type: "image/png",
-          url: generatedImage.url,
-        });
+        recordSceneImage(chatId, sceneLocationKey, sceneAttachment, { anchor: !willEdit });
       } catch {
-        // ignore — reference refresh is best-effort
+        // best-effort
       }
     }
+
+    // Refresh evolving character references so a re-encounter reuses the look:
+    // the hero always; an NPC only when they are the sole subject of the shot, so
+    // a group scene never overwrites a clean single-character portrait.
+    const soloSubject = sceneCharacterIds.length === 1;
+    for (const id of sceneCharacterIds) {
+      if (hero?.id === id || soloSubject) {
+        try {
+          setCharacterReference(chatId, id, {
+            id: generatedImage.id || `ref-${id}`,
+            name: `character ${id} (scene reference)`,
+            type: "image/png",
+            url: generatedImage.url,
+          });
+        } catch {
+          // best-effort
+        }
+      }
+    }
+
+    // Tag recurring named items with this portrait for consistent reuse.
     for (const item of mentionedItems) {
       try {
         setItemImage(chatId, { name: item.name.trim() }, generatedImage.url);
       } catch {
-        // ignore — item image tagging is best-effort
+        // best-effort
       }
     }
   }
