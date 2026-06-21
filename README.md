@@ -105,7 +105,7 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 - Toggle **narration** to have turns read aloud.
 - Edit the narrator / image prompts in the side panels to retune tone and art direction.
 
-## Other projects by [@timoncool](https://github.com/timoncool)
+## Other projects by [timoncool](https://github.com/timoncool)
 
 | Project | Description |
 |---------|-------------|
@@ -142,9 +142,9 @@ I build open-source software and do AI research. Most of what I create is free a
 
 <a href="https://www.star-history.com/?repos=timoncool%2Fdungeon-ultimate&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=timoncool/dungeon-ultimate&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=timoncool/dungeon-ultimate&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
  </picture>
 </a>
 

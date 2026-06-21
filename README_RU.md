@@ -105,7 +105,7 @@
 - Включи **озвучку**, чтобы ходы читались вслух.
 - Правь промпты рассказчика / картинок в боковых панелях, чтобы настроить тон и арт-дирекшн.
 
-## Другие портативные нейросети [@timoncool](https://github.com/timoncool)
+## Другие портативные нейросети — [timoncool](https://github.com/timoncool)
 
 | Проект | Описание |
 |--------|----------|
@@ -142,9 +142,9 @@
 
 <a href="https://www.star-history.com/?repos=timoncool%2Fdungeon-ultimate&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=timoncool/dungeon-ultimate&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=timoncool/dungeon-ultimate&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=timoncool/dungeon-ultimate&type=date&legend=top-left" />
  </picture>
 </a>
 
