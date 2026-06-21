@@ -674,10 +674,14 @@ export default function Home() {
       if (!itemIds.length) return;
       for (const itemId of itemIds) {
         try {
-          await fetch(`/api/chats/${chatId}/items/${itemId}/image`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
+          // Each item render is real FLUX GPU work — take the shared slot so it never
+          // overlaps a text turn (or the scene image) on the single GPU.
+          await onGpu(async () => {
+            await fetch(`/api/chats/${chatId}/items/${itemId}/image`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
           });
         } catch {
           // best-effort item illustration
@@ -1158,19 +1162,23 @@ export default function Home() {
     setImageStatus((current) => ({ ...current, [messageId]: "loading" }));
 
     try {
-      const response = await fetch("/api/images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messageId,
-          prompt,
-          mode: imageRequest?.mode || settings.imageMode,
-          backend: imageRequest?.backend || settings.imageBackend,
-          aspect: imageRequest?.aspect || settings.aspect,
-          references: refs,
-        }),
+      // Hold the shared GPU slot for the whole render: the image server unloads the
+      // text model first, so a turn must not start generating while this runs.
+      const generatedImage = await onGpu(async () => {
+        const response = await fetch("/api/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messageId,
+            prompt,
+            mode: imageRequest?.mode || settings.imageMode,
+            backend: imageRequest?.backend || settings.imageBackend,
+            aspect: imageRequest?.aspect || settings.aspect,
+            references: refs,
+          }),
+        });
+        return readApi<GeneratedImage>(response);
       });
-      const generatedImage = await readApi<GeneratedImage>(response);
 
       setMessages((current) =>
         current.map((message) =>
@@ -1297,6 +1305,12 @@ export default function Home() {
   }) {
     setBusy(true);
     setError("");
+
+    // One GPU: hold the exclusive slot for the WHOLE turn (the /api/story stream), so
+    // no image render (scene, item, portrait, retry) can run alongside the LLM on the
+    // single GPU. Released in the finally below; images fired from finalize queue
+    // behind it and run after release.
+    const releaseGpu = await gpuAcquire();
 
     const controller = new AbortController();
     storyAbortRef.current = controller;
@@ -1591,6 +1605,7 @@ export default function Home() {
     } finally {
       window.clearTimeout(timeoutId);
       setBusy(false);
+      releaseGpu(); // free the GPU slot; queued images / the next turn proceed
     }
     return turnResult;
   }
@@ -1755,24 +1770,28 @@ export default function Home() {
     heroId: string,
     persona: string,
     heroName: string,
+    gender: HeroGender = "unspecified",
   ) {
     setHeroPortraitBusy(true);
     try {
       const styled = settings.imageStylePrefix?.trim();
-      const prompt = `${styled ? `${styled}. ` : ""}Character portrait, head and shoulders, of ${
+      const genderEn = gender === "male" ? "a man, " : gender === "female" ? "a woman, " : "";
+      const prompt = `${styled ? `${styled}. ` : ""}Character portrait, head and shoulders, of ${genderEn}${
         persona || "a wandering adventurer"
       }. Detailed expressive face, dramatic cinematic lighting, painterly fantasy digital illustration. No text, no letters, no watermark, no UI.`;
-      const imageResponse = await fetch("/api/images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          mode: settings.imageMode,
-          backend: settings.imageBackend,
-          aspect: "portrait",
-        }),
+      const image = await onGpu(async () => {
+        const imageResponse = await fetch("/api/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            mode: settings.imageMode,
+            backend: settings.imageBackend,
+            aspect: "portrait",
+          }),
+        });
+        return readApi<GeneratedImage>(imageResponse);
       });
-      const image = await readApi<GeneratedImage>(imageResponse);
       if (!image?.url) {
         return;
       }
@@ -1805,7 +1824,7 @@ export default function Home() {
   async function beginStory(options: {
     title: string;
     world: string;
-    hero: { name: string; persona: string };
+    hero: { name: string; persona: string; gender: HeroGender };
     opening: { mode: "narrator"; hint: string } | { mode: "self"; text: string };
   }) {
     setNewStoryOpen(false);
@@ -1828,10 +1847,19 @@ export default function Home() {
       // description so the HUD is populated and the engine has a hero for the very
       // first turn to bind HP/effects/loot to (otherwise a fresh game is heroless).
       if (seedSettings.rpgEnabled) {
+        // Fold the chosen gender into the hero's details so the narrator uses the
+        // right pronouns and the portrait/scene images draw the right person.
+        const genderNote =
+          options.hero.gender === "male"
+            ? "Пол: мужской."
+            : options.hero.gender === "female"
+              ? "Пол: женский."
+              : "";
+        const heroDetails = [genderNote, options.hero.persona].filter(Boolean).join(" ");
         await fetch(`/api/chats/${payload.chat.id}/characters`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: options.hero.name, details: options.hero.persona }),
+          body: JSON.stringify({ name: options.hero.name, details: heroDetails }),
         }).catch(() => {});
         // Re-fetch so heroId + heroRpg hydrate the HUD before the kickoff runs.
         payload = await readApi<ChatResponse>(await fetch(`/api/chats/${payload.chat.id}`));
@@ -1840,13 +1868,16 @@ export default function Home() {
       applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
       void refreshChats();
 
-      // Generate the hero's userpic in parallel with the opening turn (best-effort).
+      // Hero userpic AT GAME START: fire it BEFORE the kickoff. It takes the shared
+      // GPU slot first and the kickoff turn waits for it (gpuAcquire), so the avatar
+      // fills as the game begins and text+image still never run on the GPU at once.
       if (seedSettings.rpgEnabled && payload.heroId) {
         void generateHeroPortrait(
           payload.chat.id,
           payload.heroId,
           options.hero.persona,
           options.hero.name,
+          options.hero.gender,
         );
       }
 
@@ -1946,14 +1977,18 @@ export default function Home() {
       return;
     }
     try {
-      const response = await fetch("/api/actions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passage, settings }),
+      // Chips are an LLM call too — take the GPU slot so they never run while a
+      // scene image is rendering (both fire from the same post-turn finalize).
+      const data = await onGpu(async () => {
+        const response = await fetch("/api/actions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ passage, settings }),
+        });
+        return (await response.json()) as {
+          actions?: Array<{ emoji?: string; label: string }>;
+        };
       });
-      const data = (await response.json()) as {
-        actions?: Array<{ emoji?: string; label: string }>;
-      };
       if (Array.isArray(data.actions)) {
         setSuggestedActions(data.actions.slice(0, 4));
       }
@@ -2239,6 +2274,13 @@ export default function Home() {
                           heroId,
                           heroChar.details || heroChar.name,
                           heroChar.name,
+                          // recover the chosen gender from the details note so a
+                          // re-rolled userpic keeps male/female (it's English-prompted)
+                          /Пол:\s*мужской/i.test(heroChar.details)
+                            ? "male"
+                            : /Пол:\s*женский/i.test(heroChar.details)
+                              ? "female"
+                              : "unspecified",
                         )
                     : undefined
                 }
@@ -2327,7 +2369,7 @@ export default function Home() {
                 <BookReader
                   messages={messages}
                   speakingId={speakingId}
-                  onSpeak={(message) => speakText(message.id, message.content)}
+                  onSpeak={(id, text) => void speakText(id, text)}
                 />
               ) : (
               <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain pr-1 pb-3 sm:space-y-10">
@@ -2396,6 +2438,7 @@ export default function Home() {
                             <ImageBeat
                               message={message}
                               status={imageStatus[message.id]}
+                              busy={busy}
                               onRetry={() =>
                                 message.imageRequest?.prompt &&
                                 requestGeneratedImage(
@@ -2666,6 +2709,45 @@ export default function Home() {
   );
 }
 
+// The text model (Gemma) and the image model (FLUX) share ONE GPU; the servers
+// offload whichever is idle to system RAM, so the two must never run at the same
+// time or they fight over VRAM and wedge the card. Image generation occupies this
+// single GPU slot; text turns / chips wait for it to clear before they start.
+// (Text↔text contention is safe — the text server serialises that itself.)
+let gpuChain: Promise<unknown> = Promise.resolve();
+function onGpu<T>(task: () => Promise<T>): Promise<T> {
+  const run = gpuChain.then(task, task);
+  // never let a failed task reject the shared chain and stall everyone behind it
+  gpuChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+// Resolves once any in-flight GPU work has settled — short text calls (chips,
+// autofill) await this before touching the model server.
+function gpuIdle(): Promise<unknown> {
+  return gpuChain;
+}
+// Acquire the exclusive GPU slot for a LONG task that can't be a single onGpu thunk
+// (a story turn that streams for a while). Resolves with a release() to call in a
+// finally; until then, everything queued after — every image render, the next turn —
+// waits. This is what makes a streaming LLM turn OCCUPY the slot, not merely await it.
+function gpuAcquire(): Promise<() => void> {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = gpuChain.then(
+    () => undefined,
+    () => undefined,
+  );
+  gpuChain = ready.then(() => held);
+  return ready.then(() => release);
+}
+
+type HeroGender = "male" | "female" | "unspecified";
+
 function NewStoryDialog({
   onClose,
   onBegin,
@@ -2675,7 +2757,7 @@ function NewStoryDialog({
   onBegin: (options: {
     title: string;
     world: string;
-    hero: { name: string; persona: string };
+    hero: { name: string; persona: string; gender: HeroGender };
     opening: { mode: "narrator"; hint: string } | { mode: "self"; text: string };
   }) => void;
   llm: { customBaseUrl: string; customModel: string; customApiKey: string; language: string };
@@ -2687,35 +2769,41 @@ function NewStoryDialog({
   const [openingMode, setOpeningMode] = useState<"narrator" | "self">("narrator");
   const [openingHint, setOpeningHint] = useState("");
   const [openingText, setOpeningText] = useState("");
+  const [gender, setGender] = useState<HeroGender>("male");
   const [autofilling, setAutofilling] = useState(false);
+  const [autofillError, setAutofillError] = useState("");
 
   // "Fill it for me": one structured call invents name + persona + a first-scene
   // hint for the chosen setting and drops them into the fields.
   async function autofill() {
     setAutofilling(true);
+    setAutofillError("");
     try {
+      await gpuIdle(); // don't invent a hero on the GPU while an image is still rendering
       const setting = isCustom ? customWorld.trim() : `${preset.label}: ${preset.seed}`;
       const response = await fetch("/api/story-setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setting, settings: llm }),
+        body: JSON.stringify({ setting, gender, settings: llm }),
       });
-      const data = (await response.json()) as {
+      const data = (await response.json().catch(() => null)) as {
         ok?: boolean;
         name?: string;
         persona?: string;
         hint?: string;
-      };
-      if (data.ok) {
+      } | null;
+      if (data?.ok) {
         if (data.persona) setRole(data.persona);
         if (data.name) setName(data.name);
         if (data.hint) {
           setOpeningMode("narrator");
           setOpeningHint(data.hint);
         }
+      } else {
+        setAutofillError("Не получилось придумать — попробуй ещё раз.");
       }
     } catch {
-      // best-effort: leave the fields as they are on failure
+      setAutofillError("Не получилось придумать — попробуй ещё раз.");
     } finally {
       setAutofilling(false);
     }
@@ -2732,13 +2820,17 @@ function NewStoryDialog({
       openingMode === "self"
         ? ({ mode: "self", text: openingText.trim() } as const)
         : ({ mode: "narrator", hint: openingHint.trim() } as const);
+    const genderClause =
+      gender === "male" ? " You are a man." : gender === "female" ? " You are a woman." : "";
 
     if (isCustom) {
-      const world = customWorld.trim();
+      const bare = customWorld.trim();
       onBegin({
-        world,
-        title: titleFromInput(world),
-        hero: { name: name.trim() || "Герой", persona: role.trim() },
+        // Carry gender in the world string too — with RPG off there is no hero
+        // character, so the details note isn't written and this is the only signal.
+        world: `${bare}${genderClause}`,
+        title: titleFromInput(bare),
+        hero: { name: name.trim() || "Герой", persona: role.trim(), gender },
         opening,
       });
       return;
@@ -2747,11 +2839,11 @@ function NewStoryDialog({
     const persona = role.trim() || preset.rolePlaceholder;
     const protagonist = name.trim() ? `${name.trim()}, ${persona}` : persona;
     onBegin({
-      world: `${preset.seed} You are ${protagonist}.`,
+      world: `${preset.seed} You are ${protagonist}.${genderClause}`,
       title: titleFromInput(
         name.trim() ? `${name.trim()} · ${preset.label}` : `${preset.label} · ${persona}`,
       ),
-      hero: { name: name.trim() || "Герой", persona },
+      hero: { name: name.trim() || "Герой", persona, gender },
       opening,
     });
   }
@@ -2823,6 +2915,7 @@ function NewStoryDialog({
             )}
             {autofilling ? "Гемма придумывает…" : "Заполнить за меня"}
           </button>
+          {autofillError && <p className="mt-2 text-xs text-red-400">{autofillError}</p>}
 
           {isCustom ? (
             <label className="mt-4 block">
@@ -2869,6 +2962,39 @@ function NewStoryDialog({
               </label>
             </div>
           )}
+
+          <div className="mt-4">
+            <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
+              Пол персонажа
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  { value: "male", label: "Мужской" },
+                  { value: "female", label: "Женский" },
+                  { value: "unspecified", label: "Не указан" },
+                ] as const
+              ).map((option) => {
+                const selected = option.value === gender;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setGender(option.value)}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm",
+                      selected
+                        ? "border-amber-200/70 bg-stone-900 text-stone-100"
+                        : "border-stone-800 bg-stone-950 text-stone-300 hover:bg-stone-900",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="mt-5 border-t border-stone-800 pt-4">
             <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
@@ -4879,7 +5005,7 @@ function CharacterSheet({
             <button
               type="button"
               onClick={onRegeneratePortrait}
-              disabled={portraitBusy}
+              disabled={busy || portraitBusy}
               title="Перегенерировать аватар"
               className="absolute right-1.5 top-1.5 inline-flex size-7 items-center justify-center rounded-full border border-amber-300/40 bg-stone-950/70 text-amber-200 backdrop-blur transition hover:bg-stone-900 disabled:opacity-60"
             >
@@ -6179,10 +6305,14 @@ function ImageBeat({
   message,
   status,
   onRetry,
+  busy,
 }: {
   message: StoryMessage;
   status?: "loading" | "error";
   onRetry: () => void;
+  // True while a story turn is streaming — the retry/generate button is disabled then
+  // so the user can't queue an image render that fights the LLM for the GPU.
+  busy?: boolean;
 }) {
   const isLoading = status === "loading";
   const isError = status === "error";
@@ -6244,7 +6374,8 @@ function ImageBeat({
           <button
             type="button"
             onClick={onRetry}
-            className="ml-auto rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:bg-stone-900"
+            disabled={busy}
+            className="ml-auto rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isError ? "Повторить" : "Сгенерировать"}
           </button>
