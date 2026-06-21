@@ -60,10 +60,18 @@ export function deriveRpg(base: CharacterRpg, items: Item[]): DerivedRpg {
 // Derive a character's stats using ONLY the items they own. The combat resolver
 // and the character sheet MUST both go through this with the same ownerId so the
 // displayed numbers always match what the engine rolls against.
+// `includeUnowned` is set only for the protagonist: legacy/imported items saved
+// before per-owner tracking have no ownerId and belong to the hero, so the hero's
+// derived stats must fold them in (matching what the inventory panel shows). For
+// any other character it stays false, so a companion never inherits those items.
 export function deriveForOwner(
   base: CharacterRpg,
   items: Item[],
   ownerId: string | undefined,
+  includeUnowned = false,
 ): DerivedRpg {
-  return deriveRpg(base, items.filter((item) => item.ownerId === ownerId));
+  return deriveRpg(
+    base,
+    items.filter((item) => item.ownerId === ownerId || (includeUnowned && !item.ownerId)),
+  );
 }

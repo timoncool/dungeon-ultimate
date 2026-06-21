@@ -92,6 +92,9 @@ export type VoiceSegment = {
   voice: string;
   // The character this run is attributed to, when known (null for narration).
   characterId: string | null;
+  // "quote" runs are spoken dialogue (never folded into narration); "narration"
+  // is everything else.
+  kind: "narration" | "quote";
 };
 
 // The voice a specific character should be read in. Honors multi-voice only when
@@ -196,7 +199,7 @@ export function splitDialogueSegments(
   const narratorVoice = settings.voice;
   // Fast path: single voice for the entire passage (the existing contract).
   if (!settings.multiVoice || characters.length === 0) {
-    return [{ text, voice: narratorVoice, characterId: null }];
+    return [{ text, voice: narratorVoice, characterId: null, kind: "narration" }];
   }
 
   const segments: VoiceSegment[] = [];
@@ -205,7 +208,7 @@ export function splitDialogueSegments(
   const pushNarration = (slice: string) => {
     const trimmed = slice.trim();
     if (trimmed) {
-      segments.push({ text: trimmed, voice: narratorVoice, characterId: null });
+      segments.push({ text: trimmed, voice: narratorVoice, characterId: null, kind: "narration" });
     }
   };
 
@@ -246,45 +249,37 @@ export function splitDialogueSegments(
       text: quoted.trim(),
       voice,
       characterId: speaker?.id ?? null,
+      kind: "quote",
     });
 
     cursor = closeAt + span.close.length;
   }
 
-  // Fold tiny narration fragments (a lone speaker tag / ":" / "." — under 14
-  // chars or punctuation-only) into a neighbor, so none is synthesized as its
-  // own 1-2 word clip. Attach to the previous segment when there is one, else
-  // buffer it as a prefix for the next.
+  // Fold a tiny NARRATION fragment (lone speaker tag / ":" / "." — under 14 chars
+  // or punctuation-only) into the PREVIOUS segment, but only when that segment is
+  // also narrator-voiced — so narration is never read in a character's voice and a
+  // quote run is never swallowed. A tiny bit with no same-voice neighbor stays its
+  // own short narrator clip (acceptable, and never mis-voiced).
   const isTinyNarration = (segment: VoiceSegment) =>
-    segment.characterId === null &&
+    segment.kind === "narration" &&
     (segment.text.length < 14 || /^[\s\p{P}\p{S}]+$/u.test(segment.text));
   const merged: VoiceSegment[] = [];
-  let pending = "";
   for (const segment of segments) {
-    if (isTinyNarration(segment)) {
-      const last = merged[merged.length - 1];
-      if (last) {
-        last.text = `${last.text} ${segment.text}`.trim();
-      } else {
-        pending = `${pending} ${segment.text}`.trim();
-      }
+    const last = merged[merged.length - 1];
+    if (isTinyNarration(segment) && last && last.voice === segment.voice) {
+      last.text = `${last.text} ${segment.text}`.trim();
       continue;
     }
-    merged.push(
-      pending ? { ...segment, text: `${pending} ${segment.text}`.trim() } : segment,
-    );
-    pending = "";
-  }
-  // A leftover prefix means every segment was tiny narration — keep it as one.
-  if (pending && !merged.length) {
-    merged.push({ text: pending, voice: narratorVoice, characterId: null });
+    merged.push(segment);
   }
 
   // Collapse to the single-voice contract if nothing actually got a distinct
   // voice — keeps callers that expect one segment on the happy path.
   if (merged.every((segment) => segment.voice === narratorVoice)) {
-    return [{ text, voice: narratorVoice, characterId: null }];
+    return [{ text, voice: narratorVoice, characterId: null, kind: "narration" }];
   }
 
-  return merged.length ? merged : [{ text, voice: narratorVoice, characterId: null }];
+  return merged.length
+    ? merged
+    : [{ text, voice: narratorVoice, characterId: null, kind: "narration" }];
 }

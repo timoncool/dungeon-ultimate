@@ -1055,7 +1055,7 @@ export function getCharacterRpgMap(
     .all(chatId) as Array<{ id: string; name: string; rpg_json?: string }>;
   const items = listItems(chatId);
   const map = new Map<string, { name: string; rpg: CharacterRpg }>();
-  for (const row of rows) {
+  rows.forEach((row, index) => {
     let parsed: unknown;
     if (row.rpg_json) {
       try {
@@ -1064,8 +1064,13 @@ export function getCharacterRpgMap(
         parsed = undefined;
       }
     }
-    map.set(row.id, { name: row.name, rpg: deriveForOwner(coerceCharacterRpg(parsed), items, row.id).rpg });
-  }
+    // The first row is the protagonist (created_at ASC); only they absorb legacy
+    // items that predate per-owner tracking (ownerId undefined).
+    map.set(row.id, {
+      name: row.name,
+      rpg: deriveForOwner(coerceCharacterRpg(parsed), items, row.id, index === 0).rpg,
+    });
+  });
   return map;
 }
 

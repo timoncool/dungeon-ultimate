@@ -6,5 +6,8 @@
 // This is the shared primitive: the book reader uses it as-is; the TTS path wraps
 // it with whitespace-collapsing + short-fragment merging (see splitForSpeech).
 export function splitSentences(text: string): string[] {
-  return text.match(/[^.!?…]+[.!?…]*["”»)]*\s*/g) ?? (text ? [text] : []);
+  // Terminal punctuation AND trailing closers (»”")) share one class so a run
+  // like `!»…` stays whole — keeping the closer with its sentence without ever
+  // dropping a terminal that follows it (concat must reconstruct the original).
+  return text.match(/[^.!?…]+[.!?…"”»)]*\s*/g) ?? (text ? [text] : []);
 }

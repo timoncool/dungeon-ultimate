@@ -461,7 +461,7 @@ export default function Home() {
   // Derive (base + equipped) once for both the sheet and the HUD instead of each
   // recomputing it (filter + structuredClone) on every streaming-delta re-render.
   const heroDerived = useMemo<DerivedRpg | null>(
-    () => (heroRpg ? deriveForOwner(heroRpg, heroItems, heroId ?? undefined) : null),
+    () => (heroRpg ? deriveForOwner(heroRpg, heroItems, heroId ?? undefined, true) : null),
     [heroRpg, heroItems, heroId],
   );
   const [bookMode, setBookMode] = useState(false);
@@ -1407,7 +1407,6 @@ export default function Home() {
             id?: string;
             content?: string;
             error?: string;
-            persisted?: boolean;
             imageRequest?: StoryMessage["imageRequest"];
             events?: GameEvent[];
           };
@@ -1421,11 +1420,10 @@ export default function Home() {
           } else if (eventName === "error") {
             streamErrorMessage = data.error || "Поток истории прервался.";
             done = true;
-            // Drop the partial bubble ONLY when the server did NOT persist the turn —
-            // otherwise it lingers until a reload makes it vanish, desyncing the UI.
-            // On a persisted post-stream failure the turn IS saved, so keep the bubble
-            // (a reload would restore it); dropping it would desync the other way.
-            if (streamMessageId && !data.persisted) {
+            // The assistant message is persisted only on the success path (the `done`
+            // event reconciles it). Any error means it was NOT saved, so drop the
+            // partial client bubble — a reload restores whatever the DB committed.
+            if (streamMessageId) {
               const orphanId = streamMessageId;
               setMessages((current) => current.filter((message) => message.id !== orphanId));
               streamMessageId = "";
@@ -1699,8 +1697,8 @@ export default function Home() {
       current.map((m) => (m.id === id ? { ...m, content } : m)),
     );
     setEditingId("");
-    // Drop cached TTS chunks for this message — keys are content-independent
-    // (`<id>__c<i>__<voice>`), so re-listening would otherwise replay pre-edit audio.
+    // Drop every cached TTS chunk for this message (keys are `<id>__c<i>__<voice>__<hash>`,
+    // all sharing the `<id>__c` prefix) so an edited passage never replays old audio.
     const prefix = `${id}__c`;
     for (const key of audioCacheRef.current.keys()) {
       if (key.startsWith(prefix)) audioCacheRef.current.delete(key);
