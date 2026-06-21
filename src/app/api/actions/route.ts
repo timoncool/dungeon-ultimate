@@ -30,8 +30,10 @@ function customChatEndpoint(baseUrl: string): string {
 
 // Parse "emoji | action text" lines (lenient: also accepts plain lines and
 // numbered/bulleted lists). Returns up to four {emoji,label} actions.
+// `\b` is ASCII-only, so it never fires after a Cyrillic letter; use a Unicode
+// letter lookahead (with /u) so the hedging-word prefixes are actually dropped.
 const META_NOISE =
-  /[*#]{2,}|представляет собой|вариант\s*\d|трансформир|метафор|абсурдизм|^\s*(если|чтобы|судя)\b/i;
+  /[*#]{2,}|представляет собой|вариант\s*\d|трансформир|метафор|абсурдизм|^\s*(если|чтобы|судя)(?!\p{L})/iu;
 
 function parseActions(raw: string): Array<{ emoji?: string; label: string }> {
   const out: Array<{ emoji?: string; label: string }> = [];

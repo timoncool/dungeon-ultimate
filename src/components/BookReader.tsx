@@ -16,6 +16,13 @@ const FOOTER = 44; // voice button + page-number row
 const GAP = 14; // space below each block (px) — matches mb-3.5 in render
 const FONT_PX = 17;
 const LINE_PX = 28; // leading
+// Horizontal/vertical chrome around the text column: card margin (9*2) + padding
+// (PAD-9)*2 + border (1*2). margin+padding collapse to PAD*2, leaving the +2 border.
+const CHROME = PAD * 2 + 2;
+// Drop-cap styling shared by the rendered <p> and the measurer, so measured height
+// matches what is painted (the floated text-5xl capital is taller than one line).
+const DROP_CAP =
+  "[&::first-letter]:float-left [&::first-letter]:mr-1 [&::first-letter]:mt-0.5 [&::first-letter]:font-bold [&::first-letter]:text-5xl [&::first-letter]:leading-[0.8] [&::first-letter]:text-[#7a3b18]";
 
 function splitSentences(paragraph: string): string[] {
   return paragraph.match(/[^.!?…]+[.!?…]*\s*/g) ?? [paragraph];
@@ -69,12 +76,16 @@ export default function BookReader({
       setPages([]);
       return;
     }
-    m.style.width = `${dims.pageW - PAD * 2}px`;
-    // -8 safety so a drop-cap's taller first line can never tip the last line over.
-    const contentH = dims.pageH - PAD * 2 - FOOTER - 8;
+    m.style.width = `${dims.pageW - CHROME}px`;
+    // -8 keeps a small safety margin against sub-pixel / font-metric rounding.
+    const contentH = dims.pageH - CHROME - FOOTER - 8;
     const imgH = Math.round(dims.pageH * 0.33);
-    const textHeight = (s: string) => {
+    const dropClasses = DROP_CAP.split(" ");
+    const textHeight = (s: string, drop = false) => {
       m.textContent = s;
+      // Measure drop-cap blocks WITH the floated capital so their height isn't
+      // underestimated (the float overhangs and narrows the first lines).
+      dropClasses.forEach((c) => m.classList.toggle(c, drop));
       return m.scrollHeight;
     };
 
@@ -96,8 +107,10 @@ export default function BookReader({
       }
     };
     const pushText = (text: string, drop: boolean) => {
-      page.push({ kind: "text", text: text.trim(), message: curMsg, drop });
-      h += textHeight(text) + GAP;
+      // Measure the SAME (trimmed) string we render, so packing height == painted height.
+      const trimmed = text.trim();
+      page.push({ kind: "text", text: trimmed, message: curMsg, drop });
+      h += textHeight(trimmed, drop) + GAP;
     };
     // Place whole sentences greedily; when the next sentence won't fit the space
     // left on the page, pour in as many of its leading WORDS as fit and carry the
@@ -105,23 +118,35 @@ export default function BookReader({
     // page fills down to the last line, exactly like a real book. The invariant is
     // that we never push a block taller than the remaining height (no clipping).
     const splitWords = (s: string) => s.match(/\S+\s*/g) ?? [s];
+    // Largest count of leading `words` (prefixed by `prefix`) that still fits the space
+    // left. Height grows monotonically with word count, so binary-search it instead of
+    // re-measuring an ever-growing prefix word-by-word (O(log W) reflows, not O(W)).
+    const fitWordCount = (prefix: string, words: string[], drop: boolean) => {
+      let lo = 0;
+      let hi = words.length;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (textHeight(prefix + words.slice(0, mid).join(""), drop) + GAP <= avail()) lo = mid;
+        else hi = mid - 1;
+      }
+      return lo;
+    };
     const fill = (sentences: string[], dropFirst: boolean) => {
       const queue = [...sentences];
       let buf = "";
       let drop = dropFirst;
       while (queue.length) {
         const sentence = queue.shift() as string;
-        if (!buf && page.length && textHeight(sentence) + GAP > avail()) {
-          // Doesn't fit even at the top of what's left: fill the leftover lines with
-          // leading words, break, and continue the sentence on the next page.
+        if (!buf && textHeight(sentence, drop) + GAP > avail()) {
+          // Doesn't fit in what's left (incl. a sentence taller than a whole empty page):
+          // fill the leftover lines with leading words, break, and continue on the next.
           const words = splitWords(sentence);
-          let take = "";
-          let i = 0;
-          while (i < words.length && textHeight(take + words[i]) + GAP <= avail()) {
-            take += words[i++];
-          }
-          if (take) {
-            pushText(take, drop);
+          let i = fitWordCount("", words, drop);
+          // On a fresh page nothing else can shrink it, so always take at least one word
+          // (a lone over-tall token) to guarantee progress and avoid an infinite re-queue.
+          if (i === 0 && !page.length) i = 1;
+          if (i > 0) {
+            pushText(words.slice(0, i).join(""), drop);
             drop = false;
           }
           flushPage();
@@ -131,18 +156,14 @@ export default function BookReader({
         }
         if (!buf) {
           buf = sentence;
-        } else if (textHeight(buf + sentence) + GAP <= avail()) {
+        } else if (textHeight(buf + sentence, drop) + GAP <= avail()) {
           buf += sentence;
         } else {
           // `buf` fits — top up the leftover with leading words of `sentence`, break,
           // and carry the remaining words forward.
           const words = splitWords(sentence);
-          let add = "";
-          let i = 0;
-          while (i < words.length && textHeight(buf + add + words[i]) + GAP <= avail()) {
-            add += words[i++];
-          }
-          pushText(buf + add, drop);
+          const i = fitWordCount(buf, words, drop);
+          pushText(buf + words.slice(0, i).join(""), drop);
           drop = false;
           flushPage();
           buf = "";
@@ -151,7 +172,7 @@ export default function BookReader({
         }
       }
       if (buf) {
-        if (page.length && textHeight(buf) + GAP > avail()) flushPage();
+        if (page.length && textHeight(buf, drop) + GAP > avail()) flushPage();
         pushText(buf, drop);
       }
     };
@@ -246,8 +267,7 @@ export default function BookReader({
                           lang="ru"
                           className={cn(
                             "mb-3.5 whitespace-pre-wrap font-serif hyphens-auto text-justify",
-                            block.drop &&
-                              "[&::first-letter]:float-left [&::first-letter]:mr-1 [&::first-letter]:mt-0.5 [&::first-letter]:font-bold [&::first-letter]:text-5xl [&::first-letter]:leading-[0.8] [&::first-letter]:text-[#7a3b18]",
+                            block.drop && DROP_CAP,
                           )}
                           style={{ fontSize: FONT_PX, lineHeight: `${LINE_PX}px` }}
                         >

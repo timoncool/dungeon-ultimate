@@ -48,7 +48,12 @@ const gameUpdateSchema = z
       .array(
         z.object({
           name: z.string(),
-          hp: z.number().optional(),
+          // Upper-clamp here so a degenerate LLM HP (e.g. 1e8 → invincible foe)
+          // can't slip through; ac/stats are two-sided-clamped in apply.ts.
+          hp: z
+            .number()
+            .transform((n) => (Number.isFinite(n) ? Math.min(n, 9999) : n))
+            .optional(),
           ac: z.number().optional(),
           level: z.number().optional(),
           stats: z.record(z.string(), z.number()).optional(),
@@ -87,22 +92,49 @@ const gameUpdateSchema = z
   })
   .strip();
 
-// The narrator appends a [[GAME:{...}]] block when mechanics fire. Pull it out of
-// the passage, validate it, and return the cleaned prose + the parsed update.
-const GAME_BLOCK = /\[\[GAME:\s*(\{[\s\S]*?\})\s*\]\]/i;
+// The narrator appends a [[GAME:{...}]] block when mechanics fire. Pull every
+// such block out of the passage (the model may emit more than one), validate
+// each, and return the cleaned prose + the merged update. Global flag so all
+// blocks are stripped and none of their mechanics are silently dropped.
+const GAME_BLOCK = /\[\[GAME:\s*(\{[\s\S]*?\})\s*\]\]/gi;
+
+// Concatenate array fields and take last-wins for the scalar `note`, so several
+// blocks fold into one GameUpdate the consumer can iterate as usual.
+function mergeUpdates(a: GameUpdate, b: GameUpdate): GameUpdate {
+  const merged: GameUpdate = { ...a };
+  for (const key of Object.keys(b) as Array<keyof GameUpdate>) {
+    const value = b[key];
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      const prev = merged[key];
+      (merged as Record<string, unknown>)[key] = Array.isArray(prev)
+        ? [...prev, ...value]
+        : value;
+    } else {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  }
+  return merged;
+}
 
 export function extractGameUpdate(text: string): { clean: string; update: GameUpdate | null } {
-  const match = GAME_BLOCK.exec(text);
-  if (!match) {
+  const matches = [...text.matchAll(GAME_BLOCK)];
+  if (matches.length === 0) {
     return { clean: text, update: null };
   }
   const clean = text.replace(GAME_BLOCK, "").trim();
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(match[1]);
-  } catch {
-    return { clean, update: null };
+  let update: GameUpdate | null = null;
+  for (const match of matches) {
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(match[1]);
+    } catch {
+      continue;
+    }
+    const result = gameUpdateSchema.safeParse(parsedJson);
+    if (!result.success) continue;
+    const parsed = result.data as GameUpdate;
+    update = update ? mergeUpdates(update, parsed) : parsed;
   }
-  const result = gameUpdateSchema.safeParse(parsedJson);
-  return { clean, update: result.success ? (result.data as GameUpdate) : null };
+  return { clean, update };
 }

@@ -48,7 +48,9 @@ export function deriveRpg(base: CharacterRpg, items: Item[]): DerivedRpg {
   for (const ability of ABILITIES) {
     if (bonus[ability]) rpg.stats[ability] = clampStat(rpg.stats[ability] + bonus[ability], 1, 30);
   }
-  if (bonus.ac) rpg.ac += bonus.ac;
+  // Floor AC at 0 so a large debuff can't yield a negative armor class that
+  // makes every enemy attack auto-hit and renders "AC -40" in the HUD.
+  if (bonus.ac) rpg.ac = Math.max(0, rpg.ac + bonus.ac);
   if (bonus.maxHp) rpg.hp.max = Math.max(1, rpg.hp.max + bonus.maxHp);
   rpg.hp.current = Math.min(rpg.hp.current, rpg.hp.max);
 

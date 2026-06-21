@@ -487,18 +487,26 @@ export function updateChat(
   chatId: string,
   updates: { title?: string; settings?: Partial<StorySettings> },
 ): StoryChat | null {
-  const current = getChat(chatId);
+  const db = getDatabase();
+  // Only title/settings are needed for the merge — avoid re-hydrating every
+  // message/character on the settings-autosave hot path.
+  const current = db
+    .prepare("SELECT title, settings_json FROM chats WHERE id = ?")
+    .get(chatId) as { title: string; settings_json: string } | undefined;
   if (!current) {
     return null;
   }
 
+  const currentSettings = normalizeSettings(
+    parseJson<Partial<StorySettings>>(current.settings_json, {}),
+  );
   const nextTitle = updates.title?.trim() || current.title;
   const nextSettings = updates.settings
-    ? normalizeSettings({ ...current.settings, ...updates.settings })
-    : current.settings;
+    ? normalizeSettings({ ...currentSettings, ...updates.settings })
+    : currentSettings;
   const now = new Date().toISOString();
 
-  getDatabase()
+  db
     .prepare(
       `
         UPDATE chats
@@ -670,7 +678,11 @@ export function deleteMessageAndAfter(messageId: string, includeAfter = true): b
   ) as Array<{ id: string; rpg_snapshot_json?: string | null }>;
 
   const snapshots = doomed
-    .map((m) => (m.rpg_snapshot_json ? (safeJsonParse(m.rpg_snapshot_json) as RpgSnapshot) : null))
+    .map((m) =>
+      m.rpg_snapshot_json
+        ? (parseJson<unknown>(m.rpg_snapshot_json, undefined) as RpgSnapshot)
+        : null,
+    )
     .filter((s): s is RpgSnapshot => !!s);
 
   db.transaction(() => {
@@ -1007,7 +1019,7 @@ export function getCombatants(chatId: string): Enemy[] {
     | { combatants_json?: string }
     | undefined;
   if (!row?.combatants_json) return [];
-  const parsed = safeJsonParse(row.combatants_json);
+  const parsed = parseJson<unknown>(row.combatants_json, undefined);
   if (!Array.isArray(parsed)) return [];
   return parsed
     .map((value) => {
@@ -1106,7 +1118,7 @@ export function listEvents(chatId: string, limit = 200): GameEvent[] {
     id: row.id,
     kind: row.kind as GameEvent["kind"],
     text: row.text,
-    data: row.data_json ? safeJsonParse(row.data_json) : undefined,
+    data: row.data_json ? parseJson<unknown>(row.data_json, undefined) : undefined,
     createdAt: row.created_at,
   }));
 }
@@ -1117,28 +1129,32 @@ export function getCharacterRpg(chatId: string, characterId: string): CharacterR
     .prepare("SELECT rpg_json FROM characters WHERE id = ? AND chat_id = ?")
     .get(characterId, chatId) as { rpg_json?: string } | undefined;
   if (!row) return null;
-  return coerceCharacterRpg(row.rpg_json ? safeJsonParse(row.rpg_json) : undefined);
+  return coerceCharacterRpg(row.rpg_json ? parseJson<unknown>(row.rpg_json, undefined) : undefined);
 }
 
 export function setItemEquipped(chatId: string, itemId: string, equipped: boolean): Item | null {
   const db = getDatabase();
-  const rows = db
-    .prepare("SELECT id, data_json FROM items WHERE chat_id = ?")
-    .all(chatId) as Array<{ id: string; data_json: string }>;
-  const targetRow = rows.find((entry) => entry.id === itemId);
+  const targetRow = db
+    .prepare("SELECT data_json FROM items WHERE id = ? AND chat_id = ?")
+    .get(itemId, chatId) as { data_json: string } | undefined;
   if (!targetRow) return null;
-  const item = safeJsonParse(targetRow.data_json) as Item | undefined;
+  const item = parseJson<unknown>(targetRow.data_json, undefined) as Item | undefined;
   if (!item) return null;
   item.equipped = equipped;
   db.transaction(() => {
     // One item per slot: equipping a piece unequips any other equipped item that
     // occupies the same slot for the same owner (it stays in inventory), so a
     // player can't stack three rings or two blades and multiply the bonuses.
+    // slot/ownerId live inside data_json (not SQL-queryable), so the sibling scan
+    // only loads the rest of the inventory on the equip path that needs it.
     if (equipped) {
+      const rows = db
+        .prepare("SELECT id, data_json FROM items WHERE chat_id = ?")
+        .all(chatId) as Array<{ id: string; data_json: string }>;
       const update = db.prepare("UPDATE items SET data_json = ? WHERE id = ? AND chat_id = ?");
       for (const row of rows) {
         if (row.id === itemId) continue;
-        const other = safeJsonParse(row.data_json) as Item | undefined;
+        const other = parseJson<unknown>(row.data_json, undefined) as Item | undefined;
         if (!other || !other.equipped || other.slot !== item.slot) continue;
         if (other.ownerId !== item.ownerId) continue;
         other.equipped = false;
@@ -1179,7 +1195,7 @@ export function setItemImage(
     // just illustrated. With overwrite, fall back to any match (re-illustrate).
     let fallbackId: string | null = null;
     for (const row of rows) {
-      const item = safeJsonParse(row.data_json) as Item | undefined;
+      const item = parseJson<unknown>(row.data_json, undefined) as Item | undefined;
       if (!item || item.name.trim().toLowerCase() !== wanted) continue;
       if (fallbackId === null) fallbackId = row.id;
       if (!item.imageUrl) {
@@ -1198,7 +1214,7 @@ export function setItemImage(
     .prepare("SELECT data_json FROM items WHERE id = ? AND chat_id = ?")
     .get(targetId, chatId) as { data_json: string } | undefined;
   if (!row) return null;
-  const item = safeJsonParse(row.data_json) as Item | undefined;
+  const item = parseJson<unknown>(row.data_json, undefined) as Item | undefined;
   if (!item) return null;
 
   item.imageUrl = imageUrl;
@@ -1211,14 +1227,6 @@ export function setItemImage(
     db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), chatId);
   })();
   return item;
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
 }
 
 export function addItems(chatId: string, items: Item[]) {
@@ -1241,6 +1249,6 @@ export function listItems(chatId: string): Item[] {
     .prepare("SELECT data_json FROM items WHERE chat_id = ? ORDER BY created_at ASC")
     .all(chatId) as Array<{ data_json: string }>;
   return rows
-    .map((row) => safeJsonParse(row.data_json) as Item | undefined)
+    .map((row) => parseJson<unknown>(row.data_json, undefined) as Item | undefined)
     .filter((item): item is Item => Boolean(item));
 }

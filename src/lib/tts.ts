@@ -64,14 +64,15 @@ function charactersByName(
 // substring with a length floor (JS \b is unreliable outside ASCII). Mirrors the
 // matching rule already used for item names in the images route.
 function mentionsName(haystackLower: string, nameLower: string): boolean {
-  if (nameLower.length < 2) {
+  // Floor kept at <3 to match the images-route copy (same input → same result).
+  if (nameLower.length < 3) {
     return false;
   }
   if (/^[\x00-\x7f]+$/.test(nameLower)) {
     const escaped = nameLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`\\b${escaped}\\b`).test(haystackLower);
   }
-  return nameLower.length >= 3 && haystackLower.includes(nameLower);
+  return haystackLower.includes(nameLower);
 }
 
 // Best-effort: which saved character is most likely speaking in `context`

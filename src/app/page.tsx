@@ -68,8 +68,8 @@ import type {
   StoryMessage,
   StorySettings,
 } from "@/lib/types";
-import { ABILITIES, ABILITY_LABELS_RU, abilityMod } from "@/lib/rpg/dice";
-import { deriveForOwner } from "@/lib/rpg/derive";
+import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "@/lib/rpg/dice";
+import { deriveForOwner, type DerivedRpg } from "@/lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "@/lib/rpg/types";
 import type DiceBox from "@3d-dice/dice-box-threejs";
 
@@ -441,6 +441,18 @@ export default function Home() {
   // The protagonist character (matches the server's getHeroCharacter / heroId), used
   // for the HUD name + portrait so they don't flip to a recently-edited companion.
   const heroChar = characters.find((character) => character.id === heroId) ?? characters[0] ?? null;
+  // Only the hero's OWN loot — companion/enemy-owned drops must never show in the
+  // hero's satchel or offer an equip toggle the engine would ignore.
+  const heroItems = useMemo(
+    () => items.filter((item) => item.ownerId === (heroId ?? undefined)),
+    [items, heroId],
+  );
+  // Derive (base + equipped) once for both the sheet and the HUD instead of each
+  // recomputing it (filter + structuredClone) on every streaming-delta re-render.
+  const heroDerived = useMemo<DerivedRpg | null>(
+    () => (heroRpg ? deriveForOwner(heroRpg, heroItems, heroId ?? undefined) : null),
+    [heroRpg, heroItems, heroId],
+  );
   const [bookMode, setBookMode] = useState(false);
   // Both side panels are collapsible sidebars, toggled independently in ANY mode.
   const [leftOpen, setLeftOpen] = useState(true);
@@ -873,6 +885,15 @@ export default function Home() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages, busy, imageStatus]);
+
+  // Apply volume/speed slider changes to the currently-playing chunk live, not
+  // only when the next chunk starts (playUrl still sets them for fresh chunks).
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = Math.min(1, Math.max(0, settings.ttsVolume));
+    audio.playbackRate = settings.ttsSpeed;
+  }, [settings.ttsVolume, settings.ttsSpeed]);
 
   const setImageGenerationEnabled = useCallback((imageGenerationEnabled: boolean) => {
     setSettings((current) => ({ ...current, imageGenerationEnabled }));
@@ -1311,13 +1332,21 @@ export default function Home() {
             ]);
           } else {
             const target = streamMessageId;
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === target
-                  ? { ...message, content: message.content + text }
-                  : message,
-              ),
-            );
+            // The streamed bubble is always the last message, so update it in place
+            // instead of remapping the whole array on every delta (O(messages×deltas)).
+            setMessages((current) => {
+              const lastIndex = current.length - 1;
+              if (lastIndex < 0 || current[lastIndex].id !== target) {
+                return current.map((message) =>
+                  message.id === target
+                    ? { ...message, content: message.content + text }
+                    : message,
+                );
+              }
+              const next = current.slice();
+              next[lastIndex] = { ...next[lastIndex], content: next[lastIndex].content + text };
+              return next;
+            });
           }
         };
 
@@ -1343,6 +1372,14 @@ export default function Home() {
           } else if (eventName === "error") {
             streamErrorMessage = data.error || "Поток истории прервался.";
             done = true;
+            // The server errored without persisting the passage, so drop the partial
+            // bubble we built from deltas — otherwise it lingers until a reload (which
+            // restores from the DB) makes it vanish, desyncing the UI from storage.
+            if (streamMessageId) {
+              const orphanId = streamMessageId;
+              setMessages((current) => current.filter((message) => message.id !== orphanId));
+              streamMessageId = "";
+            }
           } else if (eventName === "done") {
             done = true;
             // Reconcile the id (server-authoritative) and final content so a
@@ -1612,6 +1649,12 @@ export default function Home() {
       current.map((m) => (m.id === id ? { ...m, content } : m)),
     );
     setEditingId("");
+    // Drop cached TTS chunks for this message — keys are content-independent
+    // (`<id>__c<i>__<voice>`), so re-listening would otherwise replay pre-edit audio.
+    const prefix = `${id}__c`;
+    for (const key of audioCacheRef.current.keys()) {
+      if (key.startsWith(prefix)) audioCacheRef.current.delete(key);
+    }
 
     if (selectedChatId) {
       try {
@@ -1982,10 +2025,10 @@ export default function Home() {
             <aside className="hidden min-h-0 flex-col gap-3 overflow-y-auto pr-1 lg:flex">
               <CharacterSheet
                 hero={heroRpg}
-                heroId={heroId}
+                derived={heroDerived ?? deriveForOwner(heroRpg, heroItems, heroId ?? undefined)}
                 name={heroChar?.name || "Герой"}
                 portrait={heroChar?.portrait}
-                items={items}
+                items={heroItems}
                 onToggle={equipItem}
                 busy={busy}
               />
@@ -2187,18 +2230,17 @@ export default function Home() {
               </div>
               )}
 
-              {settings.rpgEnabled && (heroRpg || items.length > 0) && (
+              {settings.rpgEnabled && (heroRpg || heroItems.length > 0) && (
                 <div className="mb-2 shrink-0 space-y-2 lg:hidden">
-                  {heroRpg && (
+                  {heroRpg && heroDerived && (
                     <HudBar
                       hero={heroRpg}
-                      heroId={heroId}
+                      derived={heroDerived}
                       name={heroChar?.name || "Герой"}
-                      items={items}
                     />
                   )}
-                  {items.length > 0 && (
-                    <InventoryPanel items={items} onToggle={equipItem} disabled={busy} />
+                  {heroItems.length > 0 && (
+                    <InventoryPanel items={heroItems} onToggle={equipItem} disabled={busy} />
                   )}
                 </div>
               )}
@@ -4066,6 +4108,17 @@ function MicButton({
   const procRef = useRef<ScriptProcessorNode | null>(null);
   const chunksRef = useRef<Float32Array[]>([]);
 
+  // Release the mic if the component unmounts mid-recording — otherwise the
+  // MediaStream track + AudioContext leak (recording indicator stays on) until
+  // reload. Hardware teardown only; no fetch/setState after unmount.
+  useEffect(() => {
+    return () => {
+      procRef.current?.disconnect();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      void ctxRef.current?.close().catch(() => {});
+    };
+  }, []);
+
   const stop = async () => {
     setRecording(false);
     const ctx = ctxRef.current;
@@ -4138,14 +4191,9 @@ function MicButton({
   );
 }
 
-type RollResult = {
-  d20: number;
-  total: number;
-  dc: number;
-  success: boolean;
-  crit: "success" | "fail" | null;
-  modifier: number;
-};
+// The roll payload the client renders IS the engine's CheckResult — alias it so a
+// new field on CheckResult propagates here instead of silently drifting.
+type RollResult = CheckResult;
 
 function hpTone(pct: number): { bar: string; text: string } {
   if (pct <= 25) return { bar: "bg-red-500", text: "text-red-300" };
@@ -4157,18 +4205,16 @@ function hpTone(pct: number): { bar: string; text: string } {
 // active conditions. Read-only; mirrors the stone/amber journal strip styling.
 function HudBar({
   hero,
-  heroId,
+  derived,
   name,
-  items,
 }: {
   hero: CharacterRpg;
-  heroId: string | null;
+  derived: DerivedRpg;
   name: string;
-  items: Item[];
 }) {
-  // Same derived (base + equipped) view the resolver uses — scoped to the hero's
-  // OWN items so the HUD can't show buffs from a companion's gear the engine ignores.
-  const { rpg: eff, bonus } = deriveForOwner(hero, items, heroId ?? undefined);
+  // Derived (base + equipped) view the resolver uses — computed once by the parent
+  // (hero's OWN items only) so the HUD can't show buffs from a companion's gear.
+  const { rpg: eff, bonus } = derived;
   const max = Math.max(1, eff.hp.max);
   const cur = Math.max(0, Math.min(eff.hp.current, max));
   const pct = Math.round((cur / max) * 100);
@@ -4350,7 +4396,7 @@ function InventoryPanel({
 // worn equipment, and an inventory satchel grid (click a slot to equip/unequip).
 function CharacterSheet({
   hero,
-  heroId,
+  derived,
   name,
   portrait,
   items,
@@ -4358,7 +4404,7 @@ function CharacterSheet({
   busy,
 }: {
   hero: CharacterRpg;
-  heroId: string | null;
+  derived: DerivedRpg;
   name: string;
   portrait?: Attachment | null;
   items: Item[];
@@ -4368,11 +4414,10 @@ function CharacterSheet({
   // One inventory: worn gear sorted to the front (and amber-highlighted in the
   // grid) instead of a separate "equipped" list that duplicated the same items.
   const orderedItems = [...items].sort((a, b) => Number(b.equipped) - Number(a.equipped));
-  // Fold equipped-gear modifiers into the displayed stats / AC / max-HP via the
-  // SAME deriveForOwner the combat resolver uses on the server — scoped to the
-  // hero's OWN items — so the sheet can never disagree with the numbers the engine
-  // rolls against. `bonus` drives the amber tint on buffed values.
-  const { rpg: eff, bonus } = deriveForOwner(hero, items, heroId ?? undefined);
+  // Derived stats (base + equipped, hero's OWN items) computed once by the parent
+  // via the SAME deriveForOwner the combat resolver uses, so the sheet can never
+  // disagree with the numbers the engine rolls against. `bonus` drives the amber tint.
+  const { rpg: eff, bonus } = derived;
   const maxHp = eff.hp.max;
   const cur = Math.max(0, Math.min(eff.hp.current, maxHp));
   const pct = Math.round((cur / maxHp) * 100);

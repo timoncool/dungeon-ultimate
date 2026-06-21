@@ -12,6 +12,7 @@ import {
 } from "@/lib/db";
 import { serverEnv } from "@/lib/server-env";
 import { dimensionsForImage } from "@/lib/story-prompt";
+import type { Item } from "@/lib/rpg/types";
 import type { Attachment, GeneratedImage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -122,26 +123,26 @@ function mentionsName(haystackLower: string, name: string): boolean {
   return haystackLower.includes(needle);
 }
 
-// Stored items, with a generated portrait, whose name the prompt mentions — so a
-// recurring named item is illustrated consistently. Longer names win first.
-function recurringItemReferences(chatId: string, prompt: string): Attachment[] {
+// One scan of the chat's items: those whose trimmed name the prompt mentions,
+// longest name first so they win the limited reference slots. Loaded/matched
+// once per request; callers derive portrait references and tagging names below.
+function itemsMentionedIn(chatId: string, prompt: string): Item[] {
   const haystack = prompt.toLowerCase();
-  const items = listItems(chatId)
-    .filter((item) => item.imageUrl && item.name.trim())
+  return listItems(chatId)
+    .filter((item) => item.name.trim() && mentionsName(haystack, item.name))
     .sort((a, b) => b.name.length - a.name.length);
-  const matched: Attachment[] = [];
-  for (const item of items) {
-    if (!mentionsName(haystack, item.name)) {
-      continue;
-    }
-    matched.push({
+}
+
+// Stored items, with a generated portrait, illustrated consistently as references.
+function recurringItemReferences(items: Item[]): Attachment[] {
+  return items
+    .filter((item) => item.imageUrl)
+    .map((item) => ({
       id: `item-${item.id}`,
       name: item.name,
       type: "image/png",
       url: item.imageUrl as string,
-    });
-  }
-  return matched;
+    }));
 }
 
 export async function POST(request: Request) {
@@ -187,13 +188,15 @@ export async function POST(request: Request) {
     }
   }
 
+  // Items whose name the prompt mentions — scanned once, reused for reference
+  // enrichment below and for post-generation portrait tagging.
+  const mentionedItems = chatId ? itemsMentionedIn(chatId, body.prompt) : [];
+
   // (2) Recurring named items: attach stored item portraits referenced by name.
-  if (chatId) {
-    for (const itemAttachment of recurringItemReferences(chatId, body.prompt)) {
-      pushUniqueReference(references, inlineLocalReference(attachmentToReference(itemAttachment)));
-      if (references.length >= MAX_IMAGE_REFERENCES) {
-        break;
-      }
+  for (const itemAttachment of recurringItemReferences(mentionedItems)) {
+    pushUniqueReference(references, inlineLocalReference(attachmentToReference(itemAttachment)));
+    if (references.length >= MAX_IMAGE_REFERENCES) {
+      break;
     }
   }
 
@@ -259,9 +262,9 @@ export async function POST(request: Request) {
           // ignore — reference refresh is best-effort
         }
       }
-      for (const itemName of itemNamesInPrompt(chatId, body.prompt)) {
+      for (const item of mentionedItems) {
         try {
-          setItemImage(chatId, { name: itemName }, generatedImage.url);
+          setItemImage(chatId, { name: item.name.trim() }, generatedImage.url);
         } catch {
           // ignore — item image tagging is best-effort
         }
@@ -279,18 +282,4 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-}
-
-// Names of stored items mentioned in the prompt. Used to attach a freshly
-// generated portrait to a newly illustrated item drop (reused on next mention).
-function itemNamesInPrompt(chatId: string, prompt: string): string[] {
-  const haystack = prompt.toLowerCase();
-  const names: string[] = [];
-  for (const item of listItems(chatId)) {
-    const name = item.name.trim();
-    if (name && mentionsName(haystack, name)) {
-      names.push(name);
-    }
-  }
-  return names;
 }

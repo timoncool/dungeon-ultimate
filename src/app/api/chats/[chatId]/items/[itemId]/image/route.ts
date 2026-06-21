@@ -14,13 +14,9 @@ type ItemImageRouteContext = {
   params: Promise<{ chatId: string; itemId: string }>;
 };
 
-const RARITY_EN: Record<string, string> = {
-  common: "common",
-  uncommon: "uncommon",
-  rare: "rare",
-  epic: "epic",
-  legendary: "legendary",
-};
+// Whitelist of known rarities; the label equals the value, so we gate on
+// membership and interpolate the rarity string directly.
+const KNOWN_RARITIES = new Set(["common", "uncommon", "rare", "epic", "legendary"]);
 
 const SLOT_EN: Record<string, string> = {
   weapon: "weapon",
@@ -46,7 +42,7 @@ function itemPortraitPrompt(
 ): string {
   const category = SLOT_EN[slot ?? "misc"] ?? "object";
   const subject = description?.trim() || name;
-  const quality = rarity && RARITY_EN[rarity] ? `${RARITY_EN[rarity]} quality. ` : "";
+  const quality = rarity && KNOWN_RARITIES.has(rarity) ? `${rarity} quality. ` : "";
   return (
     `Fantasy game inventory icon of a ${category}. ${subject}. ${quality}` +
     `A single hero object centered with the whole item in frame, studio product shot ` +

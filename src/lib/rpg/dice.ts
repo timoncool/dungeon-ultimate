@@ -21,9 +21,11 @@ export function abilityMod(score: number): number {
   return Math.floor((score - 10) / 2);
 }
 
-// One fair die in [1, sides].
+// One fair die in [1, sides]. Sides is clamped to [2, 1000]: no real die is
+// bigger than a d1000, and an LLM-supplied side >= 2^48 would otherwise make
+// node:crypto randomInt throw RangeError [ERR_OUT_OF_RANGE] and abort the turn.
 export function rollDie(sides: number): number {
-  const s = Math.max(2, Math.floor(sides));
+  const s = Math.min(1000, Math.max(2, Math.floor(sides)));
   return randomInt(1, s + 1);
 }
 

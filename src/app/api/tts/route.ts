@@ -47,12 +47,30 @@ export async function POST(request: Request) {
   const chunkIndex = typeof body.chunkIndex === "number" ? body.chunkIndex : null;
   const base = serverEnv("TTS_WORKER_URL", "http://127.0.0.1:8081").replace(/\/$/, "");
 
-  async function synthesize() {
-    return fetch(`${base}/tts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, language: "ru" }),
-    });
+  // Call the worker and return the upstream response, or a 502 error Response
+  // (upstream non-ok, or worker unreachable). Shared by both POST branches.
+  async function synthesize(): Promise<Response> {
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${base}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice, language: "ru" }),
+      });
+    } catch {
+      return Response.json(
+        { error: "Сервер озвучки не запущен (порт 8081)." },
+        { status: 502 },
+      );
+    }
+    if (!upstream.ok) {
+      const detail = await upstream.text();
+      return Response.json(
+        { error: `Сбой озвучки (${upstream.status}).`, detail: detail.slice(0, 300) },
+        { status: 502 },
+      );
+    }
+    return upstream;
   }
 
   if (messageId) {
@@ -66,43 +84,17 @@ export async function POST(request: Request) {
     if (existsSync(filePath)) {
       return Response.json({ url, cached: true });
     }
-    try {
-      const upstream = await synthesize();
-      if (!upstream.ok) {
-        const detail = await upstream.text();
-        return Response.json(
-          { error: `Сбой озвучки (${upstream.status}).`, detail: detail.slice(0, 300) },
-          { status: 502 },
-        );
-      }
-      const audio = Buffer.from(await upstream.arrayBuffer());
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(filePath, audio);
-      return Response.json({ url, cached: false });
-    } catch {
-      return Response.json(
-        { error: "Сервер озвучки не запущен (порт 8081)." },
-        { status: 502 },
-      );
-    }
+    const upstream = await synthesize();
+    if (!upstream.ok) return upstream;
+    const audio = Buffer.from(await upstream.arrayBuffer());
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(filePath, audio);
+    return Response.json({ url, cached: false });
   }
 
-  try {
-    const upstream = await synthesize();
-    if (!upstream.ok) {
-      const detail = await upstream.text();
-      return Response.json(
-        { error: `Сбой озвучки (${upstream.status}).`, detail: detail.slice(0, 300) },
-        { status: 502 },
-      );
-    }
-    return new Response(await upstream.arrayBuffer(), {
-      headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" },
-    });
-  } catch {
-    return Response.json(
-      { error: "Сервер озвучки не запущен (порт 8081)." },
-      { status: 502 },
-    );
-  }
+  const upstream = await synthesize();
+  if (!upstream.ok) return upstream;
+  return new Response(await upstream.arrayBuffer(), {
+    headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" },
+  });
 }

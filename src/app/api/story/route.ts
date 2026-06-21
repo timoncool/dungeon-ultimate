@@ -8,6 +8,7 @@ import {
   getCharacterRpg,
   getCharacterRpgMap,
   getCombatants,
+  getHeroCharacter,
   getStorySummary,
   listCharacters,
   listItems,
@@ -972,17 +973,23 @@ function resolveRpgTurn(
   // The protagonist is the first character actor (getCharacterRpgMap orders by
   // created_at ASC); random events and effect fallbacks target them.
   const heroId = characterActors.keys().next().value as string | undefined;
+  // Freeze the pre-turn enemy roster BEFORE applyGameUpdate runs: the actor map
+  // holds each enemy.rpg BY REFERENCE (line above), so the engine mutates these
+  // very objects in place. Cloning now is the only way the rollback snapshot can
+  // capture pre-turn enemy HP/dead/effects instead of the post-turn state.
+  const preTurnEnemies = chatId ? enemies.map((enemy) => structuredClone(enemy)) : [];
   const { events, changed, items, spawnedEnemies } = applyGameUpdate(update, actors, {
     heroId,
     randomEvents,
   });
   let snapshot: RpgSnapshot | undefined;
   if (chatId) {
-    // Pre-turn snapshot for Retry/Erase rollback, captured BEFORE the saves below
-    // (getCharacterRpg still returns the base, `enemies` is the pre-turn roster).
+    // Pre-turn snapshot for Retry/Erase rollback. chars come from getCharacterRpg
+    // (still the base — saves happen below); combatants is the pre-mutation clone;
+    // itemIds/eventIds are the NEW rows this turn created, deleted on rollback.
     snapshot = {
       chars: {},
-      combatants: enemies,
+      combatants: preTurnEnemies,
       itemIds: items.map((item) => item.id),
       eventIds: events.map((event) => event.id),
     };
@@ -1028,10 +1035,10 @@ export async function POST(request: Request) {
   const body = requestSchema.parse(await request.json());
   const characters = body.chatId ? listCharacters(body.chatId) : [];
   const knownCharacterIds = new Set(characters.map((character) => character.id));
-  // The protagonist = the first character created (oldest row). listCharacters
-  // orders by updated_at DESC, so sort a copy by createdAt to find them.
-  const heroId =
-    [...characters].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]?.id;
+  // The protagonist = the first character created. Resolve via the canonical
+  // helper (created_at ASC, rowid ASC) so this matches the RPG path's hero
+  // (getCharacterRpgMap) even when two characters share a created_at timestamp.
+  const heroId = body.chatId ? getHeroCharacter(body.chatId)?.id : undefined;
   // Ensure the player character rides along as a visual reference whenever a
   // scene is illustrated, so the evolving-hero image2image reference attaches
   // and refreshes even if the narrator didn't name them. Keeps within the
@@ -1167,13 +1174,15 @@ export async function POST(request: Request) {
         // The narrator appends the [[GAME:{...}]] mechanics block as plain text at the
         // very end of the passage. Stream everything EXCEPT a trailing run that could be
         // that block, so the raw JSON never flashes in the bubble (the `done` event
-        // reconciles with the cleaned content anyway). A "[[" that turns out not to be
-        // the marker is released as normal prose.
+        // reconciles with the cleaned content anyway). Mirrors the canonical GAME_BLOCK
+        // (parse.ts): case-insensitive, whitespace-tolerant. Anchored to end-of-string so
+        // an earlier "[[" in prose that isn't the marker is released as normal prose.
+        const TRAILING_GAME_MARKER = /\[\[\s*(?:G(?:A(?:M(?:E(?:\s*:[\s\S]*)?)?)?)?)?$/i;
         const flushSafe = () => {
           let safeLen = storyText.length;
           if (rpgEnabled) {
-            const cut = storyText.indexOf("[[");
-            if (cut !== -1 && /^\[\[G?A?M?E?(:[\s\S]*)?$/.test(storyText.slice(cut))) {
+            const cut = storyText.search(TRAILING_GAME_MARKER);
+            if (cut !== -1) {
               safeLen = cut;
             }
           }
@@ -1224,6 +1233,7 @@ export async function POST(request: Request) {
           : [];
         const imageToolArgs = parseGenerateImageToolCall(reconstructedToolCalls);
 
+        try {
         const trimmedStory = extractStoryText(storyText);
         const rpg = resolveRpgTurn(
           chatId,
@@ -1274,6 +1284,19 @@ export async function POST(request: Request) {
           }),
         );
         controller.close();
+        } catch (resolveError) {
+          // Dice/DB/persistence AFTER the stream read must not hang the client:
+          // emit an error event and close instead of rejecting start() with no `done`.
+          controller.enqueue(
+            sse("error", {
+              error:
+                resolveError instanceof Error
+                  ? resolveError.message
+                  : "Не удалось завершить ход.",
+            }),
+          );
+          controller.close();
+        }
       },
     });
 

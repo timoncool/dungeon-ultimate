@@ -51,12 +51,19 @@ export function buildRpgSection(
       : "";
     lines.push(`${head}\n  ${stats}${conditions}${effects}`);
   }
-  const inventory = items.length
-    ? `\n\nИНВЕНТАРЬ:\n${items
-        .map(
-          (item) =>
-            `• ${item.name}${item.qty > 1 ? ` ×${item.qty}` : ""} (${item.slot}${item.damage ? `, урон ${item.damage}` : ""})${item.equipped ? " [надет]" : ""}`,
-        )
+  // Only party-owned items belong in ИНВЕНТАРЬ. Items dropped with a non-party
+  // ownerId (e.g. an enemy's loot) must NOT be presented as the hero's gear —
+  // same owner-scoping invariant used by deriveForOwner everywhere else.
+  const ownedItems = items.filter((item) => item.ownerId && actors.has(item.ownerId));
+  // Attribute each item to its owner only when the party has more than one member,
+  // so a companion's gear isn't read as the hero's; solo hero stays unattributed.
+  const multiOwner = actors.size > 1;
+  const inventory = ownedItems.length
+    ? `\n\nИНВЕНТАРЬ:\n${ownedItems
+        .map((item) => {
+          const owner = multiOwner ? ` — ${actors.get(item.ownerId!)!.name}` : "";
+          return `• ${item.name}${item.qty > 1 ? ` ×${item.qty}` : ""} (${item.slot}${item.damage ? `, урон ${item.damage}` : ""})${item.equipped ? " [надет]" : ""}${owner}`;
+        })
         .join("\n")}`
     : "";
   const foes = enemies.length
