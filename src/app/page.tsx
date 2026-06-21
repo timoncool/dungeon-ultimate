@@ -1728,6 +1728,63 @@ export default function Home() {
     }
   }
 
+  const [heroPortraitBusy, setHeroPortraitBusy] = useState(false);
+
+  // Generate (or regenerate) the hero's userpic and set it as their portrait, so it
+  // shows in the HUD and seeds the evolving image2img reference. Takes an explicit
+  // chatId (selectedChatId is still stale inside beginStory's closure).
+  async function generateHeroPortrait(
+    chatId: string,
+    heroId: string,
+    persona: string,
+    heroName: string,
+  ) {
+    setHeroPortraitBusy(true);
+    try {
+      const styled = settings.imageStylePrefix?.trim();
+      const prompt = `${styled ? `${styled}. ` : ""}Character portrait, head and shoulders, of ${
+        persona || "a wandering adventurer"
+      }. Detailed expressive face, dramatic cinematic lighting, painterly fantasy digital illustration. No text, no letters, no watermark, no UI.`;
+      const imageResponse = await fetch("/api/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          mode: settings.imageMode,
+          backend: settings.imageBackend,
+          aspect: "portrait",
+        }),
+      });
+      const image = await readApi<GeneratedImage>(imageResponse);
+      if (!image?.url) {
+        return;
+      }
+      const portrait: Attachment = {
+        id: image.id || `portrait-${heroId}`,
+        name: `${heroName} (портрет)`,
+        type: "image/png",
+        url: image.url,
+      };
+      const charResponse = await fetch(`/api/chats/${chatId}/characters/${heroId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ portrait }),
+      });
+      const payload = await readApi<CharacterResponse>(charResponse);
+      setCharacters((current) =>
+        current.some((character) => character.id === payload.character.id)
+          ? current.map((character) =>
+              character.id === payload.character.id ? payload.character : character,
+            )
+          : [...current, payload.character],
+      );
+    } catch {
+      // best-effort: a missing portrait just leaves the placeholder avatar
+    } finally {
+      setHeroPortraitBusy(false);
+    }
+  }
+
   async function beginStory(options: {
     title: string;
     world: string;
@@ -1765,6 +1822,16 @@ export default function Home() {
 
       applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
       void refreshChats();
+
+      // Generate the hero's userpic in parallel with the opening turn (best-effort).
+      if (seedSettings.rpgEnabled && payload.heroId) {
+        void generateHeroPortrait(
+          payload.chat.id,
+          payload.heroId,
+          options.hero.persona,
+          options.hero.name,
+        );
+      }
 
       if (options.opening.mode === "self") {
         // The player wrote the opening; store it verbatim, no generation.
@@ -2120,6 +2187,18 @@ export default function Home() {
                 items={heroItems}
                 onToggle={equipItem}
                 busy={busy}
+                portraitBusy={heroPortraitBusy}
+                onRegeneratePortrait={
+                  heroId && heroChar && selectedChatId
+                    ? () =>
+                        void generateHeroPortrait(
+                          selectedChatId,
+                          heroId,
+                          heroChar.details || heroChar.name,
+                          heroChar.name,
+                        )
+                    : undefined
+                }
               />
               {journal.length > 0 && (
                 <div className="space-y-1 rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
@@ -4706,6 +4785,8 @@ function CharacterSheet({
   items,
   onToggle,
   busy,
+  onRegeneratePortrait,
+  portraitBusy,
 }: {
   hero: CharacterRpg;
   derived: DerivedRpg;
@@ -4714,6 +4795,8 @@ function CharacterSheet({
   items: Item[];
   onToggle: (itemId: string, equipped: boolean) => void;
   busy?: boolean;
+  onRegeneratePortrait?: () => void;
+  portraitBusy?: boolean;
 }) {
   // One inventory: worn gear sorted to the front (and amber-highlighted in the
   // grid) instead of a separate "equipped" list that duplicated the same items.
@@ -4749,6 +4832,28 @@ function CharacterSheet({
               </span>
             </div>
           </div>
+          {onRegeneratePortrait && (
+            <button
+              type="button"
+              onClick={onRegeneratePortrait}
+              disabled={portraitBusy}
+              title="Перегенерировать аватар"
+              className="absolute right-1.5 top-1.5 inline-flex size-7 items-center justify-center rounded-full border border-amber-300/40 bg-stone-950/70 text-amber-200 backdrop-blur transition hover:bg-stone-900 disabled:opacity-60"
+            >
+              {portraitBusy ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <span className="text-sm leading-none" aria-hidden="true">
+                  ⟳
+                </span>
+              )}
+            </button>
+          )}
+          {portraitBusy && !portrait?.url && (
+            <div className="absolute inset-0 flex items-center justify-center bg-stone-950/45">
+              <Loader2 className="size-7 animate-spin text-amber-200/80" aria-hidden="true" />
+            </div>
+          )}
           {hero.dead && (
             <div className="absolute inset-0 flex items-center justify-center bg-red-950/55 text-sm font-semibold uppercase tracking-wider text-red-200">
               ☠️ погиб
