@@ -47,16 +47,16 @@ machine, missing everywhere else.
 > The `mmproj-*` files are the multimodal projector (vision). Both models are
 > Gemma 4, so they share one chat handler; only one is held in VRAM at a time.
 
-### 2. shorts-dub checkout — required for TTS only
-`od-tts-server.py` imports the **Qwen3-TTS engine** from the separate `shorts-dub`
-project (`shorts_dub/tts.py`). It is an external dependency, not vendored here.
-Set **`SHORTS_DUB_DIR`** to your `shorts-dub` checkout, or **`OD_TTS_ENGINE_PY`**
-to the `tts.py` file directly. A sibling `../shorts-dub` next to this repo is also
-auto-detected. Without it the TTS server exits with a clear message; text + images
-still work.
+### 2. TTS engine — vendored (nothing to provide)
+`od-tts-server.py` loads the **Qwen3-TTS engine** from `servers/tts_engine.py`,
+which is **bundled in this repo** — no external checkout, nothing private to clone.
+Override it only for development via **`OD_TTS_ENGINE_PY`** (a direct `tts.py` path)
+or **`SHORTS_DUB_DIR`**.
 
-The `python-text` env already installs the TTS runtime wheels (`faster-qwen3-tts`,
-`qwen-tts`, `bitsandbytes`, `soundfile`, and — when vendored — `qwen3-tts-triton`).
+The `python-text` env installs the TTS runtime wheels (`faster-qwen3-tts`,
+`qwen-tts`, `bitsandbytes`, `soundfile`, and `qwen3-tts-triton` — built from git
+with hatchling, since its hatchling backend isn't reachable under pip's isolated
+build on the embedded Python).
 
 ### 3. Voice pack — required for TTS only
 A folder of `<name>.mp3` reference clips (optionally a matching `<name>.txt`

@@ -49,27 +49,27 @@ import uvicorn
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)  # <repo>  (servers/ is one level down)
 
-# Locate shorts-dub's tts.py (the Qwen3-TTS engine). Priority:
-#   1) OD_TTS_ENGINE_PY (explicit file)  2) SHORTS_DUB_DIR/shorts_dub/tts.py
-#   3) a sibling ../shorts-dub checkout  4) the original dev-box path.
-_DEV_DEFAULT_TTS_PY = r"D:\Projects\TEMP\shorts-dub\shorts_dub\tts.py"
+# The Qwen3-TTS engine is VENDORED at servers/tts_engine.py, so the build ships
+# self-contained — nothing is cloned from an external (and private) checkout.
+# Priority: 1) OD_TTS_ENGINE_PY override  2) the bundled engine  3) a SHORTS_DUB_DIR
+# checkout  4) a sibling ../shorts-dub (dev only).
+_BUNDLED_TTS_PY = os.path.join(_HERE, "tts_engine.py")
 _SHORTS_DUB_DIR = os.environ.get("SHORTS_DUB_DIR")
 _TTS_PY = (
     os.environ.get("OD_TTS_ENGINE_PY")
+    or (_BUNDLED_TTS_PY if os.path.exists(_BUNDLED_TTS_PY) else None)
     or (os.path.join(_SHORTS_DUB_DIR, "shorts_dub", "tts.py") if _SHORTS_DUB_DIR else None)
     or (lambda p: p if os.path.exists(p) else None)(
         os.path.join(os.path.dirname(_REPO), "shorts-dub", "shorts_dub", "tts.py")
     )
-    or _DEV_DEFAULT_TTS_PY
 )
-if not os.path.exists(_TTS_PY):
+if not _TTS_PY or not os.path.exists(_TTS_PY):
     raise SystemExit(
-        f"[od-tts] shorts-dub TTS engine not found at {_TTS_PY}\n"
-        "         Set SHORTS_DUB_DIR (or OD_TTS_ENGINE_PY) to your shorts-dub checkout.\n"
-        "         See servers/README.md."
+        f"[od-tts] Qwen3-TTS engine not found (expected bundled {_BUNDLED_TTS_PY}).\n"
+        "         Reinstall, or set OD_TTS_ENGINE_PY to a tts.py file."
     )
 
-# Load shorts-dub's tts.py standalone (no package __init__ side effects).
+# Load the engine module standalone (no package __init__ side effects).
 _spec = importlib.util.spec_from_file_location("sd_tts", _TTS_PY)
 sd_tts = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sd_tts)

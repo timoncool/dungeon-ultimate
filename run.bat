@@ -34,10 +34,9 @@ REM     install.bat; the dev-box path is only a last-resort fallback) ===
 if not defined ULTRA_DIR if exist "%APP_DIR%ultra-fast-image-gen\generate.py" set "ULTRA_DIR=%APP_DIR%ultra-fast-image-gen"
 if not defined ULTRA_DIR set "ULTRA_DIR=D:\ultra-fast-image-gen"
 
-REM === shorts-dub checkout (Qwen3-TTS engine for od-tts-server — auto-cloned by
-REM     install.bat; dev-box path is the fallback) ===
-if not defined SHORTS_DUB_DIR if exist "%APP_DIR%shorts-dub\shorts_dub\tts.py" set "SHORTS_DUB_DIR=%APP_DIR%shorts-dub"
-if not defined SHORTS_DUB_DIR set "SHORTS_DUB_DIR=D:\Projects\TEMP\shorts-dub"
+REM === TTS engine is VENDORED at servers\tts_engine.py — od-tts-server loads it
+REM     by default, so no checkout is needed. Set SHORTS_DUB_DIR or OD_TTS_ENGINE_PY
+REM     only to override it with an external tts.py. ===
 
 REM === Isolation: keep caches on D:/in-folder, nothing in C: ===
 set "TEMP=%APP_DIR%temp"

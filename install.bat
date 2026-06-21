@@ -169,13 +169,17 @@ REM is non-fatal for dev mode.
 call "%SCRIPT_DIR%node\npm.cmd" run build || echo [!] build failed - that's OK, run.bat uses `npm run dev`. Run `npm run build` later if you want `npm start`.
 
 REM ============================================================
-REM  Step 6: backend checkouts (public repos, cloned into this folder)
+REM  Step 6: image backend checkout
+REM    (the TTS engine is VENDORED at servers\tts_engine.py — nothing to clone;
+REM     the image backend is a public repo. Both ship inside a release archive,
+REM     so this clone is skipped when the folder is already present.)
 REM ============================================================
-echo [+] Fetching backend checkouts...
+echo [+] Fetching the image backend...
+if exist "ultra-fast-image-gen\generate.py" goto :image_pth
 where git >nul 2>&1
 if errorlevel 1 goto :no_git_backends
-if not exist "shorts-dub\shorts_dub\tts.py" git clone --depth 1 https://github.com/timoncool/shorts-dub.git shorts-dub
-if not exist "ultra-fast-image-gen\generate.py" git clone --depth 1 https://github.com/newideas99/ultra-fast-image-gen.git ultra-fast-image-gen
+git clone --depth 1 https://github.com/newideas99/ultra-fast-image-gen.git ultra-fast-image-gen
+:image_pth
 REM The image backend is a flat-layout uv project (loaders.py, generate.py, ... at
 REM its root), not a pip-installable package. The image server runs generate.py with
 REM the embedded Python, which ignores PYTHONPATH and never auto-adds the script dir
@@ -186,7 +190,7 @@ if exist "ultra-fast-image-gen\generate.py" echo %SCRIPT_DIR%ultra-fast-image-ge
 goto :backends_done
 :no_git_backends
 echo [!] Git not found - install it from https://git-scm.com/downloads and re-run install.bat.
-echo     Without git the TTS + image backends are missing; text still works.
+echo     Without git the image backend is missing; text + TTS still work.
 :backends_done
 
 REM TTS voice pack (reference clips for zero-shot voice cloning) — same pack the
