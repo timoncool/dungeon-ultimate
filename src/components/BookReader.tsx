@@ -5,6 +5,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import HTMLFlipBook from "react-pageflip";
 import { cn } from "@/lib/cn";
 import { splitSentences } from "@/lib/text";
+import type { CheckResult } from "@/lib/rpg/dice";
+import type { GameEvent, Item } from "@/lib/rpg/types";
 import type { StoryMessage } from "@/lib/types";
 
 type FlipApi = {
@@ -16,7 +18,88 @@ type FlipApi = {
 };
 type Block =
   | { kind: "image"; url: string; message: StoryMessage }
-  | { kind: "text"; text: string; message: StoryMessage; drop: boolean };
+  | { kind: "text"; text: string; message: StoryMessage; drop: boolean }
+  | { kind: "action"; text: string; message: StoryMessage }
+  | { kind: "event"; event: GameEvent; message: StoryMessage };
+
+// A resolved game event as a parchment card INSIDE the book — a rolled die / check,
+// a loot drop with its portrait, a foe, damage/heal, a buff. Part of the story,
+// styled for the page (not the dark feed card).
+function BookEventCard({ event }: { event: GameEvent }) {
+  if (event.kind === "item") {
+    const item = (event.data as { item?: Item } | undefined)?.item;
+    return (
+      <div className="mb-3.5 flex items-center gap-3 rounded border-2 border-[#8a6a3a]/55 bg-[#efe0c0] px-3 py-2 shadow-sm">
+        {item?.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.imageUrl} alt="" className="size-11 shrink-0 rounded object-cover" />
+        ) : (
+          <span className="grid size-11 shrink-0 place-items-center rounded bg-[#dcc99e] text-xl" aria-hidden="true">
+            📦
+          </span>
+        )}
+        <div className="min-w-0">
+          <div className="truncate font-serif font-bold text-[#3a2a18]">{item?.name ?? "Предмет"}</div>
+          <div className="truncate font-serif text-xs text-[#6a4f2c]">
+            {event.text.replace(/^📦\s*Получен предмет:\s*/, "")}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (event.kind === "roll") {
+    const result = (event.data as { result?: CheckResult } | undefined)?.result;
+    const tone =
+      result?.crit === "success"
+        ? "border-amber-600 text-amber-800"
+        : result?.crit === "fail"
+          ? "border-red-700 text-red-800"
+          : result?.success
+            ? "border-emerald-700 text-emerald-800"
+            : "border-stone-600 text-stone-700";
+    return (
+      <div className="mb-3.5 flex items-center gap-2.5 rounded border border-[#9c7b46]/50 bg-[#ece0c4]/80 px-3 py-2">
+        {result ? (
+          <span
+            className={cn(
+              "inline-flex size-7 shrink-0 items-center justify-center rounded-md border-2 bg-[#f5ead0] text-sm font-bold tabular-nums",
+              tone,
+            )}
+          >
+            {result.d20}
+          </span>
+        ) : (
+          <span aria-hidden="true">🎲</span>
+        )}
+        <span className="font-serif text-sm text-[#3a2a18]">{event.text.replace(/^🎲\s*/, "")}</span>
+      </div>
+    );
+  }
+  const heal = event.kind === "hp" && /[💚✨]/u.test(event.text);
+  const tone =
+    event.kind === "combat"
+      ? "border-red-800/40 bg-red-200/40"
+      : event.kind === "death"
+        ? "border-stone-700/50 bg-stone-300/50"
+        : event.kind === "hp"
+          ? heal
+            ? "border-emerald-800/40 bg-emerald-200/40"
+            : "border-rose-800/40 bg-rose-200/40"
+          : event.kind === "effect"
+            ? "border-amber-800/40 bg-amber-200/40"
+            : "border-[#9c7b46]/40 bg-[#9c7b46]/10";
+  return (
+    <div
+      className={cn(
+        "mb-3.5 rounded border px-3 py-1.5 font-serif text-sm text-[#3a2a18]",
+        tone,
+        event.kind === "note" && "italic",
+      )}
+    >
+      {event.text}
+    </div>
+  );
+}
 
 const PAD = 28; // page inner padding (px)
 const FOOTER = 44; // voice button + page-number row
@@ -49,6 +132,13 @@ export default function BookReader({
   const bookRef = useRef<FlipApi | null>(null);
   const passages = useMemo(
     () => messages.filter((message) => message.role === "assistant" && message.content.trim()),
+    [messages],
+  );
+  // The full ordered stream the book paginates: the narrator's passages, the
+  // player's own actions, and each turn's resolved game events — one interleaved
+  // adventure, not just the narration.
+  const stream = useMemo(
+    () => messages.filter((message) => message.content.trim() || message.events?.length),
     [messages],
   );
   const [dims, setDims] = useState({ pageW: 520, pageH: 760 });
@@ -180,22 +270,47 @@ export default function BookReader({
       }
     };
 
-    for (const message of passages) {
+    // Atomic-block heights (player action / event card): measured at the block's
+    // inner width, generously padded so a card is NEVER clipped — over-reserving
+    // only leaves a little whitespace, while the fit-or-flush guarantees no overflow.
+    const actionHeight = (text: string) => textHeight(`❯ ${text}`) + 16;
+    const eventHeight = (event: GameEvent) => {
+      const prevW = m.style.width;
+      m.style.width = `${dims.pageW - CHROME - 26}px`;
+      const measured = textHeight(event.text);
+      m.style.width = prevW;
+      return Math.max(measured, event.kind === "item" ? 52 : 0) + 24;
+    };
+    const pushAtomic = (block: Block, height: number) => {
+      if (page.length && height + GAP > avail()) flushPage();
+      page.push(block);
+      h += height + GAP;
+    };
+
+    for (const message of stream) {
       curMsg = message;
+      if (message.role === "user") {
+        // The player's own action, woven into the story as a styled block.
+        const text = message.content.replace(/^>\s*/, "").trim();
+        if (text) pushAtomic({ kind: "action", text, message }, actionHeight(text));
+        continue;
+      }
       if (message.generatedImage?.url) {
-        if (page.length && imgH + GAP > avail()) flushPage();
-        page.push({ kind: "image", url: message.generatedImage.url, message });
-        h += imgH + GAP;
+        pushAtomic({ kind: "image", url: message.generatedImage.url, message }, imgH);
       }
       const paras = message.content
         .split(/\n\s*\n/)
         .map((p) => p.trim())
         .filter(Boolean);
       paras.forEach((para, index) => fill(splitSentences(para), index === 0));
+      // This turn's resolved events as cards, right after the passage they belong to.
+      for (const event of message.events ?? []) {
+        pushAtomic({ kind: "event", event, message }, eventHeight(event));
+      }
     }
     flushPage();
     setPages(out);
-  }, [passages, dims]);
+  }, [stream, dims]);
 
   // New narration extends the book and react-pageflip remounts (its key includes
   // pages.length + the page size), which otherwise snaps it back to page 1. Re-assert
@@ -271,17 +386,36 @@ export default function BookReader({
                   style={{ margin: 9, padding: PAD - 9 }}
                 >
                   <div className="min-h-0 flex-1 overflow-hidden">
-                    {page.map((block, bi) =>
-                      block.kind === "image" ? (
-                        <div
-                          key={bi}
-                          className="mb-3.5 overflow-hidden rounded-sm border-2 border-[#8a6a3a]/55 shadow-md"
-                          style={{ height: Math.round(dims.pageH * 0.33) }}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={block.url} alt="" className="h-full w-full object-cover" />
-                        </div>
-                      ) : (
+                    {page.map((block, bi) => {
+                      if (block.kind === "image") {
+                        return (
+                          <div
+                            key={bi}
+                            className="mb-3.5 overflow-hidden rounded-sm border-2 border-[#8a6a3a]/55 shadow-md"
+                            style={{ height: Math.round(dims.pageH * 0.33) }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={block.url} alt="" className="h-full w-full object-cover" />
+                          </div>
+                        );
+                      }
+                      if (block.kind === "action") {
+                        return (
+                          <div
+                            key={bi}
+                            className="mb-3.5 flex items-start gap-2 rounded border border-[#9c7b46]/45 bg-[#9c7b46]/12 px-3 py-1.5 font-serif text-[15px] italic text-[#5a4326]"
+                          >
+                            <span className="not-italic text-[#8a6a3a]" aria-hidden="true">
+                              ❯
+                            </span>
+                            <span>{block.text}</span>
+                          </div>
+                        );
+                      }
+                      if (block.kind === "event") {
+                        return <BookEventCard key={bi} event={block.event} />;
+                      }
+                      return (
                         <p
                           key={bi}
                           lang="ru"
@@ -293,8 +427,8 @@ export default function BookReader({
                         >
                           {block.text}
                         </p>
-                      ),
-                    )}
+                      );
+                    })}
                   </div>
                   <div className="mt-2 flex shrink-0 items-center justify-between border-t border-[#9c7b46]/30 pt-2">
                     {onSpeak && page[0] ? (

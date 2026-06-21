@@ -2196,26 +2196,11 @@ export default function Home() {
                 </div>
               )}
               {showBook ? (
-                <div className="flex min-h-0 flex-1 flex-col gap-2">
-                  <div className="min-h-0 flex-1">
-                    <BookReader
-                      messages={messages}
-                      speakingId={speakingId}
-                      onSpeak={(message) => speakText(message.id, message.content)}
-                    />
-                  </div>
-                  {settings.rpgEnabled &&
-                    (() => {
-                      const last = [...messages]
-                        .reverse()
-                        .find((message) => message.role === "assistant" && message.events?.length);
-                      return last?.events?.length ? (
-                        <div className="mx-auto max-h-44 w-full max-w-[1000px] shrink-0 overflow-y-auto px-1">
-                          <EventCards events={last.events} />
-                        </div>
-                      ) : null;
-                    })()}
-                </div>
+                <BookReader
+                  messages={messages}
+                  speakingId={speakingId}
+                  onSpeak={(message) => speakText(message.id, message.content)}
+                />
               ) : (
               <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain pr-1 pb-3 sm:space-y-10">
                 {libraryLoading || loadingChat ? (
