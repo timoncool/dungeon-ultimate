@@ -187,6 +187,10 @@ REM to sys.path -> `from loaders import ...` fails. Drop a .pth into site-packag
 REM (already on sys.path + site enabled) so the backend's modules import. This is the
 REM same mechanism `pip install -e` would use, without re-resolving its deps.
 if exist "ultra-fast-image-gen\generate.py" echo %SCRIPT_DIR%ultra-fast-image-gen> "python-image\Lib\site-packages\ultra_fast_image_gen.pth"
+REM Repoint the uncensored FLUX text encoder from the gated upstream repo to an
+REM ungated mirror, so the optional flux-uncensored image backend downloads it with
+REM no HF token. Idempotent (a no-op once loaders.py is already repointed).
+if exist "ultra-fast-image-gen\loaders.py" powershell -Command "(Get-Content 'ultra-fast-image-gen\loaders.py' -Raw) -replace 'ponpoke/flux2-klein-4b-uncensored-text-encoder', 'nerualdreming/flux2-klein-4b-uncensored-text-encoder' | Set-Content -NoNewline 'ultra-fast-image-gen\loaders.py'"
 goto :backends_done
 :no_git_backends
 echo [!] Git not found - install it from https://git-scm.com/downloads and re-run install.bat.
