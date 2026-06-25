@@ -99,6 +99,15 @@ Most "AI dungeon" apps are a thin wrapper around someone else's cloud LLM — yo
 
 ## How to play
 
+<div align="center">
+<table>
+<tr>
+<td width="50%" valign="top"><img src="./docs/modal.png" alt="New story setup" /><br /><sub><b>Start a new story</b> — pick a genre, say who you are, and the narrator writes the opening scene.</sub></td>
+<td width="50%" valign="top"><img src="./docs/prose.png" alt="Narrative reading view" /><br /><sub><b>Pure storytelling</b> — the narrator's prose streams in word by word, book-style.</sub></td>
+</tr>
+</table>
+</div>
+
 - Create a chat, set the world/style or pick a character, then type **or speak** an action — the narrator streams a story turn.
 - Turn on **game mode** for a full D&D session: ability checks roll a real 3D die, combat resolves against AC, HP and loot are tracked, and every result lands in the adventure journal.
 - Hit the **mic** button to dictate your action; it's transcribed locally by Parakeet.
