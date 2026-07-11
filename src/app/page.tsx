@@ -1837,10 +1837,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: seedSettings, title: options.title }),
       });
-      let payload = await readApi<ChatResponse>(response);
+      const created = await readApi<ChatResponse>(response);
       setChats((current) => [
-        payload.chat,
-        ...current.filter((chat) => chat.id !== payload.chat.id),
+        created.chat,
+        ...current.filter((chat) => chat.id !== created.chat.id),
       ]);
 
       // In D&D mode the game needs a protagonist: create one from the "кто ты"
@@ -1856,14 +1856,17 @@ export default function Home() {
               ? "Пол: женский."
               : "";
         const heroDetails = [genderNote, options.hero.persona].filter(Boolean).join(" ");
-        await fetch(`/api/chats/${payload.chat.id}/characters`, {
+        await fetch(`/api/chats/${created.chat.id}/characters`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: options.hero.name, details: heroDetails }),
         }).catch(() => {});
-        // Re-fetch so heroId + heroRpg hydrate the HUD before the kickoff runs.
-        payload = await readApi<ChatResponse>(await fetch(`/api/chats/${payload.chat.id}`));
       }
+
+      // Re-fetch (D&D only) so heroId + heroRpg hydrate the HUD before the kickoff runs.
+      const payload = seedSettings.rpgEnabled
+        ? await readApi<ChatResponse>(await fetch(`/api/chats/${created.chat.id}`))
+        : created;
 
       applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
       void refreshChats();
@@ -3981,22 +3984,16 @@ function TextModelPanel({
   const customBaseUrl = settings.customBaseUrl;
   const customApiKey = settings.customApiKey;
   const isCustom = settings.textProvider === "custom";
+  // Empty while the custom provider is inactive or the URL is blank; state keeps
+  // the last fetch result, and the active* derived values below hide it instead
+  // of resetting state inside the effect.
+  const customModelsKey = isCustom ? customBaseUrl.trim() : "";
 
   useEffect(() => {
-    if (!isCustom) {
-      setCustomModels([]);
-      setCustomModelsError(false);
-      return;
-    }
-    const trimmed = customBaseUrl.trim();
-    if (!trimmed) {
-      setCustomModels([]);
-      setCustomModelsError(false);
-      return;
-    }
+    if (!customModelsKey) return;
     const controller = new AbortController();
     const handle = setTimeout(() => {
-      const url = `${trimmed.replace(/\/+$/, "")}/models`;
+      const url = `${customModelsKey.replace(/\/+$/, "")}/models`;
       fetch(url, {
         signal: controller.signal,
         headers: customApiKey.trim()
@@ -4036,10 +4033,13 @@ function TextModelPanel({
       clearTimeout(handle);
       controller.abort();
     };
-  }, [isCustom, customBaseUrl, customApiKey]);
+  }, [customModelsKey, customApiKey]);
 
+  const activeCustomModels = customModelsKey ? customModels : [];
+  const activeCustomModelsError = customModelsKey ? customModelsError : false;
   const customModelInList =
-    customModels.length > 0 && customModels.some((m) => m.id === settings.customModel);
+    activeCustomModels.length > 0 &&
+    activeCustomModels.some((m) => m.id === settings.customModel);
 
   return (
     <PanelSection
@@ -4160,7 +4160,7 @@ function TextModelPanel({
             >
               Модель
             </label>
-            {customModels.length > 0 && (
+            {activeCustomModels.length > 0 && (
               <select
                 id={`${idPrefix}-custom-model-select`}
                 name={`${idPrefix}-custom-model-select`}
@@ -4179,7 +4179,7 @@ function TextModelPanel({
                       : "— выбери модель —"}
                   </option>
                 )}
-                {customModels.map((model) => (
+                {activeCustomModels.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.label || model.id}
                   </option>
@@ -4195,7 +4195,7 @@ function TextModelPanel({
               autoCapitalize="off"
               spellCheck={false}
               placeholder={
-                customModels.length > 0 ? "или впиши id вручную" : "e.g. llama-3.3-70b-instruct"
+                activeCustomModels.length > 0 ? "или впиши id вручную" : "e.g. llama-3.3-70b-instruct"
               }
               value={settings.customModel}
               onChange={(event) =>
@@ -4203,7 +4203,7 @@ function TextModelPanel({
               }
               className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
             />
-            {customModelsError && (
+            {activeCustomModelsError && (
               <p className="text-xs text-stone-500">
                 Не удалось получить список моделей с сервера — впиши id вручную.
               </p>
@@ -5382,7 +5382,9 @@ function DiceStage({
   const [landed, setLanded] = useState(false);
   const lastIdRef = useRef<string | null>(null);
   const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
     let cancelled = false;
