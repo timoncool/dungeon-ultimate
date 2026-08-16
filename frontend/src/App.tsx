@@ -2737,7 +2737,9 @@ export default function Home() {
             <aside className="hidden min-h-0 border-l border-stone-800 pl-6 lg:block">
             <div
               className={cn(
-                "sticky top-4 overflow-y-auto pr-1 pb-4",
+                // Запас снизу: без него последний раздел упирался в край и до его
+                // содержимого нельзя было доскроллить.
+                "sticky top-4 overflow-y-auto overscroll-contain pr-1 pb-16",
                 activeDesktopPanel
                   ? "flex h-[calc(100dvh-2rem)] min-h-0 flex-col"
                   : "max-h-[calc(100dvh-2rem)] space-y-2",

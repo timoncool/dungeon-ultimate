@@ -171,7 +171,14 @@ pub async fn story_setup(
         }),
     ];
     let value = ask_json(&state, messages, &schema).await?;
-    Ok(Json(value))
+    // Признак успеха обязателен: интерфейс проверяет именно его и без него считает,
+    // что придумать не вышло, — даже когда поля пришли заполненными.
+    Ok(Json(json!({
+        "ok": true,
+        "name": value.get("name").and_then(Value::as_str).unwrap_or_default().trim(),
+        "persona": value.get("persona").and_then(Value::as_str).unwrap_or_default().trim(),
+        "hint": value.get("hint").and_then(Value::as_str).unwrap_or_default().trim(),
+    })))
 }
 
 #[derive(Deserialize)]

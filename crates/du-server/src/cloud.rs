@@ -103,12 +103,19 @@ pub fn speak(root: &Path, runtime: &Runtime, text: &str, out: &Path) -> Result<(
         "voice": voice,
         "out": out.to_string_lossy(),
     });
+    // Сначала пробуем сами: у сайдкара свой короткий таймаут, и на длинном ходе он
+    // обрывает чтение ответа на полпути («context deadline exceeded»), хотя провайдер
+    // ещё договаривает. Здесь срок держим под стать длине текста.
+    match speak_via_speech_endpoint(runtime, text, &voice, out) {
+        Ok(()) => return Ok(()),
+        Err(error) => tracing::warn!("прямая озвучка не вышла ({error}), пробуем сайдкар"),
+    }
     let primary = match run_helper(root, &runtime.openrouter_key, "tts", &payload) {
         Ok(_) if out.is_file() => return Ok(()),
         Ok(_) => "сайдкар озвучки не записал файл".to_string(),
         Err(error) => error,
     };
-    tracing::warn!("озвучка через ручку речи не вышла ({primary}), пробуем чат");
+    tracing::warn!("озвучка через сайдкар не вышла ({primary}), пробуем чат");
     // Если не вышло и через чат — показываем ошибку ПЕРВОГО пути: он основной, и именно его
     // причина объясняет, что пошло не так. Ошибка запасного пути только путала бы.
     speak_via_chat(runtime, text, out, &voice).map_err(|fallback| {
@@ -138,6 +145,51 @@ fn default_voice_for(model: &str, chosen: &str) -> String {
         // Совсем незнакомая модель: имя голоса по умолчанию у чат-моделей провайдера.
         None => "onyx".to_string(),
     }
+}
+
+/// Озвучка настоящей моделью речи: отдельная ручка провайдера отдаёт готовый звук целиком.
+///
+/// Формат просим `wav`: он ложится на диск как есть. Срок ожидания считаем от длины текста —
+/// на длинном ходе синтез идёт заметно дольше, и жёсткий короткий таймаут рвал бы его зря.
+fn speak_via_speech_endpoint(
+    runtime: &Runtime,
+    text: &str,
+    voice: &str,
+    out: &Path,
+) -> Result<(), String> {
+    let body = json!({
+        "model": runtime.openrouter_tts_model,
+        "input": text,
+        "voice": voice,
+        "response_format": "wav",
+    });
+    // Минута на запрос плюс секунда на каждые сто символов.
+    let timeout = std::time::Duration::from_secs(60 + (text.chars().count() as u64) / 100);
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .build()
+        .into();
+
+    let response = agent
+        .post("https://openrouter.ai/api/v1/audio/speech")
+        .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
+        .header("Content-Type", "application/json")
+        .send(body.to_string())
+        .map_err(|error| format!("облачная озвучка: {error}"))?;
+    let mut audio = Vec::new();
+    response
+        .into_body()
+        .into_reader()
+        .read_to_end(&mut audio)
+        .map_err(|error| format!("облачная озвучка: обрыв ответа: {error}"))?;
+    if audio.len() < 2_000 {
+        // Короткий ответ — это не звук, а сообщение об ошибке: показываем его как есть.
+        return Err(format!(
+            "облачная озвучка: {}",
+            String::from_utf8_lossy(&audio).trim().chars().take(200).collect::<String>()
+        ));
+    }
+    std::fs::write(out, &audio).map_err(|error| format!("не записать облачную озвучку: {error}"))
 }
 
 /// Озвучка чат-моделью: аудио приходит кусками в base64 внутри событий потока, поэтому

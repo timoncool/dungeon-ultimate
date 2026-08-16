@@ -49,6 +49,29 @@ pub fn voices(model: &str) -> Option<&'static Vec<VoiceMeta>> {
     catalog().get(model).map(|entry| &entry.voices)
 }
 
+/// Пол голоса по его имени, из любой модели справочника: имена у провайдера не
+/// повторяются между семействами, а звать голос надо уметь и без знания модели.
+pub fn gender_of(name: &str) -> Option<&'static str> {
+    catalog().values().find_map(|entry| {
+        entry
+            .voices
+            .iter()
+            .find(|voice| voice.name.eq_ignore_ascii_case(name))
+            .map(|voice| voice.gender.as_str())
+    })
+}
+
+/// Возраст голоса по имени — там, где он в справочнике записан.
+pub fn age_of(name: &str) -> Option<&'static str> {
+    catalog().values().find_map(|entry| {
+        entry
+            .voices
+            .iter()
+            .find(|voice| voice.name.eq_ignore_ascii_case(name))
+            .map(|voice| voice.age.as_str())
+    })
+}
+
 /// Тянет ли модель русский — интерфейс должен предупредить до того, как игрок услышит кашу.
 pub fn supports_russian(model: &str) -> Option<bool> {
     catalog().get(model).map(|entry| entry.supports_russian)
@@ -93,6 +116,13 @@ mod tests {
             "модели озвучки ищутся по модальности speech, а не audio — иначе их в списке нет"
         );
         assert!(models.len() >= 12, "справочник неполон: {} моделей", models.len());
+    }
+
+    #[test]
+    fn a_voice_can_be_asked_about_its_gender_without_knowing_the_model() {
+        assert_eq!(gender_of("onyx"), Some("male"));
+        assert_eq!(gender_of("Nova"), Some("female"));
+        assert_eq!(gender_of("нет-такого-голоса"), None);
     }
 
     #[test]

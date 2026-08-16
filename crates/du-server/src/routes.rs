@@ -369,9 +369,30 @@ pub async fn runtime_get(State(state): State<AppState>) -> Json<Value> {
 
 pub async fn runtime_put(
     State(state): State<AppState>,
-    Json(body): Json<crate::runtime::Runtime>,
+    Json(body): Json<Value>,
 ) -> ApiResult<Json<Value>> {
-    let mut next = crate::runtime::sanitize(body);
+    // Правка приходит ЧАСТИЧНОЙ: панель шлёт один тронутый переключатель. Разобрать её
+    // сразу в настройки нельзя — недостающие поля встали бы умолчаниями и стёрли всё
+    // остальное: так однажды слетела вся облачная настройка разом.
+    let current = crate::runtime::load(&state.root);
+    let mut merged = serde_json::to_value(&current)
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    if let (Some(target), Some(patch)) = (merged.as_object_mut(), body.as_object()) {
+        for (key, value) in patch {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    let parsed: crate::runtime::Runtime = serde_json::from_value(merged)
+        .map_err(|error| ApiError::bad_request(format!("непонятная настройка: {error}")))?;
+    let mut next = crate::runtime::sanitize(parsed);
+    // Сменил модель озвучки — голос от прежней у новой не существует, и синтез падал бы на
+    // каждой реплике. Если голос не из её набора, подставляем подходящий сами.
+    let voices = crate::voice_catalog::suitable(&next.openrouter_tts_model, true, None);
+    if !voices.is_empty()
+        && !voices.iter().any(|voice| voice.name.eq_ignore_ascii_case(next.openrouter_tts_voice.trim()))
+    {
+        next.openrouter_tts_voice = voices[0].name.clone();
+    }
     // Пустой ключ в запросе означает «не менять»: интерфейс его не получает и вернуть не может.
     if next.openrouter_key.trim().is_empty() {
         next.openrouter_key = crate::runtime::load(&state.root).openrouter_key;

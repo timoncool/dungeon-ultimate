@@ -258,7 +258,17 @@ fn run_turn(
     } else {
         Vec::new()
     };
-    let voice_pool = crate::tts::available_voices(&state.root);
+    // Набор голосов зависит от того, где считается озвучка: на карте это файлы эталонов,
+    // в облаке — голоса выбранной модели. Иначе персонажам достались бы имена, которых у
+    // провайдера нет, и озвучка молча падала бы на каждой реплике.
+    let voice_pool = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
+        crate::voice_catalog::suitable(&runtime.openrouter_tts_model, settings.language == du_core::Language::Ru, None)
+            .into_iter()
+            .map(|voice| voice.name.clone())
+            .collect()
+    } else {
+        crate::tts::available_voices(&state.root)
+    };
     // Канал несёт (номер, текст, голос): номер держит порядок воспроизведения.
     let (sentences_tx, sentences_rx) = std::sync::mpsc::channel::<(usize, String, String)>();
     let speaker = if speaking_on {

@@ -898,182 +898,212 @@
       {
         "name": "Zephyr",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "bright"
       },
       {
         "name": "Puck",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "upbeat"
       },
       {
         "name": "Charon",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "informative"
       },
       {
         "name": "Kore",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "firm"
       },
       {
         "name": "Fenrir",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "excitable"
       },
       {
         "name": "Leda",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "teen",
+        "ru": true,
+        "style": "youthful"
       },
       {
         "name": "Orus",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "firm"
       },
       {
         "name": "Aoede",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "breezy"
       },
       {
         "name": "Callirrhoe",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "easy-going"
       },
       {
         "name": "Autonoe",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "bright"
       },
       {
         "name": "Enceladus",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "breathy"
       },
       {
         "name": "Iapetus",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "clear"
       },
       {
         "name": "Umbriel",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "easy-going"
       },
       {
         "name": "Algieba",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "smooth"
       },
       {
         "name": "Despina",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "smooth"
       },
       {
         "name": "Erinome",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "clear"
       },
       {
         "name": "Algenib",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "gravelly"
       },
       {
         "name": "Rasalgethi",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "informative"
       },
       {
         "name": "Laomedeia",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "upbeat"
       },
       {
         "name": "Achernar",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "soft"
       },
       {
         "name": "Alnilam",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "firm"
       },
       {
         "name": "Schedar",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "even"
       },
       {
         "name": "Gacrux",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "elderly",
+        "ru": true,
+        "style": "mature"
       },
       {
         "name": "Pulcherrima",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "forward"
       },
       {
         "name": "Achird",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "friendly"
       },
       {
         "name": "Zubenelgenubi",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "casual"
       },
       {
         "name": "Vindemiatrix",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "gentle"
       },
       {
         "name": "Sadachbia",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "lively"
       },
       {
         "name": "Sadaltager",
         "gender": "male",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "knowledgeable"
       },
       {
         "name": "Sulafat",
         "gender": "female",
-        "age": "unknown",
-        "ru": true
+        "age": "adult",
+        "ru": true,
+        "style": "warm"
       }
     ]
   },

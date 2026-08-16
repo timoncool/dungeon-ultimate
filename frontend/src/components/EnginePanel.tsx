@@ -50,6 +50,51 @@ const STAGES: Stage[] = [
   { key: "asr", title: "Речь в текст", kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", local: "Parakeet на карте" },
 ];
 
+// Готовые раскладки. Модели не выдуманы — это те, на которых игра проверена вживую:
+// картинку Gemini рисует за десяток секунд, речь Google озвучивает за пять, DeepSeek
+// уверенно держит структурные проходы, Whisper — привычный выбор для расшифровки.
+const PRESETS: Array<{ id: string; title: string; note: string; patch: Partial<Runtime> }> = [
+  {
+    id: "local",
+    title: "Мощная карта — всё локально",
+    note: "от 12 ГБ памяти: ничего не уходит наружу",
+    patch: {
+      openrouterNarratorOn: false,
+      openrouterImageOn: false,
+      openrouterTtsOn: false,
+      openrouterAsrOn: false,
+    },
+  },
+  {
+    id: "cloud",
+    title: "Без видеокарты — всё в облаке",
+    note: "пойдёт на любом ноутбуке, нужен ключ",
+    patch: {
+      openrouterNarratorOn: true,
+      openrouterNarratorModel: "deepseek/deepseek-v4-pro",
+      openrouterImageOn: true,
+      openrouterImageModel: "google/gemini-3.1-flash-image",
+      openrouterTtsOn: true,
+      openrouterTtsModel: "google/gemini-3.1-flash-tts-preview",
+      openrouterTtsVoice: "Zephyr",
+      openrouterAsrOn: true,
+      openrouterAsrModel: "openai/whisper-large-v3",
+    },
+  },
+  {
+    id: "images-cloud",
+    title: "Средняя карта — картинки в облаке",
+    note: "самое тяжёлое наружу, остальное считает карта",
+    patch: {
+      openrouterNarratorOn: false,
+      openrouterImageOn: true,
+      openrouterImageModel: "google/gemini-3.1-flash-image",
+      openrouterTtsOn: false,
+      openrouterAsrOn: false,
+    },
+  },
+];
+
 const box =
   "w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-sm text-stone-200 outline-none focus:border-amber-700/60";
 
@@ -235,6 +280,32 @@ export default function EnginePanel() {
                 Сохранить
               </button>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="block text-xs font-medium uppercase text-stone-500">Готовые раскладки</span>
+            <div className="grid gap-1.5">
+              {PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  disabled={saving || (preset.id !== "local" && !keySet)}
+                  onClick={() => {
+                    setRuntime((current) => (current ? { ...current, ...preset.patch } : current));
+                    void save(preset.patch);
+                  }}
+                  className="rounded border border-stone-800 bg-stone-950 px-3 py-2 text-left hover:border-amber-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="block text-sm text-stone-200">{preset.title}</span>
+                  <span className="block text-[11px] leading-relaxed text-stone-600">{preset.note}</span>
+                </button>
+              ))}
+            </div>
+            {!keySet && (
+              <p className="text-[11px] leading-relaxed text-stone-600">
+                Для облачных раскладок нужен ключ OpenRouter — вставь его выше.
+              </p>
+            )}
           </div>
 
           {STAGES.map((stage) => {

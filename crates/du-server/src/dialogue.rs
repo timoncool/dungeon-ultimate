@@ -48,6 +48,82 @@ fn speaker_pool<'a>(pool: &'a [String], narrator: &str) -> Vec<&'a str> {
         .collect()
 }
 
+/// Пол, женский или мужской. `None` — не определили, и тогда голос выбирается любой.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gender {
+    Female,
+    Male,
+}
+
+/// Пол голоса по его имени. Голоса пака названы с пометкой (`RU_Female_…`), а у облачных
+/// имён пометки нет — там пол берётся из справочника, а здесь остаётся неизвестным.
+pub fn voice_gender(name: &str) -> Option<Gender> {
+    let lower = name.to_lowercase();
+    if lower.contains("female") || lower.contains("_f_") || lower.contains("женск") {
+        return Some(Gender::Female);
+    }
+    // Проверяем ПОСЛЕ женского: «female» содержит «male» как подстроку.
+    if lower.contains("male") || lower.contains("_m_") || lower.contains("мужск") {
+        return Some(Gender::Male);
+    }
+    // Облачные голоса зовут просто именем — пол у них записан в справочнике.
+    match crate::voice_catalog::gender_of(name) {
+        Some("female") => Some(Gender::Female),
+        Some("male") => Some(Gender::Male),
+        _ => None,
+    }
+}
+
+/// Возраст персонажа, насколько о нём вообще сказано в листе.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Age {
+    Child,
+    Elderly,
+}
+
+/// Возраст по листу персонажа. Ничего не сказано — None, и возраст в подборе не участвует.
+pub fn character_age(character: &StoryCharacter) -> Option<Age> {
+    let text = format!("{} {}", character.details, character.name).to_lowercase();
+    const CHILD: [&str; 7] = ["ребёнок", "ребенок", "мальчик", "девочка", "малыш", "дитя", "подросток"];
+    const ELDERLY: [&str; 8] =
+        ["старик", "старуха", "старец", "пожилой", "пожилая", "седой", "древний старик", "в летах"];
+    if CHILD.iter().any(|mark| text.contains(mark)) {
+        return Some(Age::Child);
+    }
+    if ELDERLY.iter().any(|mark| text.contains(mark)) {
+        return Some(Age::Elderly);
+    }
+    None
+}
+
+/// Возраст голоса из справочника: у части голосов он записан, у большинства — нет.
+pub fn voice_age(name: &str) -> Option<Age> {
+    match crate::voice_catalog::age_of(name) {
+        Some("child") | Some("teen") => Some(Age::Child),
+        Some("elderly") => Some(Age::Elderly),
+        _ => None,
+    }
+}
+
+/// Пол персонажа по его листу. Смотрим на явную пометку, затем на слова о нём: лист пишет
+/// сам игрок или модель, и «Пол: женский» там встречается чаще всего.
+pub fn character_gender(character: &StoryCharacter) -> Option<Gender> {
+    let text = format!("{} {}", character.details, character.name).to_lowercase();
+    // Женское проверяем первым: «мужчина» и «женщина» различаются, а вот «она» короче и
+    // случайно встречается внутри слов, поэтому ищем по отдельным пометкам.
+    const FEMALE: [&str; 8] =
+        ["пол: женский", "женского пола", "женщина", "девушка", "девочка", "female", "she/her", "она —"];
+    const MALE: [&str; 8] =
+        ["пол: мужской", "мужского пола", "мужчина", "парень", "мальчик", "male", "he/him", "он —"];
+    if FEMALE.iter().any(|mark| text.contains(mark)) {
+        return Some(Gender::Female);
+    }
+    if MALE.iter().any(|mark| text.contains(mark)) {
+        return Some(Gender::Male);
+    }
+    None
+}
+
 /// Место персонажа среди персонажей чата по возрастанию идентификатора — так распределение
 /// голосов не зависит от порядка загрузки. Незнакомому персонажу даём хеш: индекс всё равно
 /// нужен, и он должен быть устойчивым.
@@ -65,12 +141,28 @@ pub fn auto_voice_for_character(
     index: usize,
     pool: &[String],
     narrator: &str,
+    gender: Option<Gender>,
+    age: Option<Age>,
 ) -> Option<String> {
-    let pool = speaker_pool(pool, narrator);
-    if pool.is_empty() {
+    let all = speaker_pool(pool, narrator);
+    if all.is_empty() {
         return None;
     }
-    Some(pool[index % pool.len()].to_string())
+    // Сначала голоса подходящего пола: женского персонажа читает женский голос, мужского —
+    // мужской. Подходящих нет — берём любой, молчать хуже.
+    let by_gender: Vec<&str> = match gender {
+        Some(want) => all.iter().copied().filter(|voice| voice_gender(voice) == Some(want)).collect(),
+        None => Vec::new(),
+    };
+    let pool_now = if by_gender.is_empty() { &all } else { &by_gender };
+    // Возраст сужает выбор дальше — но только если о нём вообще известно с обеих сторон:
+    // у большинства голосов возраст не записан, и требовать совпадения было бы нечестно.
+    let by_age: Vec<&str> = match age {
+        Some(want) => pool_now.iter().copied().filter(|voice| voice_age(voice) == Some(want)).collect(),
+        None => Vec::new(),
+    };
+    let chosen = if by_age.is_empty() { pool_now } else { &by_age };
+    Some(chosen[index % chosen.len()].to_string())
 }
 
 /// Каким голосом читать конкретного персонажа. Многоголосие учитывается только когда оно
@@ -87,7 +179,9 @@ pub fn voice_for_character(
                 return voice.to_string();
             }
             let index = sorted_character_index(&character.id, characters);
-            if let Some(voice) = auto_voice_for_character(index, pool, &settings.voice) {
+            let gender = character_gender(character);
+            let age = character_age(character);
+            if let Some(voice) = auto_voice_for_character(index, pool, &settings.voice, gender, age) {
                 return voice;
             }
         }
@@ -334,6 +428,93 @@ mod tests {
             "Каэл замер у поворота.",
         );
         assert_eq!(segments[0].voice, "kael");
+    }
+
+    #[test]
+    fn a_female_character_gets_a_female_voice_and_a_male_one_a_male_voice() {
+        let mut she = character("a", "Мира", None);
+        she.details = "Пол: женский. Следопытка".to_string();
+        let mut he = character("b", "Кайл", None);
+        he.details = "Пол: мужской. Наёмник".to_string();
+        let cast = vec![she.clone(), he.clone()];
+        let pool = vec![
+            "narrator".to_string(),
+            "RU_Female_zubanova_marina".to_string(),
+            "RU_Male_kuravlev_leonid".to_string(),
+        ];
+        assert_eq!(
+            voice_for_character(&settings(true), Some(&she), &pool, &cast),
+            "RU_Female_zubanova_marina"
+        );
+        assert_eq!(
+            voice_for_character(&settings(true), Some(&he), &pool, &cast),
+            "RU_Male_kuravlev_leonid"
+        );
+    }
+
+    #[test]
+    fn a_child_gets_a_young_voice_when_the_catalog_knows_one() {
+        let mut kid = character("a", "Лея", None);
+        kid.details = "Пол: женский. Девочка лет десяти".to_string();
+        let cast = vec![kid.clone()];
+        // Leda у Gemini документирована как youthful — единственный молодой голос набора.
+        let pool: Vec<String> = crate::voice_catalog::voices("google/gemini-3.1-flash-tts-preview")
+            .unwrap()
+            .iter()
+            .map(|voice| voice.name.clone())
+            .collect();
+        let chosen = voice_for_character(&settings(true), Some(&kid), &pool, &cast);
+        assert_eq!(chosen, "Leda", "ребёнку достался не молодой голос: {chosen}");
+    }
+
+    #[test]
+    fn an_elderly_character_gets_the_mature_voice() {
+        // Возрастные голоса набора женские, поэтому берём старуху: пол важнее возраста —
+        // мужчина с женским голосом звучит хуже, чем немолодой мужчина обычным голосом.
+        let mut old = character("a", "Гакрукс", None);
+        old.details = "Пол: женский. Седая старуха, хранительница храма".to_string();
+        let cast = vec![old.clone()];
+        let pool: Vec<String> = crate::voice_catalog::voices("google/gemini-3.1-flash-tts-preview")
+            .unwrap()
+            .iter()
+            .map(|voice| voice.name.clone())
+            .collect();
+        assert_eq!(voice_for_character(&settings(true), Some(&old), &pool, &cast), "Gacrux");
+    }
+
+    #[test]
+    fn gender_outranks_age_when_the_catalog_has_no_matching_pair() {
+        // Пожилой мужчина: возрастных мужских голосов у модели нет, поэтому важнее не
+        // ошибиться полом — берём мужской голос обычного возраста.
+        let mut grandpa = character("a", "Старый Кай", None);
+        grandpa.details = "Пол: мужской. Седой старик".to_string();
+        let cast = vec![grandpa.clone()];
+        let pool: Vec<String> = crate::voice_catalog::voices("google/gemini-3.1-flash-tts-preview")
+            .unwrap()
+            .iter()
+            .map(|voice| voice.name.clone())
+            .collect();
+        let chosen = voice_for_character(&settings(true), Some(&grandpa), &pool, &cast);
+        assert_eq!(voice_gender(&chosen), Some(Gender::Male), "выбран не мужской голос: {chosen}");
+    }
+
+    #[test]
+    fn an_unknown_gender_still_gets_a_voice() {
+        let nobody = character("a", "Тень", None);
+        let cast = vec![nobody.clone()];
+        let pool = vec!["narrator".to_string(), "RU_Male_kuravlev_leonid".to_string()];
+        assert_eq!(
+            voice_for_character(&settings(true), Some(&nobody), &pool, &cast),
+            "RU_Male_kuravlev_leonid",
+            "пол неизвестен — молчать нельзя, берём любой голос"
+        );
+    }
+
+    #[test]
+    fn female_is_not_mistaken_for_male_because_of_the_substring() {
+        assert_eq!(voice_gender("RU_Female_zubanova_marina"), Some(Gender::Female));
+        assert_eq!(voice_gender("RU_Male_kuravlev_leonid"), Some(Gender::Male));
+        assert_eq!(voice_gender("Vedushchiy"), None);
     }
 
     #[test]

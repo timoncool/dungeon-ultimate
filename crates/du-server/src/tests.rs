@@ -205,6 +205,76 @@ async fn deleting_a_story_takes_its_pictures_and_clips_with_it() {
 }
 
 #[tokio::test]
+async fn switching_the_voice_model_picks_a_voice_that_model_actually_has() {
+    let harness = start().await;
+    let (_, body) = call(
+        &harness,
+        "PUT",
+        "/api/runtime",
+        Some(serde_json::json!({
+            "openrouterTtsModel": "openai/gpt-audio",
+            "openrouterTtsVoice": "onyx"
+        })),
+    )
+    .await;
+    assert_eq!(body["runtime"]["openrouterTtsVoice"], "onyx", "свой выбор трогать нельзя");
+
+    // Сменили модель — голос прежней у неё не существует, подставляем её собственный.
+    let (_, body) = call(
+        &harness,
+        "PUT",
+        "/api/runtime",
+        Some(serde_json::json!({ "openrouterTtsModel": "google/gemini-3.1-flash-tts-preview" })),
+    )
+    .await;
+    let voice = body["runtime"]["openrouterTtsVoice"].as_str().unwrap_or_default().to_string();
+    assert_ne!(voice, "onyx", "остался голос от прежней модели");
+    assert!(
+        crate::voice_catalog::voices("google/gemini-3.1-flash-tts-preview")
+            .unwrap()
+            .iter()
+            .any(|entry| entry.name == voice),
+        "подставлен голос не из набора модели: {voice}"
+    );
+}
+
+#[tokio::test]
+async fn a_partial_runtime_patch_keeps_every_other_setting() {
+    let harness = start().await;
+    // Ставим облако целиком…
+    let (status, _) = call(
+        &harness,
+        "PUT",
+        "/api/runtime",
+        Some(serde_json::json!({
+            "openrouterKey": "ключ",
+            "openrouterNarratorOn": true,
+            "openrouterNarratorModel": "some/narrator",
+            "openrouterImageOn": true,
+            "openrouterImageModel": "some/painter",
+            "narratorCtx": 8192
+        })),
+    )
+    .await;
+    assert_eq!(status, 200);
+
+    // …и трогаем ОДИН переключатель, как это делает панель.
+    let (_, body) = call(
+        &harness,
+        "PUT",
+        "/api/runtime",
+        Some(serde_json::json!({ "openrouterTtsOn": true })),
+    )
+    .await;
+    let runtime = &body["runtime"];
+    assert_eq!(runtime["openrouterTtsOn"], true, "правка не применилась");
+    assert_eq!(runtime["openrouterNarratorModel"], "some/narrator", "стёрта модель рассказчика");
+    assert_eq!(runtime["openrouterImageOn"], true, "сброшена стадия кадра");
+    assert_eq!(runtime["narratorCtx"], 8192, "сброшен размер контекста");
+    assert_eq!(body["openrouterKeySet"], true, "потерян ключ");
+}
+
+#[tokio::test]
 async fn a_dnd_chat_comes_back_with_the_hero_inventory_and_journal() {
     let harness = start().await;
     let (_, body) = call(&harness, "POST", "/api/chats", Some(serde_json::json!({}))).await;
