@@ -239,7 +239,9 @@ impl Default for StorySettings {
             image_style_prefix: String::new(),
             anti_repetition: true,
             cause_aware_ending: true,
-            multi_voice: false,
+            // Реплики персонажей своими голосами — по умолчанию ВКЛЮЧЕНО: ради этого
+            // и собран справочник голосов, а слушать всю игру одним голосом скучно.
+            multi_voice: true,
             companion: false,
             text_provider: TextProvider::default(),
             local_text_model: String::new(),

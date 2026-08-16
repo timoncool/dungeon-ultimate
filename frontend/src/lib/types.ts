@@ -134,6 +134,9 @@ export type GeneratedImage = {
   elapsedSeconds?: number;
   seed?: number;
   warnings?: string[];
+  /// Кто нарисовал кадр на самом деле: облачная модель или свой движок. `backend`
+  /// перечисляет только свои движки и под облачным кадром показывал не то.
+  renderedBy?: string;
   // Scene continuity bookkeeping (set server-side). `sceneLocation` is the
   // normalized place this image belongs to; `editedFrom` is the URL of the prior
   // scene image this one evolved from (null on a fresh establishing shot), for

@@ -102,6 +102,15 @@ const SIDEBAR_ICONS = {
   support: "/sidebar-icons/support.png",
 } as const;
 
+/// Как назвать игроку то, что сервер сейчас делает.
+const STAGE_WORDS: Record<string, string> = {
+  "проза": "Рассказчик пишет…",
+  "механика": "Движок разрешает бросок…",
+  "кадр": "Оператор выбирает кадр…",
+  "озвучка": "Читаю вслух…",
+  "действия": "Подбираю варианты действий…",
+};
+
 type InputMode = "do" | "say" | "story";
 
 const INPUT_MODES: Array<{ value: InputMode; label: string; placeholder: string }> = [
@@ -455,6 +464,48 @@ export default function Home() {
   const [suggestedActions, setSuggestedActions] = useState<Array<{ emoji?: string; label: string }>>([]);
   const [journal, setJournal] = useState<GameEvent[]>([]);
   const [diceQueue, setDiceQueue] = useState<DiceJob[]>([]);
+  /// Что сервер делает в эту секунду — показывается прямо под текстом хода.
+  const [stageLabel, setStageLabel] = useState("");
+  /// Короткая сводка: что считает своя карта, а что облако.
+  const [routing, setRouting] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    const read = async () => {
+      try {
+        const data = await (await fetch("/api/runtime")).json();
+        const runtime = data.runtime ?? {};
+        const cloud: string[] = [];
+        const local: string[] = [];
+        (
+          [
+            ["рассказчик", "openrouterNarratorOn"],
+            ["кадр", "openrouterImageOn"],
+            ["голос", "openrouterTtsOn"],
+            ["речь", "openrouterAsrOn"],
+          ] as const
+        ).forEach(([label, flag]) => (runtime[flag] ? cloud : local).push(label));
+        if (!alive) return;
+        const narrator = String(runtime.openrouterNarratorModel || "").split("/").pop();
+        setRouting(
+          cloud.length === 0
+            ? "Всё на своей карте"
+            : local.length === 0
+              ? `Всё в облаке · ${narrator ?? "OpenRouter"}`
+              : `Облако: ${cloud.join(", ")} · карта: ${local.join(", ")}`,
+        );
+      } catch {
+        if (alive) setRouting("");
+      }
+    };
+    void read();
+    // Раскладку меняют в панели рядом — перечитываем, чтобы шапка не врала.
+    const timer = window.setInterval(read, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   const [heroRpg, setHeroRpg] = useState<CharacterRpg | null>(null);
   const [heroId, setHeroId] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -911,6 +962,20 @@ export default function Home() {
     };
   }, [libraryLoading, loadingChat, selectedChatId, settings]);
 
+  /// Что происходит прямо сейчас, человеческими словами.
+  ///
+  /// Стадии присылает сервер, но КАДР рисуется уже после хода, отдельным запросом, — и
+  /// раньше строка продолжала обещать рисование, когда картинка давно висела на экране.
+  /// Поэтому реальное состояние рисовалки важнее последней присланной стадии.
+  const drawing = Object.values(imageStatus).some((status) => status === "loading");
+  const statusText = drawing
+    ? "Рисуется кадр сцены…"
+    : stageLabel
+      ? STAGE_WORDS[stageLabel] ?? stageLabel
+      : busy
+        ? "Формируется следующий отрывок…"
+        : "";
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages, busy, imageStatus]);
@@ -1330,6 +1395,8 @@ export default function Home() {
   }) {
     setBusy(true);
     setError("");
+    // Стадия прошлого хода не должна висеть над новым.
+    setStageLabel("");
 
     // One GPU: hold the exclusive slot for the WHOLE turn (the /api/story stream), so
     // no image render (scene, item, portrait, retry) can run alongside the LLM on the
@@ -1459,6 +1526,8 @@ export default function Home() {
             events?: GameEvent[];
             /// Адрес готовой фразы озвучки, пришедшей во время генерации текста.
             url?: string;
+            /// Что сервер считает прямо сейчас.
+            stage?: string;
           };
           try {
             data = JSON.parse(dataRaw);
@@ -1467,6 +1536,10 @@ export default function Home() {
           }
           if (eventName === "delta") {
             pushDelta(data.text || "");
+          } else if (eventName === "stage") {
+            // Что именно считается прямо сейчас: игроку важно видеть, ждёт он текста,
+            // механики, кадра или голоса.
+            if (data.stage) setStageLabel(String(data.stage));
           } else if (eventName === "notice") {
             // Ход состоялся, но что-то из него не вышло — говорим об этом прямо, а не
             // оставляем игрока гадать, почему стало тихо.
@@ -1649,6 +1722,8 @@ export default function Home() {
     } finally {
       window.clearTimeout(timeoutId);
       setBusy(false);
+      // Ход кончился — гасим стадию, иначе последняя надпись переживёт его.
+      setStageLabel("");
       releaseGpu(); // free the GPU slot; queued images / the next turn proceed
     }
     return turnResult;
@@ -2203,12 +2278,9 @@ export default function Home() {
                 {activeChat?.title || "Open Dungeon"}
               </h1>
               <p className="truncate text-xs text-stone-500">
-                {settings.textProvider === "local"
-                  ? `${
-                      LOCAL_TEXT_MODELS.find((model) => model.id === settings.localTextModel)
-                        ?.label ?? "Локальная модель"
-                    } · на устройстве`
-                  : `${settings.customModel || "Подключённый сервер"} · ваш сервер`}
+                {/* Что где считается на самом деле: раньше тут всегда стояло «локальная
+                    модель», даже когда весь ход уходил в облако. */}
+                {routing || "…"}
               </p>
             </div>
           </div>
@@ -2432,6 +2504,8 @@ export default function Home() {
                     messages={messages}
                     speakingId={speakingId}
                     onSpeak={(id, text) => void speakText(id, text)}
+                    busy={busy || drawing}
+                    stage={statusText}
                   />
                 </Suspense>
               ) : (
@@ -2530,18 +2604,20 @@ export default function Home() {
                   ))
                 )}
 
-                {busy && (
+                {(busy || drawing) && (
                   <div className="flex items-center gap-3 font-serif text-base italic text-stone-500">
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    Формируется следующий отрывок…
-                    <button
-                      type="button"
-                      onClick={stopTurn}
-                      className="ml-1 inline-flex items-center gap-1 rounded border border-stone-700 px-2 py-0.5 text-xs not-italic text-stone-300 transition hover:border-red-500/70 hover:text-red-300"
-                    >
-                      <X className="size-3.5" aria-hidden="true" />
-                      Прервать
-                    </button>
+                    {statusText}
+                    {busy && (
+                      <button
+                        type="button"
+                        onClick={stopTurn}
+                        className="ml-1 inline-flex items-center gap-1 rounded border border-stone-700 px-2 py-0.5 text-xs not-italic text-stone-300 transition hover:border-red-500/70 hover:text-red-300"
+                      >
+                        <X className="size-3.5" aria-hidden="true" />
+                        Прервать
+                      </button>
+                    )}
                   </div>
                 )}
                 <div ref={endRef} />
@@ -2982,7 +3058,7 @@ function NewStoryDialog({
             ) : (
               <span aria-hidden="true">✨</span>
             )}
-            {autofilling ? "Гемма придумывает…" : "Заполнить за меня"}
+            {autofilling ? "Придумываю…" : "Заполнить за меня"}
           </button>
           {autofillError && <p className="mt-2 text-xs text-red-400">{autofillError}</p>}
 
@@ -6545,7 +6621,12 @@ function ImageBeat({
               {message.generatedImage.prompt}
             </p>
             <span className="shrink-0 pt-0.5 tabular-nums">
-              {message.generatedImage.backend ? `${message.generatedImage.backend} · ` : ""}
+              {/* Кто нарисовал НА САМОМ ДЕЛЕ: облачная модель или свой движок. Поле backend
+                  знает только свои движки, поэтому под облачным кадром стояла подпись из
+                  настроек карты. */}
+              {message.generatedImage.renderedBy || message.generatedImage.backend
+                ? `${message.generatedImage.renderedBy || message.generatedImage.backend} · `
+                : ""}
               {message.generatedImage.width}×{message.generatedImage.height}
             </span>
           </div>

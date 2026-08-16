@@ -48,10 +48,18 @@ pub async fn actions(
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "emoji": { "type": "string" },
-                        "label": { "type": "string" }
+                        // Поля описываем явно: набор промптов достался от прежней версии,
+                        // где ответ разбирался строкой «значок | действие», и без пояснения
+                        // модель кладёт значок прямо в подпись, а текста не пишет вовсе.
+                        "emoji": { "type": "string", "description": "ровно один значок", "maxLength": 8 },
+                        "label": {
+                            "type": "string",
+                            "description": "действие СЛОВАМИ, повелительно, 3-6 слов, без значков",
+                            "minLength": 8,
+                            "maxLength": 60
+                        }
                     },
-                    "required": ["label"]
+                    "required": ["emoji", "label"]
                 }
             }
         },
@@ -60,13 +68,18 @@ pub async fn actions(
 
     let messages = vec![
         Message::system(prompts_for(body.language).actions.system.clone()),
-        Message::user(passage),
+        // Напоминание про поля: в наборе промптов описан строчный формат прежней версии.
+        Message::user(format!(
+            "{passage}
+
+Ответь полями: emoji — один значок, label — само действие словами."
+        )),
     ];
     let value = ask_json(&state, messages, &schema).await?;
     let actions = value
         .get("actions")
         .and_then(Value::as_array)
-        .map(|actions| actions.iter().map(tidy_action).collect::<Vec<_>>())
+        .map(|actions| actions.iter().filter_map(tidy_action).collect::<Vec<_>>())
         .unwrap_or_default();
     Ok(Json(json!({ "actions": actions })))
 }
@@ -75,14 +88,20 @@ pub async fn actions(
 ///
 /// Модель охотно ставит его и в отдельное поле, и в текст — на кнопке он выходил дважды,
 /// по значку с каждой стороны.
-fn tidy_action(action: &Value) -> Value {
+fn tidy_action(action: &Value) -> Option<Value> {
     let emoji = action.get("emoji").and_then(Value::as_str).unwrap_or_default().trim();
-    let label = action.get("label").and_then(Value::as_str).unwrap_or_default();
-    let label = strip_edge_symbols(label);
-    match emoji.is_empty() {
+    let raw = action.get("label").and_then(Value::as_str).unwrap_or_default().trim();
+    let cleaned = strip_edge_symbols(raw);
+    // Бывает, что в подписи одни значки. Срезать их до пустоты нельзя: кнопка без слов
+    // игроку ничего не говорит — тогда оставляем подпись как пришла.
+    let label = if cleaned.is_empty() { raw.to_string() } else { cleaned };
+    if label.is_empty() {
+        return None;
+    }
+    Some(match emoji.is_empty() {
         true => json!({ "label": label }),
         false => json!({ "emoji": emoji, "label": label }),
-    }
+    })
 }
 
 /// Срезать значки и разделители по краям подписи, оставив только слова.
@@ -224,10 +243,50 @@ pub async fn character(
     Ok(Json(value))
 }
 
-/// Общий путь служебного вызова: очередь → сайдкар → ответ по схеме.
+/// Собрать облачного собеседника для служебных проходов, если рассказчик уведён в облако.
+///
+/// Чипсы действий, «заполнить за меня» и подсказки — это тот же рассказчик, только короткий.
+/// Раньше они ВСЕГДА поднимали модель на карте и вставали в её очередь: игрок видел загрузку
+/// видеокарты, хотя весь ход считало облако.
+fn cloud_helper(state: &AppState) -> Option<ChatClient> {
+    let runtime = crate::runtime::load(&state.root);
+    if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
+        return None;
+    }
+    let caps = crate::model_caps::caps(&runtime.openrouter_narrator_model, &runtime.openrouter_key);
+    // Размышления прячем, а не запрещаем: часть моделей запрет отвергает.
+    let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
+        (true, false) => du_llm::Reasoning::Off,
+        (true, true) => du_llm::Reasoning::Hide,
+        _ => du_llm::Reasoning::AsIs,
+    };
+    let effort = du_llm::Effort(caps.cheapest_effort().map(str::to_string));
+    ChatClient::new("https://openrouter.ai/api/v1", std::time::Duration::from_secs(180))
+        .ok()
+        .map(|client| {
+            client
+                .with_api_key(Some(runtime.openrouter_key.clone()))
+                .with_model(Some(runtime.openrouter_narrator_model.clone()))
+                .with_reasoning(reasoning)
+                .with_effort(effort)
+        })
+}
+
+/// Общий путь служебного вызова: облако напрямую, а на карте — через её очередь.
 async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> ApiResult<Value> {
-    let inner = state.0.clone();
     let schema = schema.clone();
+    if let Some(client) = cloud_helper(state) {
+        let messages = messages.clone();
+        let schema = schema.clone();
+        return tokio::task::spawn_blocking(move || {
+            client.chat_json(&messages, &structured_sampling(), &schema)
+        })
+        .await
+        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|error| ApiError::internal(error.to_string()));
+    }
+
+    let inner = state.0.clone();
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_| {
@@ -246,6 +305,16 @@ async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> A
 }
 
 async fn ask_text(state: &AppState, messages: Vec<Message>, sampling: Sampling) -> ApiResult<String> {
+    if let Some(client) = cloud_helper(state) {
+        let messages = messages.clone();
+        let sampling = sampling.clone();
+        let text = tokio::task::spawn_blocking(move || client.chat(&messages, &sampling))
+            .await
+            .map_err(|_| ApiError::internal("задача пропала"))?
+            .map_err(|error| ApiError::internal(error.to_string()))?;
+        return Ok(text);
+    }
+
     let inner = state.0.clone();
     let (_, result) = state
         .queue
@@ -293,7 +362,7 @@ mod chip_tests {
     #[test]
     fn the_icon_is_not_repeated_inside_the_label() {
         let action = json!({ "emoji": "⚔️", "label": "⚔️ Добить раненого врага ударом ⚔️" });
-        let tidy = tidy_action(&action);
+        let tidy = tidy_action(&action).unwrap();
         assert_eq!(tidy["label"], "Добить раненого врага ударом");
         assert_eq!(tidy["emoji"], "⚔️");
     }
@@ -301,13 +370,13 @@ mod chip_tests {
     #[test]
     fn a_plain_label_survives_untouched() {
         let action = json!({ "emoji": "🏃", "label": "Рвануть вперёд" });
-        assert_eq!(tidy_action(&action)["label"], "Рвануть вперёд");
+        assert_eq!(tidy_action(&action).unwrap()["label"], "Рвануть вперёд");
     }
 
     #[test]
     fn a_label_in_quotes_keeps_them() {
         let action = json!({ "label": "Сказать «я сдаюсь»" });
-        let tidy = tidy_action(&action);
+        let tidy = tidy_action(&action).unwrap();
         assert_eq!(tidy["label"], "Сказать «я сдаюсь»");
         assert!(tidy.get("emoji").is_none(), "пустой значок в ответ не кладём");
     }
@@ -315,6 +384,24 @@ mod chip_tests {
     #[test]
     fn a_trailing_period_is_not_worth_keeping() {
         let action = json!({ "emoji": "👁", "label": "👁 Оглядеть коридор." });
-        assert_eq!(tidy_action(&action)["label"], "Оглядеть коридор");
+        assert_eq!(tidy_action(&action).unwrap()["label"], "Оглядеть коридор");
+    }
+}
+
+#[cfg(test)]
+mod chip_label_tests {
+    use super::tidy_action;
+    use serde_json::json;
+
+    #[test]
+    fn a_label_made_only_of_icons_survives_instead_of_becoming_empty() {
+        // Кнопка без слов бесполезна: раньше чистка срезала такую подпись в пустоту.
+        let tidy = tidy_action(&json!({ "emoji": "🚪", "label": "🚪" })).unwrap();
+        assert_eq!(tidy["label"], "🚪");
+    }
+
+    #[test]
+    fn an_action_without_any_label_is_dropped() {
+        assert!(tidy_action(&json!({ "emoji": "🚪", "label": "   " })).is_none());
     }
 }

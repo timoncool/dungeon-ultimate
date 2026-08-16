@@ -17,6 +17,9 @@ use futures_util::stream::Stream;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+/// Сколько ждать озвучку после того, как всё остальное готово.
+const AUDIO_WAIT_LIMIT: u64 = 90;
+
 use du_core::{ImageRequest, StoryMessage, StoryRole};
 use du_llm::{ChatClient, Message, Sampling};
 use du_prompts::strip_image_artifacts;
@@ -117,12 +120,62 @@ fn voiced_lines(
     cast: &[du_core::StoryCharacter],
     pool: &[String],
     spoken: &str,
+    casting: &std::sync::Mutex<Option<crate::casting::Casting>>,
+    narrator_voice: &str,
 ) -> Vec<(String, String)> {
     // Далёкий контекст только путает: смотрим на последние пару сотен символов.
     let context: String = spoken.chars().rev().take(220).collect::<Vec<_>>().into_iter().rev().collect();
-    crate::dialogue::split_dialogue_segments(sentence, settings, cast, pool, &context)
+    let context = crate::voice_tags::strip(&context);
+    let ready = casting.lock().ok().and_then(|guard| guard.clone()).unwrap_or_default();
+    // Рассказчик сам помечает реплики: `[[V:eve]]` перед прямой речью. Пометка режет фразу
+    // на куски, и это работает и с кавычками, и с тире — искать одни кавычки бессмысленно,
+    // русская проза оформляет речь и так, и так.
+    let mut lines: Vec<(String, String)> = Vec::new();
+    for (tag, part) in crate::voice_tags::runs(sentence) {
+        // Выдуманный голос провайдер не знает и ответил бы отказом — берём только известные.
+        let tagged = tag.and_then(|name| {
+            pool.iter().find(|voice| voice.eq_ignore_ascii_case(name.trim())).cloned()
+        });
+        let Some(tagged) = tagged else {
+            lines.extend(plain_lines(&part, settings, cast, pool, &context, narrator_voice, &ready));
+            continue;
+        };
+        // Слова автора («— буркнул старик») читает рассказчик: голосом персонажа они
+        // звучали бы как продолжение его же речи.
+        let (speech, tail) = crate::voice_tags::speech_and_tail(&part);
+        if !speech.is_empty() {
+            lines.push((speech, tagged));
+        }
+        if !tail.trim().is_empty() {
+            lines.push((tail, narrator_voice.to_string()));
+        }
+    }
+    lines
+}
+
+/// Раздать голоса куску без пометок — по заведённым персонажам и по словам самого текста.
+#[allow(clippy::too_many_arguments)]
+fn plain_lines(
+    part: &str,
+    settings: &du_core::StorySettings,
+    cast: &[du_core::StoryCharacter],
+    pool: &[String],
+    context: &str,
+    narrator_voice: &str,
+    ready: &crate::casting::Casting,
+) -> Vec<(String, String)> {
+    crate::dialogue::split_dialogue_segments(part, settings, cast, pool, context, narrator_voice, &[])
         .into_iter()
-        .map(|segment| (segment.text, segment.voice))
+        .map(|segment| {
+            // Раскладка от модели важнее подбора по словам: она видела персонажа целиком.
+            let voice = segment
+                .character_id
+                .as_ref()
+                .and_then(|id| cast.iter().find(|character| &character.id == id))
+                .and_then(|character| ready.get(&character.name).cloned())
+                .unwrap_or(segment.voice);
+            (segment.text, voice)
+        })
         .collect()
 }
 
@@ -140,10 +193,11 @@ fn to_named(event: &Value) -> Option<Event> {
             }
             if let Some(clip) = event.get("clip").and_then(Value::as_str) {
                 let index = event.get("index").and_then(Value::as_u64).unwrap_or(0);
+                let voice = event.get("voice").and_then(Value::as_str).unwrap_or_default();
                 return Some(
-                    Event::default()
-                        .event("clip")
-                        .data(json!({ "url": clip, "index": index }).to_string()),
+                    Event::default().event("clip").data(
+                        json!({ "url": clip, "index": index, "voice": voice }).to_string(),
+                    ),
                 );
             }
             if let Some(reason) = event.get("voiceError").and_then(Value::as_str) {
@@ -194,10 +248,27 @@ fn run_turn(
     let runtime = crate::runtime::load(&state.root);
     let client = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
         progress(json!({ "stage": "облако" }));
+        // Размышления ПРЯЧЕМ, а не запрещаем: запрет часть моделей отвергает отказом, а
+        // если рассуждения попадают в ответ, структурный проход возвращает их вместо JSON —
+        // и механика хода не срабатывает вовсе.
+        let caps = crate::model_caps::caps(
+            &runtime.openrouter_narrator_model,
+            &runtime.openrouter_key,
+        );
+        // Отключать можно только там, где схема это разрешает; иначе прячем и просим
+        // самый слабый уровень из объявленных — глубокие размышления тут лишние.
+        let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
+            (true, false) => du_llm::Reasoning::Off,
+            (true, true) => du_llm::Reasoning::Hide,
+            _ => du_llm::Reasoning::AsIs,
+        };
+        let effort = du_llm::Effort(caps.cheapest_effort().map(str::to_string));
         ChatClient::new("https://openrouter.ai/api", std::time::Duration::from_secs(600))
             .map_err(|error| error.to_string())?
             .with_api_key(Some(runtime.openrouter_key.clone()))
             .with_model(Some(runtime.openrouter_narrator_model.clone()))
+            .with_reasoning(reasoning)
+            .with_effort(effort)
     } else {
         progress(json!({ "stage": "загрузка модели" }));
         let base_url = state.gpu.text_base_url().map_err(|error| error.to_string())?;
@@ -230,7 +301,7 @@ fn run_turn(
     };
 
     let (summary, _) = state.store.story_summary(chat_id).map_err(|e| e.to_string())?;
-    let messages = turn::build_story_messages(
+    let mut messages = turn::build_story_messages(
         &chat.messages,
         input,
         settings,
@@ -240,7 +311,20 @@ fn run_turn(
     );
 
     // Озвучку готовим ЗАРАНЕЕ, чтобы первая же дописанная фраза сразу ушла в синтез.
-    let voice = if settings.voice.trim().is_empty() {
+    // Голос рассказчика зависит от того, ГДЕ считается озвучка: на карте это имя файла с
+    // эталоном, в облаке — имя голоса модели. Смешивать нельзя: локальное имя провайдер не
+    // знает и отвечает отказом, а голос модели не найдётся среди файлов на диске.
+    let voice = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
+        let chosen = runtime.openrouter_tts_voice.trim();
+        if chosen.is_empty() {
+            crate::voice_catalog::suitable(&runtime.openrouter_tts_model, true, None)
+                .first()
+                .map(|voice| voice.name.clone())
+                .unwrap_or_default()
+        } else {
+            chosen.to_string()
+        }
+    } else if settings.voice.trim().is_empty() {
         crate::tts::default_voice(&state.root).unwrap_or_default()
     } else {
         settings.voice.clone()
@@ -258,6 +342,7 @@ fn run_turn(
     } else {
         Vec::new()
     };
+    // Раскладку голосов спрашивает отдельный проход — он идёт ниже, когда есть текст.
     // Набор голосов зависит от того, где считается озвучка: на карте это файлы эталонов,
     // в облаке — голоса выбранной модели. Иначе персонажам достались бы имена, которых у
     // провайдера нет, и озвучка молча падала бы на каждой реплике.
@@ -269,6 +354,45 @@ fn run_turn(
     } else {
         crate::tts::available_voices(&state.root)
     };
+    // Голоса отдаём рассказчику: он один знает, КТО произносит каждую реплику, — а список
+    // с пометками пола и возраста позволяет ему выбрать женский голос женщине и детский
+    // ребёнку. Без этого автокастинг работал бы только на заведённых персонажах, которых в
+    // истории почти нет: вдов и стражников игрок персонажами не заводит.
+    if settings.multi_voice && speaking_on && !voice_pool.is_empty() {
+        let hints: Vec<crate::voice_tags::VoiceHint> = voice_pool
+            .iter()
+            .filter(|name| *name != &voice)
+            .map(|name| crate::voice_tags::VoiceHint {
+                name: name.clone(),
+                gender: crate::voice_catalog::gender_of(name)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| match crate::dialogue::voice_gender(name) {
+                        Some(crate::dialogue::Gender::Female) => "женский".to_string(),
+                        Some(crate::dialogue::Gender::Male) => "мужской".to_string(),
+                        None => "неизвестен".to_string(),
+                    }),
+                age: crate::voice_catalog::age_of(name).unwrap_or("взрослый").to_string(),
+            })
+            .collect();
+        let asked =
+            crate::voice_tags::instruction(&hints, settings.language == du_core::Language::Ru);
+        if !asked.is_empty() {
+            tracing::debug!("голоса рассказчику: {} шт.", hints.len());
+            // Ставим СРАЗУ за главной подсказкой, а не в самый конец: в конце указание
+            // оказывается после реплики игрока, и модель его попросту не выполняет —
+            // проверено живым ходом, пометок не было ни одной.
+            let at = messages.len().min(1);
+            messages.insert(at, Message::system(asked));
+        }
+    } else {
+        tracing::debug!(
+            "пометки голосов не запрошены: многоголосие={}, озвучка={}, голосов={}",
+            settings.multi_voice,
+            speaking_on,
+            voice_pool.len()
+        );
+    }
+
     // Канал несёт (номер, текст, голос): номер держит порядок воспроизведения.
     let (sentences_tx, sentences_rx) = std::sync::mpsc::channel::<(usize, String, String)>();
     let speaker = if speaking_on {
@@ -280,35 +404,20 @@ fn run_turn(
         let sink = progress.clone();
         let gpu = state.gpu_handle();
         Some(std::thread::spawn(move || -> Option<String> {
-            // Облачная озвучка отдаёт весь ход одним файлом — её не режем на фразы.
-            if crate::cloud::stage_enabled(&runtime_for_tts, crate::cloud::Stage::Tts) {
-                let whole: String = sentences_rx
-                    .iter()
-                    .map(|(_, sentence, _)| sentence)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                if whole.trim().is_empty() {
-                    return None;
-                }
-                return match crate::tts::synthesize_with(
-                    &root, &generated, &runtime_for_tts, &whole, &voice, &key,
-                ) {
-                    Ok(url) => Some(url),
+            // Один путь для обоих режимов: фразы приходят по очереди и озвучиваются каждая
+            // своим голосом. Раньше облако склеивало ход в один запрос — и весь текст,
+            // включая реплики персонажей, читался голосом рассказчика.
+            let in_cloud = crate::cloud::stage_enabled(&runtime_for_tts, crate::cloud::Stage::Tts);
+            let engine = if in_cloud {
+                None
+            } else {
+                match gpu.speech_engine() {
+                    Ok(engine) => Some(engine),
                     Err(error) => {
-                        tracing::warn!("облачная озвучка не удалась: {error}");
+                        tracing::warn!("озвучка не удалась: {error}");
                         sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
-                        None
+                        return None;
                     }
-                };
-            }
-
-            let engine = match gpu.speech_engine() {
-                Ok(engine) => engine,
-                Err(error) => {
-                    tracing::warn!("озвучка не удалась: {error}");
-                    // Игрок должен УЗНАТЬ, что звука не будет, а не гадать, почему тихо.
-                    sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
-                    return None;
                 }
             };
             // Эталонный клип на голос готовится один раз: перекодировать его на каждую
@@ -317,35 +426,62 @@ fn run_turn(
                 std::collections::HashMap::new();
             let mut first = None;
             for (index, sentence, line_voice) in sentences_rx {
-                let prepared = references.entry(line_voice.clone()).or_insert_with(|| {
-                    match crate::tts::prepared_reference(
+                let spoken = if in_cloud {
+                    // В облаке голос — это имя из набора модели, эталон не нужен.
+                    let mut runtime_for_line = runtime_for_tts.clone();
+                    runtime_for_line.openrouter_tts_voice = line_voice.clone();
+                    crate::tts::synthesize_with(
                         &root,
+                        &generated,
+                        &runtime_for_line,
+                        &sentence,
                         &line_voice,
-                        runtime_for_tts.tts_reference_seconds,
-                    ) {
-                        Ok(pair) => Some(pair),
-                        Err(error) => {
-                            tracing::warn!("голос «{line_voice}» недоступен: {error}");
-                            None
+                        &format!("{key}-{index}"),
+                    )
+                } else {
+                    let prepared = references.entry(line_voice.clone()).or_insert_with(|| {
+                        match crate::tts::prepared_reference(
+                            &root,
+                            &line_voice,
+                            runtime_for_tts.tts_reference_seconds,
+                        ) {
+                            Ok(pair) => Some(pair),
+                            Err(error) => {
+                                tracing::warn!("голос «{line_voice}» недоступен: {error}");
+                                None
+                            }
                         }
+                    });
+                    match (engine.as_ref(), prepared.as_ref()) {
+                        (Some(engine), Some((reference, transcript))) => crate::tts::speak_sentence(
+                            engine,
+                            &generated,
+                            reference,
+                            transcript.as_deref(),
+                            &sentence,
+                            &key,
+                            index,
+                        ),
+                        _ => continue,
                     }
-                });
-                let Some((reference, transcript)) = prepared.as_ref() else { continue };
-                match crate::tts::speak_sentence(
-                    &engine,
-                    &generated,
-                    reference,
-                    transcript.as_deref(),
-                    &sentence,
-                    &key,
-                    index,
-                ) {
+                };
+                match spoken {
                     Ok(url) => {
                         // Фраза готова — игрок слушает её, пока хвост ещё пишется.
-                        sink(json!({ "stage": "озвучка", "clip": url, "index": index }));
+                        // Голос отдаём вместе с клипом: по нему видно, что реплики читают РАЗНЫЕ голоса,
+                        // а не один рассказчик.
+                        sink(json!({
+                            "stage": "озвучка",
+                            "clip": url,
+                            "index": index,
+                            "voice": line_voice,
+                        }));
                         first.get_or_insert(url);
                     }
-                    Err(error) => tracing::warn!("фраза не озвучилась: {error}"),
+                    Err(error) => {
+                        tracing::warn!("фраза не озвучилась: {error}");
+                        sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
+                    }
                 }
             }
             first
@@ -362,18 +498,38 @@ fn run_turn(
     let mut spoken = String::new();
     let mut pending = String::new();
     let mut sentence_index = 0usize;
+    // Раскладка «персонаж → голос» на этот ход. Считается лениво: пока не появилась первая
+    // фраза с прямой речью, спрашивать не о чем.
+    let casting: std::sync::Arc<std::sync::Mutex<Option<crate::casting::Casting>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    // Хвост куска, который может оказаться НАЧАЛОМ пометки: показывать его нельзя, пока
+    // не пришло закрытие, иначе игрок увидит «[[V:» на середине фразы.
+    let mut held = String::new();
     let narration = client
         .chat_stream(&messages, &sampling, |delta| {
-            sink(json!({ "stage": "проза", "delta": delta }));
+            held.push_str(delta);
+            let keep = crate::voice_tags::dangling(&held);
+            let show: String = held[..held.len() - keep].to_string();
+            held = held[held.len() - keep..].to_string();
+            let show = crate::voice_tags::strip(&show);
+            if !show.is_empty() {
+                sink(json!({ "stage": "проза", "delta": show }));
+            }
             if speaking_on {
                 pending.push_str(delta);
                 // Отдаём в озвучку каждую ЗАКОНЧЕННУЮ фразу, не дожидаясь конца хода.
                 let ready = crate::tts::split_sentences(&pending);
                 if ready.len() > 1 {
                     for sentence in &ready[..ready.len() - 1] {
-                        for (text, line_voice) in
-                            voiced_lines(sentence, &settings, &cast, &voice_pool, &spoken)
-                        {
+                        for (text, line_voice) in voiced_lines(
+                            sentence,
+                            &settings,
+                            &cast,
+                            &voice_pool,
+                            &spoken,
+                            &casting,
+                            &voice,
+                        ) {
                             let _ = sentences_tx.send((sentence_index, text, line_voice));
                             sentence_index += 1;
                         }
@@ -385,17 +541,44 @@ fn run_turn(
             true
         })
         .map_err(|error| error.to_string())?;
-    let narration = strip_image_artifacts(&narration);
+    // Хвост озвучки считаем по СЫРОМУ тексту: `spoken` тоже сырой, с пометками, и вычесть
+    // одно из другого можно только пока они в одном виде.
+    let narration_raw = narration.clone();
+    let narration = crate::voice_tags::strip(&strip_image_artifacts(&narration));
+    // Раскладку заказываем один раз за ход и только если в отрывке есть прямая речь.
+    if settings.multi_voice && !cast.is_empty() && narration.contains(['«', '"', '\u{201c}']) {
+        let described: Vec<(String, String, String)> = voice_pool
+            .iter()
+            .map(|name| {
+                let gender = crate::voice_catalog::gender_of(name)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| match crate::dialogue::voice_gender(name) {
+                        Some(crate::dialogue::Gender::Female) => "female".to_string(),
+                        Some(crate::dialogue::Gender::Male) => "male".to_string(),
+                        None => "unknown".to_string(),
+                    });
+                let age = crate::voice_catalog::age_of(name).unwrap_or("adult").to_string();
+                (name.clone(), gender, age)
+            })
+            .collect();
+        let ready = crate::casting::assign(&client, &narration, &cast, &described);
+        if !ready.is_empty() {
+            if let Ok(mut guard) = casting.lock() {
+                *guard = Some(ready);
+            }
+        }
+    }
     if narration.trim().is_empty() {
         return Err("нарратор вернул пустой текст".into());
     }
     if speaking_on {
         // Хвост после чистки артефактов озвучиваем тем же порядком.
-        let tail = narration.strip_prefix(spoken.as_str()).unwrap_or(&pending).trim().to_string();
+        let tail =
+            narration_raw.strip_prefix(spoken.as_str()).unwrap_or(&pending).trim().to_string();
         if !tail.is_empty() {
             for sentence in crate::tts::split_sentences(&tail) {
                 for (text, line_voice) in
-                    voiced_lines(&sentence, &settings, &cast, &voice_pool, &spoken)
+                    voiced_lines(&sentence, &settings, &cast, &voice_pool, &spoken, &casting, &voice)
                 {
                     let _ = sentences_tx.send((sentence_index, text, line_voice));
                     sentence_index += 1;
@@ -512,7 +695,24 @@ fn run_turn(
 
     // Дожидаемся озвучки: она шла параллельно механике и кадру. Не удалась — ход всё равно
     // состоялся: текст и картинка важнее звука.
-    let narration_audio = speaker.and_then(|handle| handle.join().unwrap_or(None));
+    // Ждём озвучку ОГРАНИЧЕННО. Зависший синтез не должен держать ход: текст и картинка
+    // важнее звука, а поток пусть договаривает сам по себе — его клипы уже ушли игроку.
+    let narration_audio = speaker.and_then(|handle| {
+        // Пока ждём голос, игрок должен видеть именно это: иначе над ходом висит стадия
+        // кадра, хотя кадр давно выбран, и кажется, что всё зависло.
+        progress(json!({ "stage": "озвучка" }));
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done_tx.send(handle.join().unwrap_or(None));
+        });
+        match done_rx.recv_timeout(std::time::Duration::from_secs(AUDIO_WAIT_LIMIT)) {
+            Ok(url) => url,
+            Err(_) => {
+                tracing::warn!("озвучка не уложилась в {AUDIO_WAIT_LIMIT} с — ход идёт без неё");
+                None
+            }
+        }
+    });
 
     let assistant = StoryMessage {
         id: new_id(),

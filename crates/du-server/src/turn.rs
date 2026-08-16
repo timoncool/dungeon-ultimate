@@ -309,6 +309,8 @@ pub fn engine_schema() -> Value {
                 "actor": { "type": "string" },
                 "kind": { "type": "string", "enum": ["skill", "attack", "save"] }
             }, "required": ["ability", "dc"] } },
+            // Проверку ОБЪЯВЛЯЮТ здесь, а бросает и решает движок: писать исход словами
+            // нельзя, иначе кубик не катится и правила подменяются пересказом.
             "spawnEnemies": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": {
                 "name": { "type": "string" },
                 "hp": { "type": "number" },
@@ -350,7 +352,11 @@ pub fn engine_schema() -> Value {
                 "character": { "type": "string" },
                 "name": { "type": "string" }
             }, "required": ["name"] } },
-            "note": { "type": "string" }
+            "note": {
+                "type": "string",
+                "description": "короткая заметка ИГРОКУ о последствии хода. НЕ рассуждение,                     не план, не разбор правил и НИКОГДА не исход проверки — исход решает движок",
+                "maxLength": 160
+            }
         }
     })
 }
@@ -377,7 +383,9 @@ pub fn image_schema() -> Value {
 /// Параметры сэмплирования служебных проходов: они должны быть скучными и точными, а не
 /// изобретательными, поэтому температура низкая.
 pub fn structured_sampling() -> Sampling {
-    Sampling::new(0.2, 1024)
+    // Лимит с запасом: рассуждающие модели тратят часть его на скрытые размышления, и при
+    // тесном лимите на сам ответ уже ничего не остаётся — проход возвращает пустоту.
+    Sampling::new(0.2, 3072)
 }
 
 /// Собрать состав хода: герой первым — к нему падают объявления без явного адресата.

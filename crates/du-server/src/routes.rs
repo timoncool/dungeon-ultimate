@@ -160,40 +160,47 @@ pub async fn create_image(
     let runtime = crate::runtime::load(&state.root);
     let in_cloud = crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Image);
     let started = std::time::Instant::now();
-    let (_, result) = state
-        .queue
-        .enqueue_awaitable(Box::new(move |progress| {
-            if in_cloud {
-                // Облачный кадр карту не трогает: играть можно и без неё.
-                let path = gpu.generated.join(format!("{}.png", uuid::Uuid::new_v4()));
-                // Имя может смениться: формат кадра выбирает провайдер.
-                let path =
-                    crate::cloud::draw(&gpu.root, &runtime, &params.prompt, (width, height), &path)?;
-                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                return Ok(json!({ "url": format!("/generated/{name}"), "width": width, "height": height }));
-            }
-            let sink = progress.clone();
-            let images = gpu
-                .gpu
-                .generate_image(
-                    &params,
-                    Some(Box::new(move |step, steps, _| {
-                        sink(json!({ "stage": "image", "step": step, "steps": steps }));
-                    })),
-                )
-                .map_err(|error| error.to_string())?;
-            let image = images.into_iter().next().ok_or("движок не вернул кадр")?;
-            let name = format!("{}.png", uuid::Uuid::new_v4());
-            let path = gpu.generated.join(&name);
-            write_png(&path, &image).map_err(|error| error.to_string())?;
-            Ok(json!({ "url": format!("/generated/{name}"), "width": image.width, "height": image.height }))
-        }))
-        .await;
 
-    let value = result
-        .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
-        .map_err(ApiError::internal)?;
+    // Облачный кадр рисует чужой сервер — очередь своей карты он не занимает и в неё НЕ
+    // ставится: раньше он попадал и сюда, и в очередь, то есть рисовался дважды — двойная
+    // задержка и двойная плата.
+    // Чем подписать кадр: имя облачной модели или своего движка — но не то, что осталось
+    // в настройках карты.
+    let rendered_by = if in_cloud {
+        runtime.openrouter_image_model.clone()
+    } else {
+        format!("{:?}", body.settings.image_backend).to_lowercase()
+    };
+    let value = if in_cloud {
+        draw_in_cloud(gpu, runtime, params.prompt.clone(), (width, height))
+            .await
+            .map_err(ApiError::internal)?
+    } else {
+        let (_, result) = state
+            .queue
+            .enqueue_awaitable(Box::new(move |progress| {
+                let sink = progress.clone();
+                let images = gpu
+                    .gpu
+                    .generate_image(
+                        &params,
+                        Some(Box::new(move |step, steps, _| {
+                            sink(json!({ "stage": "image", "step": step, "steps": steps }));
+                        })),
+                    )
+                    .map_err(|error| error.to_string())?;
+                let image = images.into_iter().next().ok_or("движок не вернул кадр")?;
+                let name = format!("{}.png", uuid::Uuid::new_v4());
+                let path = gpu.generated.join(&name);
+                write_png(&path, &image).map_err(|error| error.to_string())?;
+                Ok(json!({ "url": format!("/generated/{name}"), "width": image.width, "height": image.height }))
+            }))
+            .await;
+        result
+            .await
+            .map_err(|_| ApiError::internal("задача пропала"))?
+            .map_err(ApiError::internal)?
+    };
 
     let url = value["url"].as_str().unwrap_or_default().to_string();
     let image = GeneratedImage {
@@ -210,6 +217,7 @@ pub async fn create_image(
         warnings: Vec::new(),
         scene_location: (!decision.location.is_empty()).then(|| decision.location.clone()),
         edited_from: decision.edit_from.as_ref().map(|from| from.url.clone()),
+        rendered_by: Some(rendered_by),
     };
 
     if let Some(message_id) = body.message_id.as_deref() {
@@ -222,6 +230,28 @@ pub async fn create_image(
     }
 
     Ok(Json(image))
+}
+
+/// Нарисовать кадр в облаке, не занимая очередь своей карты.
+///
+/// Один путь на все кадры — сцену, портрет, иконку предмета: иначе какой-нибудь из них
+/// продолжает молча грузить видеокарту, хотя игрок увёл всё в облако.
+async fn draw_in_cloud(
+    inner: std::sync::Arc<crate::state::Inner>,
+    runtime: crate::runtime::Runtime,
+    prompt: String,
+    size: (u32, u32),
+) -> Result<Value, String> {
+    let (width, height) = size;
+    tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        let path = inner.generated.join(format!("{}.png", uuid::Uuid::new_v4()));
+        // Имя может смениться: формат кадра выбирает провайдер.
+        let path = crate::cloud::draw(&inner.root, &runtime, &prompt, (width, height), &path)?;
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        Ok(json!({ "url": format!("/generated/{name}"), "width": width, "height": height }))
+    })
+    .await
+    .map_err(|_| "задача пропала".to_string())?
 }
 
 /// Запомнить кадр за локацией, обновить облик показанных персонажей и портреты предметов.
@@ -496,6 +526,18 @@ pub async fn item_image(
     let inner = state.0.clone();
     // Иконка мелкая: гнать её в полный размер сцены незачем.
     let params = GenParams { prompt, width: 768, height: 768, ..Default::default() };
+
+    // Иконка предмета — такой же кадр, как и все: если кадры уведены в облако, рисовать её
+    // на своей карте нельзя. Раньше этот путь про облако не знал вовсе, и видеокарта
+    // просыпалась на каждой находке, хотя игрок выбрал «всё в облаке».
+    let runtime = crate::runtime::load(&state.root);
+    if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Image) {
+        let value = draw_in_cloud(inner, runtime, params.prompt.clone(), (768, 768))
+            .await
+            .map_err(ApiError::internal)?;
+        return finish_item_image(state, &chat_id, &item_id, value).await;
+    }
+
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_| {
@@ -514,10 +556,20 @@ pub async fn item_image(
         .await
         .map_err(|_| ApiError::internal("задача пропала"))?
         .map_err(ApiError::internal)?;
+    finish_item_image(state, &chat_id, &item_id, value).await
+}
+
+/// Сохранить готовую иконку за предметом — общий хвост для облака и своей карты.
+async fn finish_item_image(
+    state: AppState,
+    chat_id: &str,
+    item_id: &str,
+    value: Value,
+) -> ApiResult<Json<Value>> {
     let url = value["url"].as_str().unwrap_or_default().to_string();
     let item = state
         .store
-        .set_item_image(&chat_id, &item_id, &url)?
+        .set_item_image(chat_id, item_id, &url)?
         .ok_or_else(|| ApiError::not_found("предмет пропал"))?;
     Ok(Json(json!({ "item": item, "cached": false })))
 }

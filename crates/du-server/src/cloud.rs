@@ -157,18 +157,19 @@ fn speak_via_speech_endpoint(
     voice: &str,
     out: &Path,
 ) -> Result<(), String> {
+    // Формат СЫРОЙ, всегда: так же сделано в Dub Studio, и там это выстрадано — pcm
+    // (24 кГц, 16 бит, моно) отдают все модели речи, включая мультиязычные, а перебора по
+    // моделям не требуется. На `wav` ручка отвечает отказом. Заголовок дописываем сами.
     let body = json!({
         "model": runtime.openrouter_tts_model,
         "input": text,
         "voice": voice,
-        "response_format": "wav",
+        "response_format": "pcm",
     });
-    // Минута на запрос плюс секунда на каждые сто символов.
+    // Минута на запрос плюс секунда на каждые сто символов: на длинном ходе синтез идёт
+    // заметно дольше, и жёсткий короткий срок рвал бы его зря.
     let timeout = std::time::Duration::from_secs(60 + (text.chars().count() as u64) / 100);
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
-        .build()
-        .into();
+    let agent = tolerant_agent(timeout);
 
     let response = agent
         .post("https://openrouter.ai/api/v1/audio/speech")
@@ -176,6 +177,24 @@ fn speak_via_speech_endpoint(
         .header("Content-Type", "application/json")
         .send(body.to_string())
         .map_err(|error| format!("облачная озвучка: {error}"))?;
+    let status = response.status().as_u16();
+    if status >= 400 {
+        let raw = response.into_body().read_to_string().unwrap_or_default();
+        return Err(explain("облачная озвучка", status, &raw));
+    }
+    // Для сырого потока частота приходит В ЗАГОЛОВКЕ: `audio/pcm;rate=24000;channels=1`.
+    // Считывать её оттуда надёжнее, чем полагаться на то, что она всегда одна и та же.
+    let rate = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value
+                .split(';')
+                .find_map(|part| part.trim().strip_prefix("rate="))
+                .and_then(|rate| rate.trim().parse::<u32>().ok())
+        })
+        .unwrap_or(CLOUD_PCM_RATE);
     let mut audio = Vec::new();
     response
         .into_body()
@@ -189,7 +208,13 @@ fn speak_via_speech_endpoint(
             String::from_utf8_lossy(&audio).trim().chars().take(200).collect::<String>()
         ));
     }
-    std::fs::write(out, &audio).map_err(|error| format!("не записать облачную озвучку: {error}"))
+    // Часть моделей всё же отдаёт готовый WAV — тогда оборачивать нечего.
+    let bytes = if audio.starts_with(b"RIFF") {
+        audio
+    } else {
+        wrap_pcm16_wav(&audio, rate)
+    };
+    std::fs::write(out, bytes).map_err(|error| format!("не записать облачную озвучку: {error}"))
 }
 
 /// Озвучка чат-моделью: аудио приходит кусками в base64 внутри событий потока, поэтому
@@ -253,6 +278,13 @@ pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) ->
     if !language.trim().is_empty() && !language.eq_ignore_ascii_case("auto") {
         payload["language"] = json!(language);
     }
+    // Сначала своей ручкой: по документации `verbose_json` понимают только совместимые с
+    // OpenAI провайдеры, остальные отвечают отказом, — а сайдкар просит именно его.
+    // Нам разметка по секундам не нужна вовсе, поэтому просим простой `json`.
+    match transcribe_direct(runtime, wav, language) {
+        Ok(text) => return Ok(text),
+        Err(error) => tracing::warn!("прямое распознавание не вышло ({error}), пробуем сайдкар"),
+    }
     match run_helper(root, &runtime.openrouter_key, "stt", &payload) {
         Ok(value) => {
             let text = value
@@ -291,6 +323,50 @@ pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) ->
         }
     }
     transcribe_via_chat(runtime, wav, language)
+}
+
+/// Распознавание своей ручкой: запись уходит в base64, ответ — обычный json с текстом.
+///
+/// Формат записи объявляем `wav`: по документации его принимают все провайдеры, а браузер
+/// именно его и пишет. Ссылкой звук на этой ручке передавать нельзя.
+fn transcribe_direct(runtime: &Runtime, wav: &Path, language: &str) -> Result<String, String> {
+    let audio = std::fs::read(wav).map_err(|error| format!("запись не прочиталась: {error}"))?;
+    let mut body = json!({
+        "model": runtime.openrouter_asr_model,
+        "input_audio": { "data": base64_encode(&audio), "format": "wav" },
+        "response_format": "json",
+    });
+    let language = language.trim();
+    if !language.is_empty() && !language.eq_ignore_ascii_case("auto") {
+        body["language"] = json!(language);
+    }
+    // Провайдер отводит на распознавание около минуты — столько же ждём и мы, с запасом.
+    let agent = tolerant_agent(std::time::Duration::from_secs(120));
+
+    let response = agent
+        .post("https://openrouter.ai/api/v1/audio/transcriptions")
+        .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
+        .header("Content-Type", "application/json")
+        .send(body.to_string())
+        .map_err(|error| format!("облачное распознавание: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .into_body()
+        .read_to_string()
+        .map_err(|error| format!("облачное распознавание: обрыв ответа: {error}"))?;
+    if status >= 400 {
+        return Err(explain("облачное распознавание", status, &raw));
+    }
+    let parsed: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("облачное распознавание: ответ не разобрать: {error}"))?;
+    let text = parsed.get("text").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+    if text.is_empty() {
+        return Err(match parsed.pointer("/error/message").and_then(Value::as_str) {
+            Some(message) => format!("облачное распознавание: {message}"),
+            None => "облачное распознавание вернуло пустой текст".to_string(),
+        });
+    }
+    Ok(text)
 }
 
 /// Распознавание чат-моделью: запись уходит куском сообщения.
@@ -351,6 +427,37 @@ fn transcribe_via_chat(runtime: &Runtime, wav: &Path, language: &str) -> Result<
     Ok(text)
 }
 
+/// Клиент, для которого отказ провайдера — это ответ, а не обрыв связи.
+///
+/// По умолчанию библиотека превращает 400 в ошибку `http status: 400` и ВЫБРАСЫВАЕТ тело,
+/// а объяснение провайдера лежит именно в теле. Без него игрок видит голый номер и не
+/// понимает, кончились ли деньги, отказала ли модель или ей не понравился запрос.
+fn tolerant_agent(timeout: std::time::Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
+/// Достать из отказа человеческое объяснение.
+fn explain(stage: &str, status: u16, raw: &str) -> String {
+    let message = serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| raw.trim().chars().take(200).collect());
+    if message.is_empty() {
+        format!("{stage}: провайдер отказал ({status})")
+    } else {
+        format!("{stage}: {message} ({status})")
+    }
+}
+
 /// Нарисовать кадр в облаке.
 ///
 /// Идём в отдельную ручку рисования, а не в чат с модальностью `image`: через чат отвечают
@@ -373,15 +480,20 @@ pub fn draw(
         "size": format!("{width}x{height}"),
     });
 
-    let response = ureq::post("https://openrouter.ai/api/v1/images/generations")
+    let response = tolerant_agent(std::time::Duration::from_secs(180))
+        .post("https://openrouter.ai/api/v1/images/generations")
         .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
         .header("Content-Type", "application/json")
         .send(body.to_string())
         .map_err(|error| format!("облачный кадр: {error}"))?;
+    let status = response.status().as_u16();
     let raw = response
         .into_body()
         .read_to_string()
         .map_err(|error| format!("облачный кадр: обрыв ответа: {error}"))?;
+    if status >= 400 {
+        return Err(explain("облачный кадр", status, &raw));
+    }
     let parsed: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("облачный кадр: ответ не разобрать: {error}"))?;
 
@@ -425,6 +537,18 @@ pub fn draw(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_refusal_carries_the_providers_own_words() {
+        let raw = r#"{"error":{"message":"Invalid size for this model","code":400}}"#;
+        assert_eq!(
+            super::explain("облачный кадр", 400, raw),
+            "облачный кадр: Invalid size for this model (400)"
+        );
+        // Не JSON — показываем начало тела, а не голый номер.
+        assert!(super::explain("облачный кадр", 502, "upstream down").contains("upstream down"));
+        assert!(super::explain("облачный кадр", 500, "").contains("500"));
+    }
     use super::*;
 
     fn with_key() -> Runtime {

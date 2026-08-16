@@ -148,6 +148,31 @@ fn roll_random_event(rpg: &mut CharacterRpg, labels: &JournalLabels) -> Option<E
     Some(effect)
 }
 
+/// Похоже ли на машинный ключ вместо текста: `scene_mariana_bania_hint` и подобное.
+///
+/// Модель иногда возвращает в заметку идентификатор — по-видимому, из своей внутренней
+/// разметки. Игроку такое показывать нельзя: это не событие истории, а мусор.
+fn looks_like_identifier(note: &str) -> bool {
+    let note = note.trim();
+    if note.is_empty() || note.contains(' ') {
+        return false;
+    }
+    // Одно слово без пробелов: ключом его выдаёт подчёркивание или дефис вместе с латиницей.
+    note.chars().any(|c| c == '_' || c == '-')
+        && note.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
+/// Похоже ли на размышление модели, а не на событие истории.
+fn looks_like_deliberation(note: &str) -> bool {
+    let low = note.to_lowercase();
+    const MARKS: [&str; 10] = [
+        "нужно объявить", "объявить проверку", "исход:", "учитываем", "сцена требует",
+        "используя 'ты'", "имена персонажей не", "модификатор", "против внимательности",
+        "провал — ",
+    ];
+    MARKS.iter().filter(|mark| low.contains(*mark)).count() >= 2
+}
+
 /// Собрать эффект из объявления модели, отбросив мусор.
 fn effect_from_decl(decl: &ApplyEffectDecl) -> Option<Effect> {
     let name = decl.name.trim();
@@ -551,7 +576,12 @@ pub fn apply_game_update(
     }
 
     if let Some(note) = update.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
-        result.events.push(make_event(EventKind::Note, note.to_string(), None));
+        // Модель иногда пишет сюда собственные размышления: «нужно объявить проверку»,
+        // «исход: успех». Такое игроку показывать нельзя — во-первых, это не событие
+        // истории, во-вторых, исход решает движок, а не пересказ.
+        if !looks_like_deliberation(note) && !looks_like_identifier(note) {
+            result.events.push(make_event(EventKind::Note, note.to_string(), None));
+        }
     }
 
     result.changed = changed.into_keys().collect();
@@ -779,5 +809,32 @@ mod tests {
         assert_eq!(turns.pick(11), "ходов");
         assert_eq!(turns.pick(21), "ход");
         assert_eq!(turns.pick(112), "ходов");
+    }
+}
+
+#[cfg(test)]
+mod note_tests {
+    use super::looks_like_deliberation;
+
+    #[test]
+    fn a_models_plan_is_not_shown_to_the_player() {
+        assert!(looks_like_deliberation(
+            "Сцена требует проверки скрытности. Нужно объявить проверку Скрытности против              Внимательности. Исход: успех — остаётся незамеченным."
+        ));
+    }
+
+    #[test]
+    fn a_machine_key_never_reaches_the_journal() {
+        use super::looks_like_identifier;
+        assert!(looks_like_identifier("scene_mariana_bania_hint"));
+        assert!(looks_like_identifier("hp-delta.note"));
+        assert!(!looks_like_identifier("Дождь усиливается"));
+        assert!(!looks_like_identifier("Трактирщик кивает"));
+    }
+
+    #[test]
+    fn a_real_story_note_survives() {
+        assert!(!looks_like_deliberation("Дождь усиливается, следы на глине быстро размывает."));
+        assert!(!looks_like_deliberation("Трактирщик запомнил твоё лицо."));
     }
 }

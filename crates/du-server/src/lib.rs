@@ -6,6 +6,7 @@
 
 pub mod assist;
 pub mod bytes;
+mod casting;
 mod characters;
 mod chats;
 mod dialogue;
@@ -15,6 +16,7 @@ pub mod runtime;
 pub mod gpu;
 pub mod hw;
 pub mod jobs;
+mod model_caps;
 pub mod resolve;
 pub mod release;
 mod routes;
@@ -26,6 +28,7 @@ pub mod story;
 pub mod tts;
 pub mod voice;
 pub mod voice_catalog;
+mod voice_tags;
 pub mod turn;
 
 use std::net::{Ipv4Addr, SocketAddr};

@@ -81,6 +81,12 @@ pub struct GeneratedImage {
     pub scene_location: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub edited_from: Option<String>,
+    /// Кто НА САМОМ ДЕЛЕ нарисовал кадр.
+    ///
+    /// `backend` — это перечисление своих движков, и облачную модель им не назвать: под
+    /// кадром от Gemini стояла подпись «krea2-turbo», выбранная в настройках карты.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub rendered_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -69,11 +69,13 @@ pub fn speak_sentence(
     key: &str,
     index: usize,
 ) -> Result<String, String> {
-    let name = format!("tts-{}-{index}.wav", safe_name(key, 80));
+    let name = format!("tts-{}-{index}-{}.wav", safe_name(key, 80), text_mark(sentence));
     let path = generated.join(&name);
     let url = format!("/generated/{name}");
-    // Уже озвученную фразу не пересчитываем: повтор хода не должен занимать карту.
-    if path.is_file() {
+    // Уже озвученную фразу не пересчитываем: повтор хода не должен занимать карту. Но
+    // «файл существует» — не то же самое, что «файл со звуком»: неудачная попытка могла
+    // оставить обрубок, и тогда игрок слышал бы тишину, пока файл не удалят руками.
+    if playable_wav(&path) {
         return Ok(url);
     }
     let (samples, rate) = engine
@@ -179,6 +181,19 @@ pub fn synthesize(
     synthesize_with(root, generated, &crate::runtime::load(root), text, voice, key)
 }
 
+/// Короткая метка текста для имени файла.
+///
+/// Без неё кеш держится на одном ключе хода: отредактировал отрывок, нажал «озвучить» — и
+/// зазвучал старый текст, потому что файл с таким именем уже лежал на диске.
+fn text_mark(text: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.trim().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:x}", hash & 0xffff_ffff)
+}
+
 /// То же, но с уже прочитанными настройками: ход читает их один раз на весь проход.
 pub fn synthesize_with(
     root: &std::path::Path,
@@ -209,7 +224,7 @@ pub fn synthesize_streaming(
 
     // Облачная озвучка карту не трогает и отдаёт весь ход одним файлом.
     if crate::cloud::stage_enabled(runtime, crate::cloud::Stage::Tts) {
-        let name = format!("tts-{}.wav", safe_name(key, 90));
+        let name = format!("tts-{}-{}.wav", safe_name(key, 90), text_mark(text));
         let path = generated.join(&name);
         if !path.is_file() {
             crate::cloud::speak(root, runtime, text, &path)?;
@@ -235,7 +250,7 @@ pub fn synthesize_streaming(
     let mut engine: Option<du_tts::AudiocppEngine> = None;
 
     for (index, sentence) in sentences.iter().enumerate() {
-        let name = format!("tts-{}-{index}.wav", safe_name(key, 80));
+        let name = format!("tts-{}-{index}-{}.wav", safe_name(key, 80), text_mark(sentence));
         let path = generated.join(&name);
         let url = format!("/generated/{name}");
 
@@ -284,6 +299,20 @@ pub async fn speak(State(state): State<AppState>, Json(body): Json<TtsBody>) -> 
     let root = state.root.clone();
     let generated = state.generated.clone();
     let text = body.text.clone();
+
+    // Облачная озвучка карту НЕ занимает, поэтому и в очередь к ней не встаёт: иначе голос
+    // ждал бы, пока дорисуется кадр, хотя считает его чужой сервер.
+    let runtime = crate::runtime::load(&state.root);
+    if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
+        let value = tokio::task::spawn_blocking(move || {
+            synthesize(&root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
+        })
+        .await
+        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(ApiError::internal)?;
+        return Ok(Json(value));
+    }
+
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_| {
@@ -451,4 +480,56 @@ pub fn available_voices(root: &std::path::Path) -> Vec<String> {
         .unwrap_or_default();
     voices.sort();
     voices
+}
+
+
+/// Похож ли файл на пригодный к воспроизведению WAV: заголовок на месте и данные есть.
+///
+/// Проверка дешёвая и намеренно грубая: её задача — не пропустить обрубок, оставшийся от
+/// неудачной попытки, а не проверить формат целиком.
+pub fn playable_wav(path: &std::path::Path) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    let mut head = [0u8; 12];
+    if std::io::Read::read_exact(&mut file, &mut head).is_err() {
+        return false;
+    }
+    let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    &head[0..4] == b"RIFF" && &head[8..12] == b"WAVE" && size > 2_000
+}
+
+#[cfg(test)]
+mod playable_tests {
+    use super::playable_wav;
+
+    #[test]
+    fn an_edited_passage_is_not_replayed_from_the_old_file() {
+        use super::text_mark;
+        // Тот же ключ хода, другой текст — другой файл, иначе игрок услышит прежнюю версию.
+        assert_ne!(text_mark("Ты входишь в избу."), text_mark("Ты выходишь из избы."));
+        // Пробелы по краям на кеш не влияют: это тот же текст.
+        assert_eq!(text_mark(" Ты входишь. "), text_mark("Ты входишь."));
+    }
+
+    #[test]
+    fn a_leftover_stub_is_not_mistaken_for_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("обрубок.wav");
+        std::fs::write(&path, vec![0u8; 4096]).unwrap();
+        assert!(!playable_wav(&path), "нулевой файл принят за звук");
+    }
+
+    #[test]
+    fn a_real_wav_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("звук.wav");
+        let mut bytes = b"RIFF\x00\x00\x00\x00WAVE".to_vec();
+        bytes.extend(std::iter::repeat(0u8).take(4096));
+        std::fs::write(&path, bytes).unwrap();
+        assert!(playable_wav(&path));
+    }
+
+    #[test]
+    fn a_missing_file_is_not_playable() {
+        assert!(!playable_wav(std::path::Path::new("нет-такого.wav")));
+    }
 }

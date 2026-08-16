@@ -96,11 +96,33 @@ impl Sampling {
 const TRANSIENT: [u16; 5] = [429, 500, 502, 503, 504];
 const MAX_ATTEMPTS: u32 = 3;
 
+/// Как быть с «размышлениями» модели.
+///
+/// Отключать их можно НЕ у всех: часть моделей отвечает отказом «reasoning is mandatory».
+/// Поэтому режим выбирает вызывающий, опираясь на то, что провайдер сообщил о модели.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Reasoning {
+    /// Ничего не просим — как у модели заведено.
+    #[default]
+    AsIs,
+    /// Думать можно, но в ответ рассуждения не класть: они съедают лимит ответа.
+    Hide,
+    /// Не думать вовсе — только там, где модель это разрешает.
+    Off,
+}
+
+/// Уровень усилия размышлений, если модель его принимает. Строку берём из её схемы:
+/// уровень «мимо списка» модель не понимает и отвечает пустотой.
+#[derive(Clone, Debug, Default)]
+pub struct Effort(pub Option<String>);
+
 pub struct ChatClient {
     endpoint: String,
     http: reqwest::blocking::Client,
     api_key: Option<String>,
     model: Option<String>,
+    reasoning: Reasoning,
+    effort: Effort,
 }
 
 /// Привести введённый пользователем адрес к эндпоинту `/chat/completions`: принимаем и голый
@@ -125,11 +147,30 @@ impl ChatClient {
             .timeout(timeout)
             .build()
             .map_err(|e| LlmError::Http(e.to_string()))?;
-        Ok(Self { endpoint: chat_endpoint(base_url), http, api_key: None, model: None })
+        Ok(Self {
+            endpoint: chat_endpoint(base_url),
+            http,
+            api_key: None,
+            model: None,
+            reasoning: Reasoning::AsIs,
+            effort: Effort::default(),
+        })
     }
 
     pub fn with_api_key(mut self, key: Option<String>) -> Self {
         self.api_key = key.filter(|key| !key.trim().is_empty());
+        self
+    }
+
+    /// Как обходиться с размышлениями модели.
+    pub fn with_reasoning(mut self, reasoning: Reasoning) -> Self {
+        self.reasoning = reasoning;
+        self
+    }
+
+    /// Какой уровень усилия просить — строго из тех, что перечислила схема модели.
+    pub fn with_effort(mut self, effort: Effort) -> Self {
+        self.effort = effort;
         self
     }
 
@@ -163,7 +204,24 @@ impl ChatClient {
         if self.model.is_none() {
             body.insert("chat_template_kwargs".into(), json!({ "enable_thinking": false }));
         } else {
-            body.insert("reasoning".into(), json!({ "enabled": false, "exclude": true }));
+            match self.reasoning {
+                // «enabled: false» принимают не все: Gemini и Grok отвечают отказом
+                // «reasoning is mandatory». Просить его вслепую нельзя.
+                Reasoning::Off => {
+                    body.insert("reasoning".into(), json!({ "enabled": false, "exclude": true }));
+                }
+                // Думать не запрещаем, но рассуждения в ответ не кладём — иначе они съедают
+                // лимит, и структурный проход возвращает пустоту.
+                Reasoning::Hide => {
+                    let mut block = json!({ "exclude": true });
+                    // Уровень просим только тот, что модель объявила: чужой она не поймёт.
+                    if let Some(effort) = self.effort.0.as_deref() {
+                        block["effort"] = json!(effort);
+                    }
+                    body.insert("reasoning".into(), block);
+                }
+                Reasoning::AsIs => {}
+            }
         }
         body
     }
@@ -370,10 +428,17 @@ mod tests {
             .with_model(Some("gemma".into()));
         let body = cloud.body(&messages, &sampling, false);
         assert!(body.get("chat_template_kwargs").is_none(), "поле llama.cpp в облаке лишнее");
-        assert_eq!(
-            body["reasoning"]["enabled"],
-            json!(false),
-            "иначе облачная модель уходит рассуждать и структурный проход возвращает пустоту"
+        assert!(body.get("reasoning").is_none(), "без явного режима поле не шлём");
+
+        let cloud = ChatClient::new("https://example.org", Duration::from_secs(5))
+            .unwrap()
+            .with_model(Some("gemma".into()))
+            .with_reasoning(Reasoning::Hide);
+        let body = cloud.body(&messages, &sampling, false);
+        assert_eq!(body["reasoning"]["exclude"], json!(true));
+        assert!(
+            body["reasoning"].get("enabled").is_none(),
+            "часть моделей отвергает запрет размышлений — просить его нельзя"
         );
         assert_eq!(body["model"], "gemma");
     }

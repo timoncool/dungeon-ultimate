@@ -122,8 +122,14 @@ export default function BookReader({
   messages,
   onSpeak,
   speakingId,
+  busy = false,
+  stage = "",
 }: {
   messages: StoryMessage[];
+  /// Идёт ли сейчас ход — тогда на пергаменте видно, чем занят движок.
+  busy?: boolean;
+  /// Что именно считается прямо сейчас, человеческими словами.
+  stage?: string;
   // Voice an arbitrary chunk of prose (a whole open spread) under a stable id, so the
   // one "Озвучить" reads BOTH open pages, not a single message.
   onSpeak?: (id: string, text: string) => void;
@@ -465,6 +471,14 @@ export default function BookReader({
             </div>
           ))}
         </HTMLFlipBook>
+      )}
+      {/* Что движок делает прямо сейчас — на самом пергаменте, иначе в режиме книги
+          игрок не понимает, ждёт он текста, кадра или голоса. */}
+      {busy && (
+        <div className="flex items-center gap-2 rounded-full border border-amber-900/50 bg-amber-950/25 px-3 py-1.5 font-serif text-sm italic text-amber-100/80">
+          <span className="size-1.5 animate-pulse rounded-full bg-amber-300" aria-hidden="true" />
+          {stage || "Ход идёт…"}
+        </div>
       )}
       <div className="flex items-center gap-3">
         <button

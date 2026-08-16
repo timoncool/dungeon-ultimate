@@ -8,7 +8,8 @@
 pub mod client;
 pub mod server;
 
-pub use client::{chat_endpoint, parse_json_lenient, ChatClient, Message, Part, Sampling};
+pub use client::{
+    Effort, Reasoning,chat_endpoint, parse_json_lenient, ChatClient, Message, Part, Sampling};
 pub use server::{resolve_llama_bin, LlamaServer, ServerOpts};
 
 #[derive(Debug, thiserror::Error)]
