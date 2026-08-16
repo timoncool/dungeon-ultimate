@@ -20,7 +20,7 @@
 
 ## Overview
 
-**Dungeon Ultimate** is a fully on-device AI roleplay engine — a tireless dungeon master that writes your story, runs real tabletop rules, rolls physics dice, illustrates the scene and reads it aloud. Everything happens on your own NVIDIA GPU: no cloud, no API keys, no accounts, no content filters, and nothing ever leaves your PC.
+**Dungeon Ultimate** is a fully on-device AI roleplay engine — a tireless dungeon master that writes your story, runs real tabletop rules, rolls physics dice, illustrates the scene and reads it aloud. Everything can happen on your own NVIDIA GPU: no accounts, no content filters, and nothing leaves your PC. A cloud mode is there if you want it — every stage of a turn can run through OpenRouter instead, so a machine without a GPU plays the same game.
 
 It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/open-dungeon), rebuilt around a local text model, an uncensored local image pipeline, a D&D-style game engine with **real 3D physics dice**, and on-device voice input.
 
