@@ -219,3 +219,39 @@ pub async fn edit_message(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Задания чата: и предложенные, и взятые, и закрытые — список ведёт сама игра.
+pub async fn list_quests(
+    State(state): State<AppState>,
+    Path(chat_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let quests = state.store.list_quests(&chat_id)?;
+    Ok(Json(json!({ "quests": quests })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestPatch {
+    pub status: du_rpg::QuestStatus,
+}
+
+/// Решение игрока по заданию: взять, отказаться или бросить уже взятое.
+///
+/// Выполненным задание делает движок по ходу истории, а не эта ручка: иначе игрок
+/// закрывал бы задания в обход условий.
+pub async fn patch_quest(
+    State(state): State<AppState>,
+    Path((chat_id, quest_id)): Path<(String, String)>,
+    Json(body): Json<QuestPatch>,
+) -> ApiResult<Json<Value>> {
+    use du_rpg::QuestStatus;
+    if !matches!(body.status, QuestStatus::Active | QuestStatus::Declined | QuestStatus::Failed) {
+        return Err(ApiError::bad_request(
+            "задание закрывает движок по ходу истории: снаружи можно только взять, отказаться или бросить",
+        ));
+    }
+    let quest = state
+        .store
+        .set_quest_status(&chat_id, &quest_id, body.status, &crate::story::now_iso())?
+        .ok_or_else(|| ApiError::not_found("задание не найдено"))?;
+    Ok(Json(json!({ "quest": quest })))
+}

@@ -8,11 +8,21 @@ use crate::journal::{render, JournalLabels};
 use crate::dice::{clamp_stat, roll_check, roll_die, roll_notation, Ability, Crit, ABILITIES};
 use crate::types::{
     ApplyEffectDecl, CharacterRpg, Effect, EffectKind, Enemy, EventKind, GameEvent, GameUpdate,
-    Item, Modifiers,
+    Item, Modifiers, Quest, QuestStatus,
 };
 
 /// Сколько активных эффектов держим на персонаже, чтобы список не рос без предела.
 const EFFECT_CAP: usize = 8;
+/// Опыт за задание, если модель не назвала свой.
+const DEFAULT_QUEST_XP: i32 = 120;
+/// Сколько заданий можно держать открытыми одновременно.
+const OPEN_QUEST_CAP: usize = 2;
+/// Сколько ходов должно пройти между предложениями.
+///
+/// Задание — редкое и заметное событие, а не объявление на каждом углу: за пятнадцать
+/// ходов игрок успевает прожить целую сцену, и следующая просьба звучит как просьба, а не
+/// как поток.
+const QUEST_COOLDOWN: i64 = 15;
 /// Шанс случайного события за разрешённый ход, в процентах.
 const RANDOM_EVENT_CHANCE: i32 = 15;
 
@@ -34,11 +44,19 @@ pub struct ApplyResult {
     pub changed: Vec<String>,
     pub items: Vec<Item>,
     pub spawned_enemies: Vec<Enemy>,
+    /// Задания, которые модель предложила этим ходом. Игрок ещё не решил, брать ли их.
+    pub quests_offered: Vec<Quest>,
+    /// Заголовки заданий, которые закрылись, и чем именно.
+    pub quests_closed: Vec<(String, QuestStatus)>,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct ApplyOptions {
     pub hero_id: Option<String>,
+    /// Открытые задания чата: без них нечего закрывать и не с чем сверяться.
+    pub quests: Vec<Quest>,
+    /// Номер текущего хода — по нему держится редкость заданий.
+    pub turn: i64,
     pub random_events: bool,
     /// Подписи журнала на языке игры. По умолчанию русские — как было.
     pub journal: JournalLabels,
@@ -171,6 +189,80 @@ fn looks_like_deliberation(note: &str) -> bool {
         "провал — ",
     ];
     MARKS.iter().filter(|mark| low.contains(*mark)).count() >= 2
+}
+
+/// Одно и то же ли это задание. Модель редко повторяет заголовок слово в слово, поэтому
+/// сверяем без регистра и по вхождению — «Найти пропавшего сына» и «найти пропавшего сына
+/// мельника» это одно задание.
+fn same_quest(left: &str, right: &str) -> bool {
+    let left = left.trim().to_lowercase();
+    let right = right.trim().to_lowercase();
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    left == right || left.contains(&right) || right.contains(&left)
+}
+
+/// Начислить опыт и, если набралось, поднять уровень.
+///
+/// Уровень поднимает запас сил и лечит на ту же величину: рост должен ощущаться сразу, а
+/// не «когда-нибудь после отдыха».
+fn award_xp(
+    actors: &mut ActorMap,
+    opts: &ApplyOptions,
+    labels: &JournalLabels,
+    result: &mut ApplyResult,
+    character_id: Option<&str>,
+    amount: i32,
+    reason: Option<&str>,
+) {
+    let resolver = Resolver { actors, hero_id: opts.hero_id.clone() };
+    let Some(target_id) = resolver.resolve_actor_id(character_id) else { return };
+    let Some(actor) = actors.get_mut(&target_id) else { return };
+
+    let before = actor.rpg.level;
+    actor.rpg.xp = actor.rpg.xp.saturating_add(amount).max(0);
+    let name = actor.name.clone();
+    let tail = reason
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    result.events.push(make_event(
+        EventKind::Level,
+        render(
+            &labels.xp_gained,
+            &[
+                ("name", &name),
+                ("amount", &amount.to_string()),
+                ("reason", &tail),
+                ("xp", &actor.rpg.xp.to_string()),
+            ],
+        ),
+        Some(serde_json::json!({ "xp": actor.rpg.xp, "amount": amount })),
+    ));
+
+    let after = crate::levels::level_for_xp(actor.rpg.xp);
+    if after > before {
+        let gained = (after - before) * crate::levels::HP_PER_LEVEL;
+        actor.rpg.level = after;
+        actor.rpg.hp.max += gained;
+        actor.rpg.hp.current = (actor.rpg.hp.current + gained).min(actor.rpg.hp.max);
+        result.events.push(make_event(
+            EventKind::Level,
+            render(
+                &labels.level_up,
+                &[
+                    ("name", &name),
+                    ("level", &after.to_string()),
+                    ("hp", &actor.rpg.hp.current.to_string()),
+                    ("max", &actor.rpg.hp.max.to_string()),
+                ],
+            ),
+            Some(serde_json::json!({ "level": after })),
+        ));
+    }
+    result.changed.push(target_id);
 }
 
 /// Собрать эффект из объявления модели, отбросив мусор.
@@ -417,6 +509,126 @@ pub fn apply_game_update(
         ));
     }
 
+    // ── Задания ────────────────────────────────────────────────────────────────
+    //
+    // Предложенное задание игрок ещё не взял: оно ждёт его решения. Закрывать можно
+    // только ВЗЯТОЕ — иначе модель «выполнила» бы то, от чего игрок отказался.
+    // Заданий не должно быть много: иначе они сыплются каждым ходом и превращаются в шум.
+    // Одно новое за ход, и только пока открытых меньше трёх.
+    let open_now = opts.quests.iter().filter(|quest| quest.status.is_open()).count();
+    // Недавнее задание закрывает дорогу следующему: пусть предыдущее сначала поживёт.
+    let too_soon = opts
+        .quests
+        .iter()
+        .any(|quest| quest.turn > 0 && opts.turn - quest.turn < QUEST_COOLDOWN);
+    for offer in update.offer_quests.iter().take(1) {
+        if open_now >= OPEN_QUEST_CAP || too_soon {
+            break;
+        }
+        let title = offer.title.trim();
+        // Задание должен кто-то ДАТЬ. Без имени выдавшего его некому вернуть, и это не
+        // задание, а просто мысль вслух.
+        let giver = offer.giver.as_deref().map(str::trim).unwrap_or_default();
+        if title.is_empty() || giver.is_empty() {
+            continue;
+        }
+        // Повтор того же задания — не новое задание: модель нередко напоминает о нём.
+        if opts.quests.iter().any(|quest| same_quest(&quest.title, title)) {
+            continue;
+        }
+        let quest = Quest {
+            id: new_id(),
+            title: title.to_string(),
+            giver: Some(giver.to_string()),
+            summary: offer.summary.clone().unwrap_or_default(),
+            conditions: offer.conditions.iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
+            reward: offer.reward.clone(),
+            // Модель часто оставляет опыт нулём. Задание без награды не имеет смысла —
+            // ставим средний вес, а свой вес она может назначить сама.
+            xp: match offer.xp.unwrap_or(0) {
+                value if value > 0 => value,
+                _ => DEFAULT_QUEST_XP,
+            },
+            status: QuestStatus::Offered,
+            turn: opts.turn,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let giver = quest
+            .giver
+            .as_deref()
+            .map(|giver| format!(" — от {giver}"))
+            .unwrap_or_default();
+        result.events.push(make_event(
+            EventKind::Quest,
+            render(&labels.quest_offered, &[("title", &quest.title), ("giver", &giver)]),
+            Some(serde_json::json!({ "questId": quest.id, "status": "offered" })),
+        ));
+        result.quests_offered.push(quest);
+    }
+
+    for outcome in update.complete_quests.iter().map(|o| (o, QuestStatus::Done))
+        .chain(update.fail_quests.iter().map(|o| (o, QuestStatus::Failed)))
+    {
+        let (outcome, status) = outcome;
+        let title = outcome.title.trim();
+        // Закрыть можно только то, что игрок взял.
+        let Some(quest) = opts
+            .quests
+            .iter()
+            .find(|quest| quest.status == QuestStatus::Active && same_quest(&quest.title, title))
+        else {
+            continue;
+        };
+        if result.quests_closed.iter().any(|(id, _)| id == &quest.id) {
+            continue;
+        }
+        let tail = outcome
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty())
+            .map(|reason| format!(" ({reason})"))
+            .unwrap_or_default();
+        let line = if status == QuestStatus::Done {
+            let reward = quest
+                .reward
+                .as_deref()
+                .map(|reward| format!(" — награда: {reward}"))
+                .unwrap_or(tail.clone());
+            render(&labels.quest_completed, &[("title", &quest.title), ("reward", &reward)])
+        } else {
+            render(&labels.quest_failed, &[("title", &quest.title), ("reason", &tail)])
+        };
+        result.events.push(make_event(
+            EventKind::Quest,
+            line,
+            Some(serde_json::json!({ "questId": quest.id, "status": status })),
+        ));
+        result.quests_closed.push((quest.id.clone(), status));
+        // Опыт за выполненное задание начисляем здесь же: отдельного объявления от модели
+        // ждать нельзя, она о нём забудет.
+        if status == QuestStatus::Done && quest.xp > 0 {
+            award_xp(actors, opts, labels, &mut result, None, quest.xp, Some(&quest.title));
+        }
+    }
+
+    // ── Опыт, объявленный моделью ──────────────────────────────────────────────
+    for award in &update.award_xp {
+        if award.amount <= 0 {
+            continue;
+        }
+        award_xp(
+            actors,
+            opts,
+            labels,
+            &mut result,
+            award.character_id.as_deref(),
+            award.amount,
+            award.reason.as_deref(),
+        );
+    }
+
     // Изменения HP.
     for delta in &update.hp_delta {
         let resolver = Resolver { actors, hero_id: opts.hero_id.clone() };
@@ -591,7 +803,9 @@ pub fn apply_game_update(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AttackDecl, HpDeltaDecl, Hp, SpawnDecl};
+    use crate::types::{
+        AttackDecl, Hp, HpDeltaDecl, OfferQuestDecl, QuestOutcomeDecl, SpawnDecl, XpAwardDecl,
+    };
 
     fn actor(name: &str, hp: i32, ac: i32) -> Actor {
         let mut rpg = CharacterRpg::default();
@@ -605,6 +819,194 @@ mod tests {
         actors.insert("hero".into(), actor("Герой", 30, 15));
         actors.insert("foe".into(), actor("Гоблин", 12, 10));
         actors
+    }
+
+    fn quest(title: &str, status: QuestStatus, xp: i32) -> Quest {
+        Quest {
+            id: format!("q-{title}"),
+            title: title.into(),
+            giver: Some("Мельник".into()),
+            summary: String::new(),
+            conditions: vec![],
+            reward: None,
+            xp,
+            status,
+            turn: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn an_offered_quest_waits_for_the_players_word() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            offer_quests: vec![OfferQuestDecl {
+                title: "Найти пропавшего сына".into(),
+                giver: Some("Мельник".into()),
+                summary: Some("Сын ушёл к мельнице и не вернулся.".into()),
+                conditions: vec!["Вернуться к мельнику".into()],
+                xp: Some(150),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        assert_eq!(result.quests_offered.len(), 1);
+        assert_eq!(result.quests_offered[0].status, QuestStatus::Offered);
+        assert_eq!(result.quests_offered[0].xp, 150);
+        // Опыт за предложенное не начисляется: игрок его ещё не брал.
+        assert_eq!(actors["hero"].rpg.xp, 0);
+    }
+
+    #[test]
+    fn the_same_quest_is_not_offered_twice() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            offer_quests: vec![OfferQuestDecl {
+                title: "найти пропавшего сына".into(),
+                giver: Some("Мельник".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = ApplyOptions {
+            quests: vec![quest("Найти пропавшего сына", QuestStatus::Active, 0)],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &opts);
+        assert!(result.quests_offered.is_empty(), "напоминание — не новое задание");
+    }
+
+    #[test]
+    fn quests_do_not_rain_down_every_turn() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            offer_quests: vec![
+                OfferQuestDecl { title: "Первое".into(), giver: Some("Мельник".into()), ..Default::default() },
+                OfferQuestDecl { title: "Второе".into(), giver: Some("Кузнец".into()), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        // За ход берём только одно предложение, даже если модель выкатила пачку.
+        let result = apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        assert_eq!(result.quests_offered.len(), 1);
+
+        // И ни одного, когда открытых уже три.
+        let busy = ApplyOptions {
+            quests: vec![
+                quest("А", QuestStatus::Active, 0),
+                quest("Б", QuestStatus::Active, 0),
+            ],
+            ..Default::default()
+        };
+        assert!(apply_game_update(&update, &mut actors, &busy).quests_offered.is_empty());
+    }
+
+    #[test]
+    fn a_quest_is_always_worth_something() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            offer_quests: vec![OfferQuestDecl {
+                title: "Пропавший сын".into(),
+                giver: Some("Гордей".into()),
+                xp: Some(0),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        assert_eq!(result.quests_offered[0].xp, DEFAULT_QUEST_XP);
+    }
+
+    #[test]
+    fn a_quest_nobody_gave_is_not_a_quest() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            offer_quests: vec![OfferQuestDecl { title: "Сходить к реке".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        assert!(result.quests_offered.is_empty(), "без выдавшего это не задание");
+    }
+
+    #[test]
+    fn a_fresh_quest_blocks_the_next_one_for_a_long_while() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            offer_quests: vec![OfferQuestDecl {
+                title: "Новое".into(),
+                giver: Some("Кузнец".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut recent = quest("Старое", QuestStatus::Active, 0);
+        recent.turn = 10;
+        // Прошло всего пять ходов — рано.
+        let soon = ApplyOptions { quests: vec![recent.clone()], turn: 15, ..Default::default() };
+        assert!(apply_game_update(&update, &mut actors, &soon).quests_offered.is_empty());
+
+        // Через полтора десятка ходов — можно.
+        let later = ApplyOptions { quests: vec![recent], turn: 30, ..Default::default() };
+        assert_eq!(apply_game_update(&update, &mut actors, &later).quests_offered.len(), 1);
+    }
+
+    #[test]
+    fn only_a_taken_quest_can_be_completed() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            complete_quests: vec![QuestOutcomeDecl { title: "Найти сына".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        // Задание лишь предложено — закрывать нечего.
+        let offered = ApplyOptions {
+            quests: vec![quest("Найти сына", QuestStatus::Offered, 100)],
+            ..Default::default()
+        };
+        assert!(apply_game_update(&update, &mut actors, &offered).quests_closed.is_empty());
+
+        let taken = ApplyOptions {
+            quests: vec![quest("Найти сына", QuestStatus::Active, 100)],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &taken);
+        assert_eq!(result.quests_closed.len(), 1);
+        assert_eq!(result.quests_closed[0].1, QuestStatus::Done);
+        // Опыт за выполнение приходит сам, отдельного объявления ждать не надо.
+        assert_eq!(actors["hero"].rpg.xp, 100);
+        assert_eq!(actors["hero"].rpg.level, 2, "сотня опыта — это второй уровень");
+    }
+
+    #[test]
+    fn a_new_level_raises_the_pool_of_strength() {
+        let mut actors = cast();
+        let before = actors["hero"].rpg.hp.max;
+        let update = GameUpdate {
+            award_xp: vec![XpAwardDecl { amount: 350, reason: Some("логово разорено".into()), ..Default::default() }],
+            ..Default::default()
+        };
+        apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        let hero = &actors["hero"].rpg;
+        assert_eq!(hero.level, 3, "350 опыта — это сразу третий уровень");
+        assert_eq!(hero.hp.max, before + 2 * crate::levels::HP_PER_LEVEL);
+        assert!(hero.hp.current > 30, "рост уровня прибавляет и текущие силы");
+    }
+
+    #[test]
+    fn a_failed_quest_awards_nothing() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            fail_quests: vec![QuestOutcomeDecl { title: "Найти сына".into(), reason: Some("сын погиб".into()) }],
+            ..Default::default()
+        };
+        let opts = ApplyOptions {
+            quests: vec![quest("Найти сына", QuestStatus::Active, 100)],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &opts);
+        assert_eq!(result.quests_closed[0].1, QuestStatus::Failed);
+        assert_eq!(actors["hero"].rpg.xp, 0);
     }
 
     #[test]

@@ -208,6 +208,8 @@ pub enum EventKind {
     Item,
     Combat,
     Effect,
+    Quest,
+    Level,
     Note,
 }
 
@@ -265,6 +267,90 @@ impl ItemRarity {
             ItemRarity::Legendary => "легендарный",
         }
     }
+}
+
+/// Состояние задания.
+///
+/// `Offered` — модель предложила, игрок ещё не решил. Дальше он либо берёт его (`Active`),
+/// либо отказывается (`Declined`). Взятое задание висит в контексте хода, пока не закроется.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QuestStatus {
+    Offered,
+    Active,
+    Done,
+    Failed,
+    Declined,
+}
+
+impl Default for QuestStatus {
+    fn default() -> Self {
+        Self::Offered
+    }
+}
+
+impl QuestStatus {
+    /// Держим ли мы задание в контексте хода.
+    pub fn is_open(self) -> bool {
+        matches!(self, QuestStatus::Offered | QuestStatus::Active)
+    }
+}
+
+/// Задание: кто дал, что нужно сделать и при каких условиях оно закроется.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Quest {
+    pub id: String,
+    pub title: String,
+    /// Кто выдал. Без этого задание нельзя вернуть — и непонятно, к кому идти.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub giver: Option<String>,
+    pub summary: String,
+    /// Условия, по которым видно, выполнено оно или нет.
+    #[serde(default)]
+    pub conditions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reward: Option<String>,
+    /// Опыт за выполнение.
+    #[serde(default)]
+    pub xp: i32,
+    #[serde(default)]
+    pub status: QuestStatus,
+    /// На каком ходу задание предложили. По нему держится редкость: следующее не раньше,
+    /// чем через несколько ходов.
+    #[serde(default)]
+    pub turn: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Предложение задания от модели.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OfferQuestDecl {
+    pub title: String,
+    pub giver: Option<String>,
+    pub summary: Option<String>,
+    pub conditions: Vec<String>,
+    pub reward: Option<String>,
+    pub xp: Option<i32>,
+}
+
+/// Закрытие задания: модель называет его заголовком, который сама же и дала.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct QuestOutcomeDecl {
+    pub title: String,
+    pub reason: Option<String>,
+}
+
+/// Начисление опыта — за бой, находку или что угодно ещё по решению модели.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct XpAwardDecl {
+    pub character_id: Option<String>,
+    pub amount: i32,
+    pub reason: Option<String>,
 }
 
 /// Предмет инвентаря. `image_url` заполняет пайплайн картинок, когда дроп иллюстрируется,
@@ -393,6 +479,10 @@ pub struct GameUpdate {
     pub grant_items: Vec<GrantItemDecl>,
     pub apply_effects: Vec<ApplyEffectDecl>,
     pub clear_effects: Vec<ClearEffectDecl>,
+    pub offer_quests: Vec<OfferQuestDecl>,
+    pub complete_quests: Vec<QuestOutcomeDecl>,
+    pub fail_quests: Vec<QuestOutcomeDecl>,
+    pub award_xp: Vec<XpAwardDecl>,
     pub note: Option<String>,
 }
 

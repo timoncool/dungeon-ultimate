@@ -38,6 +38,7 @@ import {
   Volume2,
   WandSparkles,
   X,
+  ScrollText,
 } from "lucide-react";
 import {
   lazy,
@@ -64,6 +65,8 @@ import {
   type ImageMode,
   type Language,
   type ProseSize,
+  type Quest,
+  type QuestStatus,
   type ResponseLength,
   type StoryChat,
   type StoryCharacter,
@@ -509,6 +512,7 @@ export default function Home() {
   const [heroRpg, setHeroRpg] = useState<CharacterRpg | null>(null);
   const [heroId, setHeroId] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [quests, setQuests] = useState<Quest[]>([]);
   // The protagonist character (matches the server's getHeroCharacter / heroId), used
   // for the HUD name + portrait so they don't flip to a recently-edited companion.
   const heroChar = characters.find((character) => character.id === heroId) ?? characters[0] ?? null;
@@ -607,6 +611,7 @@ export default function Home() {
       setHeroRpg(hero);
       setHeroId(heroIdArg);
       setItems(ownedItems);
+      setQuests([]);
       setJournal(events);
       // Don't let the previous chat bleed into this one: stop its TTS, drop its
       // queued dice roll and its suggested-action chips (refs/setters are stable).
@@ -713,6 +718,14 @@ export default function Home() {
       setHeroRpg(payload.heroRpg ?? null);
       setHeroId(payload.heroId ?? null);
       setItems(payload.items ?? []);
+      // Задания живут отдельным списком: их состояние меняется и ходом, и решением игрока.
+      try {
+        const response = await fetch(`/api/chats/${chatId}/quests`, { cache: "no-store" });
+        const payload = await readApi<{ quests: Quest[] }>(response);
+        setQuests(payload.quests ?? []);
+      } catch {
+        // список заданий — не повод рушить обновление профиля
+      }
       // After a Retry/Erase rollback the journal must be re-pulled (the rolled-back
       // turn's events were deleted server-side); live turns append instead.
       if (resetJournal) setJournal(payload.events ?? []);
@@ -720,6 +733,31 @@ export default function Home() {
       // best-effort HUD refresh
     }
   }, []);
+
+  /// Взять задание, отказаться от него или бросить уже взятое.
+  ///
+  /// Выполненным задание делает движок по ходу истории — снаружи это невозможно, иначе
+  /// награду можно было бы получить в обход условий.
+  const decideQuest = useCallback(
+    async (questId: string, status: QuestStatus) => {
+      const snapshot = quests;
+      setQuests((current) =>
+        current.map((quest) => (quest.id === questId ? { ...quest, status } : quest)),
+      );
+      try {
+        const response = await fetch(`/api/chats/${selectedChatId}/quests/${questId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        await readApi<{ quest: Quest }>(response);
+      } catch (questError) {
+        setQuests(snapshot);
+        setError(questError instanceof Error ? questError.message : "Не удалось изменить задание.");
+      }
+    },
+    [quests, selectedChatId],
+  );
 
   // When the narrator marks a loot drop as illustrated (withImage), generate a
   // dedicated portrait for each new item, then refresh so the inventory shows it.
@@ -2636,6 +2674,7 @@ export default function Home() {
                   {heroItems.length > 0 && (
                     <InventoryPanel items={heroItems} onToggle={equipItem} disabled={busy} />
                   )}
+                  <QuestsPanel quests={quests} onDecide={decideQuest} disabled={busy} />
                 </div>
               )}
               {settings.rpgEnabled && journal.length > 0 && (
@@ -5023,6 +5062,114 @@ const SLOT_ICON: Record<Item["slot"], typeof Swords> = {
   consumable: Heart,
   misc: Backpack,
 };
+
+/// Задания героя: предложенные ждут решения, взятые висят до конца.
+///
+/// Задание выдаёт персонаж истории, и игрок сам решает, брать его или нет. Взятое уходит
+/// в состояние хода и держится там, пока не закроется, — поэтому рассказчик о нём помнит.
+function QuestsPanel({
+  quests,
+  onDecide,
+  disabled,
+}: {
+  quests: Quest[];
+  onDecide: (questId: string, status: QuestStatus) => void;
+  disabled?: boolean;
+}) {
+  const open = quests.filter((quest) => quest.status === "offered" || quest.status === "active");
+  const closed = quests.filter((quest) => quest.status === "done" || quest.status === "failed");
+  if (!open.length && !closed.length) return null;
+
+  return (
+    <div className="max-h-56 space-y-1.5 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
+        <ScrollText className="size-3.5" aria-hidden="true" />
+        Задания
+      </div>
+
+      {open.map((quest) => (
+        <div
+          key={quest.id}
+          className={cn(
+            "rounded border px-2 py-1.5",
+            quest.status === "offered"
+              ? "border-amber-700/60 bg-amber-900/20"
+              : "border-stone-800 bg-stone-950/60",
+          )}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 text-xs font-medium text-amber-100">{quest.title}</p>
+            {quest.xp > 0 && (
+              <span className="shrink-0 text-[10px] tabular-nums text-amber-400/80">
+                +{quest.xp} опыта
+              </span>
+            )}
+          </div>
+          {quest.giver && (
+            <p className="mt-0.5 text-[11px] text-stone-400">от: {quest.giver}</p>
+          )}
+          {quest.summary && (
+            <p className="mt-0.5 text-[11px] leading-4 text-stone-300">{quest.summary}</p>
+          )}
+          {quest.conditions.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {quest.conditions.map((condition: string) => (
+                <li key={condition} className="text-[11px] leading-4 text-stone-400">
+                  — {condition}
+                </li>
+              ))}
+            </ul>
+          )}
+          {quest.reward && (
+            <p className="mt-0.5 text-[11px] text-amber-300/80">награда: {quest.reward}</p>
+          )}
+
+          <div className="mt-1.5 flex gap-1.5">
+            {quest.status === "offered" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onDecide(quest.id, "active")}
+                  className="rounded border border-amber-600/70 bg-amber-900/40 px-2 py-0.5 text-[11px] text-amber-100 transition hover:border-amber-400 disabled:opacity-50"
+                >
+                  Взять
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onDecide(quest.id, "declined")}
+                  className="rounded border border-stone-700 px-2 py-0.5 text-[11px] text-stone-300 transition hover:border-stone-500 disabled:opacity-50"
+                >
+                  Отказаться
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onDecide(quest.id, "failed")}
+                className="rounded border border-stone-700 px-2 py-0.5 text-[11px] text-stone-400 transition hover:border-red-600/70 hover:text-red-300 disabled:opacity-50"
+              >
+                Бросить
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {closed.length > 0 && (
+        <div className="pt-1">
+          {closed.map((quest) => (
+            <p key={quest.id} className="truncate text-[11px] text-stone-500">
+              {quest.status === "done" ? "✅" : "❌"} {quest.title}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Inventory list: rarity-tinted name, slot/damage line, optional generated
 // thumbnail, equip/unequip toggle. Equippable = anything that isn't consumable/misc.

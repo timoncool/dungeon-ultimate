@@ -237,12 +237,14 @@ impl Gpu {
         Ok(images)
     }
 
-    /// Сведения о движке для страницы состояния.
+    /// Сведения о движке картинок — ТОЛЬКО если он уже загружен.
+    ///
+    /// Раньше эта справка сама грузила движок: страница состояния опрашивает её при каждом
+    /// открытии, и `sd.cpp` поднимал CUDA прямо в процессе сервера — видеокарта занята
+    /// движком, которым игрок не пользуется, а кадры при этом рисует облако. Ради подписи
+    /// в интерфейсе грузить движок незачем: не загружен — так и скажем.
     pub fn image_info(&self) -> Option<(String, Vec<String>)> {
-        let mut engine_slot = self.engine.lock().unwrap_or_else(|e| e.into_inner());
-        if engine_slot.is_none() {
-            *engine_slot = Engine::load(&self.paths.image_runtime).ok();
-        }
+        let engine_slot = self.engine.lock().unwrap_or_else(|e| e.into_inner());
         engine_slot
             .as_ref()
             .map(|engine| (engine.version(), engine.devices()))

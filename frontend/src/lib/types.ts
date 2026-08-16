@@ -230,3 +230,21 @@ export type StoryCharacter = {
   createdAt: string;
   updatedAt: string;
 };
+
+/// Состояние задания. `offered` ждёт решения игрока, `active` висит в контексте хода,
+/// остальные — закрытые.
+export type QuestStatus = "offered" | "active" | "done" | "failed" | "declined";
+
+export type Quest = {
+  id: string;
+  title: string;
+  giver?: string;
+  summary: string;
+  conditions: string[];
+  reward?: string;
+  xp: number;
+  status: QuestStatus;
+  turn: number;
+  createdAt: string;
+  updatedAt: string;
+};

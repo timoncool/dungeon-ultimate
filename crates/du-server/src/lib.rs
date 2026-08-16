@@ -52,6 +52,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/chats/{chat_id}", delete(chats::delete_chat))
         .route("/api/chats/{chat_id}/events", get(chats::list_events))
         .route("/api/chats/{chat_id}/items", get(chats::list_items))
+        .route("/api/chats/{chat_id}/quests", get(chats::list_quests))
+        .route("/api/chats/{chat_id}/quests/{quest_id}", patch(chats::patch_quest))
         .route("/api/chats/{chat_id}/items/{item_id}", patch(chats::equip_item))
         .route("/api/chats/{chat_id}/items/{item_id}/image", post(routes::item_image))
         .route("/api/image-worker", post(routes::image_worker))

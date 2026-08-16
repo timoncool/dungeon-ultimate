@@ -8,6 +8,7 @@ pub mod apply;
 mod journal;
 pub mod derive;
 pub mod dice;
+pub mod levels;
 pub mod types;
 
 pub use journal::{render, JournalLabels, RandomEventText};

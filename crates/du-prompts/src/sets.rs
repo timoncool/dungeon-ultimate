@@ -77,6 +77,20 @@ pub struct RpgLabels {
     pub damage: String,
     pub conditions: String,
     pub effects: String,
+    /// Заголовок раздела взятых заданий и подпись их условий. С умолчанием: наборы
+    /// подсказок обновляются отдельно, и старый набор не должен ронять запуск.
+    #[serde(default = "default_quests_label")]
+    pub quests: String,
+    #[serde(default = "default_quest_conditions_label")]
+    pub quest_conditions: String,
+}
+
+fn default_quests_label() -> String {
+    "ВЗЯТЫЕ ЗАДАНИЯ".to_string()
+}
+
+fn default_quest_conditions_label() -> String {
+    "условия".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]

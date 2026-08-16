@@ -142,6 +142,41 @@ pub fn resolve_engine_update(raw: &Value, actors: &ActorMap, hero_id: Option<&st
         });
     }
 
+    for item in array("offerQuests") {
+        let Some(title) = text(&item, "title") else { continue };
+        update.offer_quests.push(du_rpg::OfferQuestDecl {
+            title,
+            giver: text(&item, "giver"),
+            summary: text(&item, "summary"),
+            conditions: item
+                .get("conditions")
+                .and_then(Value::as_array)
+                .map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .unwrap_or_default(),
+            reward: text(&item, "reward"),
+            xp: number(&item, "xp"),
+        });
+    }
+
+    for (key, bucket) in [
+        ("completeQuests", &mut update.complete_quests),
+        ("failQuests", &mut update.fail_quests),
+    ] {
+        for item in raw.get(key).and_then(Value::as_array).cloned().unwrap_or_default() {
+            let Some(title) = text(&item, "title") else { continue };
+            bucket.push(du_rpg::QuestOutcomeDecl { title, reason: text(&item, "reason") });
+        }
+    }
+
+    for item in array("awardXp") {
+        let Some(amount) = number(&item, "amount") else { continue };
+        update.award_xp.push(du_rpg::XpAwardDecl {
+            character_id: resolve_actor(actors, text(&item, "character").as_deref(), hero_id),
+            amount,
+            reason: text(&item, "reason"),
+        });
+    }
+
     update.note = text(raw, "note");
     update
 }

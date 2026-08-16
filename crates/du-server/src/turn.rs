@@ -24,10 +24,11 @@ pub fn build_rpg_section(
     actors: &ActorMap,
     items: &[Item],
     enemies: &[Enemy],
+    quests: &[du_rpg::Quest],
     prompts: &PromptSet,
 ) -> String {
     let rules = prompts.rpg.rules.clone();
-    if actors.is_empty() && enemies.is_empty() {
+    if actors.is_empty() && enemies.is_empty() && quests.is_empty() {
         return rules;
     }
 
@@ -352,6 +353,28 @@ pub fn engine_schema() -> Value {
                 "character": { "type": "string" },
                 "name": { "type": "string" }
             }, "required": ["name"] } },
+            "offerQuests": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": {
+                "title": { "type": "string", "description": "короткое название задания" },
+                "giver": { "type": "string", "description": "кто его дал — имя персонажа" },
+                "summary": { "type": "string", "description": "что нужно сделать, одним предложением" },
+                "conditions": { "type": "array", "items": { "type": "string" },
+                    "description": "по каким условиям видно, что задание выполнено" },
+                "reward": { "type": "string", "description": "что обещано за выполнение" },
+                "xp": { "type": "number", "description": "опыт за выполнение: 50 за простое, 150 за среднее, 400 за трудное" }
+            }, "required": ["title"] } },
+            "completeQuests": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": {
+                "title": { "type": "string", "description": "название задания из раздела ВЗЯТЫЕ ЗАДАНИЯ" },
+                "reason": { "type": "string" }
+            }, "required": ["title"] } },
+            "failQuests": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": {
+                "title": { "type": "string" },
+                "reason": { "type": "string" }
+            }, "required": ["title"] } },
+            "awardXp": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": {
+                "character": { "type": "string" },
+                "amount": { "type": "number", "description": "опыт за победу или находку: 10-50 за бой по силам" },
+                "reason": { "type": "string" }
+            }, "required": ["amount"] } },
             "note": {
                 "type": "string",
                 "description": "короткая заметка ИГРОКУ о последствии хода. НЕ рассуждение,                     не план, не разбор правил и НИКОГДА не исход проверки — исход решает движок",
@@ -469,7 +492,7 @@ mod tests {
         actors.insert("hero".into(), Actor { name: "Герой".into(), rpg });
         let enemies = vec![Enemy { id: "foe".into(), name: "Гоблин".into(), rpg: CharacterRpg::default() }];
 
-        let section = build_rpg_section(&actors, &[], &enemies, prompts_for(Language::Ru));
+        let section = build_rpg_section(&actors, &[], &enemies, &[], prompts_for(Language::Ru));
         assert!(section.contains("[ID: hero]"));
         assert!(section.contains("12/20"));
         assert!(section.contains("Гоблин"));
@@ -482,14 +505,14 @@ mod tests {
         actors.insert("hero".into(), Actor { name: "Герой".into(), rpg: CharacterRpg::default() });
         let items = vec![item("меч героя", Some("hero")), item("ржавый тесак", Some("враг-которого-нет"))];
 
-        let section = build_rpg_section(&actors, &items, &[], prompts_for(Language::Ru));
+        let section = build_rpg_section(&actors, &items, &[], &[], prompts_for(Language::Ru));
         assert!(section.contains("меч героя"));
         assert!(!section.contains("ржавый тесак"), "чужой лут не должен попадать в инвентарь отряда");
     }
 
     #[test]
     fn an_empty_party_still_gets_the_rules() {
-        let section = build_rpg_section(&ActorMap::new(), &[], &[], prompts_for(Language::Ru));
+        let section = build_rpg_section(&ActorMap::new(), &[], &[], &[], prompts_for(Language::Ru));
         assert_eq!(section, prompts_for(Language::Ru).rpg.rules);
     }
 

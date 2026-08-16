@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_chat_created ON items(chat_id, created_at);
+
+CREATE TABLE IF NOT EXISTS quests (
+  id TEXT PRIMARY KEY,
+  chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  data_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quests_chat_created ON quests(chat_id, created_at);
 "#;
 
 /// Колонки, доехавшие до схемы позже: (таблица, колонка, определение).

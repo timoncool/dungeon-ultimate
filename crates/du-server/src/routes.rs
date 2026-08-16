@@ -50,11 +50,17 @@ pub type ApiResult<T> = Result<T, ApiError>;
 
 pub async fn health(State(state): State<AppState>) -> Json<Value> {
     let paths = state.gpu.paths();
-    let (engine_version, devices) = state.gpu.image_info().unwrap_or_default();
+    // Про свой движок картинок спрашиваем, только если кадры и правда рисует своя карта.
+    // Кадры в облаке — местный движок к делу не относится, и трогать его незачем.
+    let runtime = crate::runtime::load(&state.root);
+    let in_cloud = crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Image);
+    let (engine_version, devices) =
+        if in_cloud { Default::default() } else { state.gpu.image_info().unwrap_or_default() };
     Json(json!({
         "ok": true,
         "image": {
-            "ready": paths.image_ready(),
+            "ready": in_cloud || paths.image_ready(),
+            "inCloud": in_cloud,
             "engine": engine_version,
             "devices": devices,
         },
@@ -590,6 +596,14 @@ pub async fn image_worker(
     let paths = state.gpu.paths();
     match body.action.as_str() {
         "start" | "status" => {
+            let runtime = crate::runtime::load(&state.root);
+            // Кадры уведены в облако — свой движок не поднимаем даже ради ответа.
+            if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Image) {
+                return Ok(Json(json!({
+                    "message": format!("Кадры рисует облако: {}.", runtime.openrouter_image_model),
+                    "health": { "ok": true, "loaded": false, "inCloud": true },
+                })));
+            }
             let (engine, devices) = state.gpu.image_info().unwrap_or_default();
             let ready = paths.image_ready();
             Ok(Json(json!({
@@ -598,7 +612,13 @@ pub async fn image_worker(
                 } else {
                     "Весов картинок нет — скачайте их на вкладке загрузки."
                 },
-                "health": { "ok": ready, "loaded": ready, "engine": engine, "devices": devices },
+                "health": {
+                    "ok": ready,
+                    // «Загружен» — это про то, занята ли карта, а не про наличие весов.
+                    "loaded": !engine.is_empty(),
+                    "engine": engine,
+                    "devices": devices,
+                },
             })))
         }
         "stop" => Ok(Json(json!({

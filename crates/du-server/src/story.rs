@@ -37,7 +37,7 @@ pub struct StoryBody {
     pub input: String,
 }
 
-fn now_iso() -> String {
+pub fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
@@ -294,8 +294,24 @@ fn run_turn(
     let snapshot_chars: std::collections::BTreeMap<String, du_rpg::CharacterRpg> =
         rpg_states.iter().cloned().collect();
 
+    // Открытые задания: взятые уходят в состояние хода, предложенные нужны, чтобы модель
+    // не предлагала то же самое ещё раз.
+    let quests = if settings.rpg_enabled {
+        state.store.list_quests(chat_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let open_quests: Vec<du_rpg::Quest> =
+        quests.iter().filter(|quest| quest.status.is_open()).cloned().collect();
+
     let rpg_section = if settings.rpg_enabled {
-        turn::build_rpg_section(&actors, &items, &enemies, du_prompts::prompts_for(settings.language))
+        turn::build_rpg_section(
+            &actors,
+            &items,
+            &enemies,
+            &open_quests,
+            du_prompts::prompts_for(settings.language),
+        )
     } else {
         String::new()
     };
@@ -598,7 +614,15 @@ fn run_turn(
             Message::system(
                 "Ты — детерминированный движок правил для ОДНОГО хода. По описанию сцены выдай \
                  ТОЛЬКО объявления механики. Все броски и урон считает движок, ты их НЕ \
-                 придумываешь. Персонажей называй именами из состояния игры."
+                 придумываешь. Персонажей называй именами из состояния игры.\n\n\
+                 ЗАДАНИЯ. offerQuests заполняй РЕДКО и только тогда, когда в отрывке живой \
+                 персонаж ПРЯМО обратился к герою с просьбой или поручением: сказал, что \
+                 нужно сделать, и к нему можно вернуться с ответом. Обязательно укажи \
+                 giver — имя того, кто дал. Случайная находка, слух, надпись на стене и \
+                 собственные намерения героя заданиями НЕ являются. Нет такой просьбы в \
+                 отрывке — оставляй offerQuests пустым; это обычное состояние хода.\n\
+                 completeQuests заполняй, только когда в отрывке выполнено условие задания \
+                 из раздела ВЗЯТЫЕ ЗАДАНИЯ, и называй его тем же заголовком."
                     .to_string(),
             ),
             Message::user(narration.clone()),
@@ -610,6 +634,9 @@ fn run_turn(
             let opts = ApplyOptions {
                 hero_id: hero_id.clone(),
                 random_events: settings.random_events,
+                quests: open_quests.clone(),
+                // Номер хода: по нему движок держит редкость заданий.
+                turn: chat.messages.len() as i64,
                 // Журнал приключения пишется на языке игры, а не по-русски при любом языке.
                 journal: du_prompts::prompts_for(settings.language).journal.clone(),
             };
@@ -634,6 +661,24 @@ fn run_turn(
             }
             let _ = state.store.set_combatants(chat_id, &roster);
             let _ = state.store.add_items(chat_id, &granted);
+
+            // Задания: новые кладём предложенными — решение за игроком; закрытые меняют
+            // состояние там, где лежали.
+            let now = now_iso();
+            let offered: Vec<du_rpg::Quest> = applied
+                .quests_offered
+                .into_iter()
+                .map(|mut quest| {
+                    quest.created_at = now.clone();
+                    quest.updated_at = now.clone();
+                    quest
+                })
+                .collect();
+            let _ = state.store.put_quests(chat_id, &offered);
+            for (quest_id, status) in &applied.quests_closed {
+                let _ = state.store.set_quest_status(chat_id, quest_id, *status, &now);
+            }
+
             let _ = state.store.add_events(chat_id, &events);
             }
         }

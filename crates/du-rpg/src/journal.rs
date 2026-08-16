@@ -77,6 +77,30 @@ impl TurnWord {
 }
 
 /// Название и присказка случайного благословения или проклятия.
+fn default_quest_offered() -> String {
+    "📜 Предложено задание: {title}{giver}".to_string()
+}
+
+fn default_quest_taken() -> String {
+    "📜 Задание принято: {title}".to_string()
+}
+
+fn default_quest_completed() -> String {
+    "✅ Задание выполнено: {title}{reward}".to_string()
+}
+
+fn default_quest_failed() -> String {
+    "❌ Задание провалено: {title}{reason}".to_string()
+}
+
+fn default_xp_gained() -> String {
+    "✨ {name}: +{amount} опыта{reason} → {xp}".to_string()
+}
+
+fn default_level_up() -> String {
+    "🎉 {name} — уровень {level}! Запас сил: {hp}/{max}".to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RandomEventText {
     pub name: String,
@@ -109,6 +133,20 @@ pub struct JournalLabels {
     pub item_gained: String,
     pub effect_summary: String,
     pub random_event: String,
+    /// Задания и рост героя. С умолчанием: сборки со старым набором подписей должны
+    /// открываться, а не падать при чтении.
+    #[serde(default = "default_quest_offered")]
+    pub quest_offered: String,
+    #[serde(default = "default_quest_taken")]
+    pub quest_taken: String,
+    #[serde(default = "default_quest_completed")]
+    pub quest_completed: String,
+    #[serde(default = "default_quest_failed")]
+    pub quest_failed: String,
+    #[serde(default = "default_xp_gained")]
+    pub xp_gained: String,
+    #[serde(default = "default_level_up")]
+    pub level_up: String,
     /// По порядку соответствуют встроенному перечню случайных событий.
     #[serde(default)]
     pub random_events: Vec<RandomEventText>,

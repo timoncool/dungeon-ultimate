@@ -12,7 +12,7 @@ use du_core::{
     normalize_location, Attachment, GeneratedImage, ImageRequest, Scene, StoryChat, StoryChatSummary,
     StoryCharacter, StoryMessage, StoryRole, StorySettings,
 };
-use du_rpg::{CharacterRpg, Enemy, GameEvent, Item, RpgState};
+use du_rpg::{CharacterRpg, Enemy, GameEvent, Item, Quest, QuestStatus, RpgState};
 use rusqlite::{params, Connection, OptionalExtension};
 
 #[derive(Debug, thiserror::Error)]
@@ -563,6 +563,77 @@ impl Store {
     }
 
     // ── Предметы ───────────────────────────────────────────────────────────────
+
+    // ── Задания ────────────────────────────────────────────────────────────────
+
+    /// Записать задания чата. Существующие с теми же идентификаторами перезаписываются:
+    /// смена состояния — это тот же самый квест, а не новый.
+    pub fn put_quests(&self, chat_id: &str, quests: &[Quest]) -> DbResult<()> {
+        if quests.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        for quest in quests {
+            tx.execute(
+                "INSERT OR REPLACE INTO quests (id, chat_id, data_json, created_at) VALUES (?, ?, ?, ?)",
+                params![
+                    quest.id,
+                    chat_id,
+                    serde_json::to_string(quest).unwrap_or_else(|_| "{}".into()),
+                    quest.created_at
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn list_quests(&self, chat_id: &str) -> DbResult<Vec<Quest>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT data_json FROM quests WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map(params![chat_id], |row| row.get::<_, String>(0))?;
+        let mut quests = Vec::new();
+        for raw in rows {
+            if let Ok(quest) = serde_json::from_str::<Quest>(&raw?) {
+                quests.push(quest);
+            }
+        }
+        Ok(quests)
+    }
+
+    /// Сменить состояние задания. Возвращает обновлённое или `None`, если такого нет.
+    pub fn set_quest_status(
+        &self,
+        chat_id: &str,
+        quest_id: &str,
+        status: QuestStatus,
+        now: &str,
+    ) -> DbResult<Option<Quest>> {
+        let quests = self.list_quests(chat_id)?;
+        let Some(mut quest) = quests.into_iter().find(|quest| quest.id == quest_id) else {
+            return Ok(None);
+        };
+        quest.status = status;
+        quest.updated_at = now.to_string();
+        self.put_quests(chat_id, std::slice::from_ref(&quest))?;
+        Ok(Some(quest))
+    }
+
+    pub fn delete_quests(&self, ids: &[String]) -> DbResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        for id in ids {
+            tx.execute("DELETE FROM quests WHERE id = ?", params![id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 
     pub fn add_items(&self, chat_id: &str, items: &[Item]) -> DbResult<()> {
         if items.is_empty() {
