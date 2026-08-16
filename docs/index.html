@@ -88,14 +88,16 @@
   .card h3{font-size:16px;margin-bottom:8px;display:flex;align-items:center;gap:9px}
   .card p{font-size:14px;color:var(--muted)}
   .ico{font-size:19px;line-height:1}
-  ol.steps{counter-reset:s;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));list-style:none}
-  ol.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+  ol.steps{counter-reset:s;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));list-style:none}
+  ol.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:0}
   ol.steps li::before{content:counter(s);display:grid;place-items:center;width:26px;height:26px;border-radius:50%;
        background:var(--surface2);color:var(--accent);font-weight:700;font-size:13px;margin-bottom:10px}
   ol.steps b{display:block;margin-bottom:5px;font-size:15px}
   ol.steps span{font-size:14px;color:var(--muted)}
   code{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;
-       font:13px/1.5 ui-monospace,"Cascadia Code",Consolas,monospace;color:var(--accent)}
+       font:13px/1.6 ui-monospace,"Cascadia Code",Consolas,monospace;color:var(--accent);
+       /* Длинный адрес репозитория не должен вылезать за карточку. */
+       display:inline-block;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
   th{color:var(--muted);font-weight:600;font-size:13px}
@@ -104,6 +106,23 @@
   .shots figure{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface)}
   .shots img{display:block;width:100%;height:auto}
   .shots figcaption{padding:11px 14px;font-size:13px;color:var(--muted)}
+  .shots figure{cursor:zoom-in;transition:border-color .2s,transform .2s}
+  .shots figure:hover{border-color:var(--accent)}
+  .shots figure:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .lb{position:fixed;inset:0;z-index:50;display:none;place-items:center;background:rgba(8,5,3,.94);
+      backdrop-filter:blur(4px);padding:24px}
+  .lb[open]{display:grid}
+  .lb img{max-width:min(1600px,96vw);max-height:82vh;border-radius:10px;border:1px solid var(--border);
+          box-shadow:0 30px 90px rgba(0,0,0,.7)}
+  .lb figcaption{margin-top:14px;text-align:center;color:var(--muted);font-size:14px;max-width:760px}
+  .lb-close{position:absolute;top:16px;right:20px;font-size:30px;line-height:1;color:var(--muted);
+            background:none;border:0;cursor:pointer}
+  .lb-close:hover{color:var(--accent)}
+  .lb-nav{position:absolute;top:50%;transform:translateY(-50%);font-size:34px;line-height:1;
+          color:var(--muted);background:none;border:0;cursor:pointer;padding:12px 18px}
+  .lb-nav:hover{color:var(--accent)}
+  .lb-prev{left:8px}.lb-next{right:8px}
+  .lb-count{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font-size:13px;color:var(--muted)}
   footer{border-top:1px solid var(--border);padding:40px 0;color:var(--muted);font-size:14px}
   footer .wrap{display:flex;gap:18px;flex-wrap:wrap;align-items:center;justify-content:space-between}
   footer a{color:var(--text)}footer a:hover{color:var(--accent)}
@@ -217,6 +236,17 @@
     <tr><td data-i18n="t_r7">Needs</td><td data-i18n="t_r7v">Windows 10/11 · NVIDIA 12+ GB, or no GPU in cloud mode</td></tr>
   </table>
 </section>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="Просмотр снимка">
+  <button class="lb-close" id="lb-close" aria-label="Закрыть">×</button>
+  <button class="lb-nav lb-prev" id="lb-prev" aria-label="Предыдущий">‹</button>
+  <button class="lb-nav lb-next" id="lb-next" aria-label="Следующий">›</button>
+  <figure style="display:grid;place-items:center">
+    <img id="lb-img" alt="" />
+    <figcaption id="lb-cap"></figcaption>
+  </figure>
+  <div class="lb-count" id="lb-count"></div>
+</div>
 
 <footer>
   <div class="wrap">
@@ -544,6 +574,54 @@ const browser = (navigator.language || "en").slice(0, 2);
 apply(SUPPORTED.find((l) => l === asked) || SUPPORTED.find((l) => l === saved) || SUPPORTED.find((l) => l === browser) || "en");
 
 document.getElementById("lang").addEventListener("change", (event) => apply(event.target.value));
+
+// Просмотр снимка во весь экран: на странице они мелкие, а показать надо детали интерфейса.
+const shots = [...document.querySelectorAll(".shots figure")];
+const lb = document.getElementById("lb");
+const lbImg = document.getElementById("lb-img");
+const lbCap = document.getElementById("lb-cap");
+const lbCount = document.getElementById("lb-count");
+let at = 0;
+
+function show(index) {
+  at = (index + shots.length) % shots.length;
+  const figure = shots[at];
+  const img = figure.querySelector("img");
+  // Ленивая загрузка ниже сгиба: в просмотрщике ждать нечего, снимаем отсрочку.
+  img.loading = "eager";
+  lbImg.src = img.currentSrc || img.src;
+  lbCap.textContent = figure.querySelector("figcaption").textContent;
+  lbCount.textContent = `${at + 1} / ${shots.length}`;
+  lb.setAttribute("open", "");
+  document.body.style.overflow = "hidden";
+}
+
+function hide() {
+  lb.removeAttribute("open");
+  document.body.style.overflow = "";
+  lbImg.removeAttribute("src");
+}
+
+shots.forEach((figure, index) => {
+  figure.tabIndex = 0;
+  figure.setAttribute("role", "button");
+  figure.addEventListener("click", () => show(index));
+  figure.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(index); }
+  });
+});
+
+document.getElementById("lb-close").addEventListener("click", hide);
+document.getElementById("lb-prev").addEventListener("click", (e) => { e.stopPropagation(); show(at - 1); });
+document.getElementById("lb-next").addEventListener("click", (e) => { e.stopPropagation(); show(at + 1); });
+// Щелчок мимо картинки закрывает: так ведут себя все просмотрщики.
+lb.addEventListener("click", (event) => { if (event.target === lb) hide(); });
+document.addEventListener("keydown", (event) => {
+  if (!lb.hasAttribute("open")) return;
+  if (event.key === "Escape") hide();
+  if (event.key === "ArrowLeft") show(at - 1);
+  if (event.key === "ArrowRight") show(at + 1);
+});
 </script>
 </body>
 </html>
