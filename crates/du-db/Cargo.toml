@@ -1,0 +1,20 @@
+[package]
+name = "du-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Хранилище Dungeon Ultimate на SQLite: чаты, сообщения, персонажи, сцены, журнал, предметы"
+
+[dependencies]
+du-core = { path = "../du-core" }
+du-rpg = { path = "../du-rpg" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# bundled: своя сборка SQLite, чтобы не зависеть от системной библиотеки на машине юзера.
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"

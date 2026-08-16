@@ -1,0 +1,50 @@
+{
+  "abilities": { "str": "СИЛ", "dex": "ЛОВ", "con": "ВЫН", "int": "ИНТ", "wis": "МУД", "cha": "ХАР" },
+  "ac": "КЗ",
+  "maxHp": "макс.HP",
+  "turns": { "one": "ход", "few": "хода", "many": "ходов" },
+  "player": "Игрок",
+  "enemy": "Враг",
+  "verdict": {
+    "critHit": "крит. попадание",
+    "hit": "попадание",
+    "miss": "промах",
+    "critSuccess": "крит. успех",
+    "critFail": "крит. провал",
+    "success": "успех",
+    "failure": "провал"
+  },
+  "rarity": {
+    "common": "обычный",
+    "uncommon": "необычный",
+    "rare": "редкий",
+    "epic": "эпический",
+    "legendary": "легендарный"
+  },
+  "effectFaded": "⏳ Эффект развеялся: {name}.",
+  "enemyEnters": "👹 В бой вступает {name} — HP {hp}, КЗ {ac}",
+  "attack": "⚔️ {label}: d20 {d20} {mod} = {total} против КЗ {ac} → {verdict}",
+  "damage": "💥 {name}: -{damage} HP ({notation}{crit}) → {hp}/{max}",
+  "critDoubled": ", крит — удвоенные кости",
+  "defeated": "☠️ {name} повержен.",
+  "check": "🎲 {name} · {label}: d20 {d20} {mod} = {total} против {dc} → {verdict}",
+  "hpChange": "{heart} {name}: {sign}{amount} HP{reason} → {hp}/{max}",
+  "revived": "✨ {name} приходит в себя.",
+  "died": "☠️ {name} погибает.",
+  "itemGained": "📦 Получен предмет: {name} ({rarity}{qty})",
+  "effectSummary": "{name}{mods} — {turns} {turnWord}",
+  "randomEvent": "{icon} Случайное событие: {summary}. {note}",
+  "randomEvents": [
+    { "name": "Благословение силы", "note": "Тело наливается мощью." },
+    { "name": "Кошачья ловкость", "note": "Движения становятся текучими." },
+    { "name": "Каменная кожа", "note": "Кожа твердеет, словно камень." },
+    { "name": "Прилив жизни", "note": "Запас сил прибывает." },
+    { "name": "Ясность ума", "note": "Мысли становятся острее." },
+    { "name": "Воодушевление", "note": "Слова звучат убедительнее." },
+    { "name": "Проклятье слабости", "note": "Мышцы наливаются свинцом." },
+    { "name": "Дрожь в руках", "note": "Пальцы не слушаются." },
+    { "name": "Лихорадка", "note": "Жар туманит тело." },
+    { "name": "Сглаз", "note": "Удача отворачивается." },
+    { "name": "Смятение", "note": "Мысли путаются." }
+  ]
+}

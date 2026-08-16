@@ -1,0 +1,10 @@
+[package]
+name = "du-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Типы Dungeon Ultimate: чаты, сообщения, настройки, персонажи, сцены — зеркало src/lib/types.ts"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

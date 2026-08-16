@@ -1,0 +1,12 @@
+[package]
+name = "du-tts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Озвучка: FFI над движком Higgs Audio"
+
+[dependencies]
+libloading = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

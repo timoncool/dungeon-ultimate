@@ -1,0 +1,5 @@
+{
+  "source": "openrouter images/generations",
+  "model": "google/gemini-3.1-flash-image",
+  "prompt": "Create one raster PNG image: a square game UI icon tile.\n\nUse case: logo-brand\nAsset type: Dungeon Ultimate right sidebar category icon\nPrimary request: Engines and cloud category icon: an arcane brass orrery sphere of interlocking gears wrapped in a glowing rune-ring, sitting on a small carved stone pedestal.\nCRITICAL framing: the carved dark stone tile FILLS THE ENTIRE SQUARE CANVAS edge to edge, bleeding off all four sides. Absolutely no white background, no page, no paper, no drop shadow, no margin, no border around the tile, no frame floating in empty space.\nStyle/medium: painterly hand-painted fantasy RPG app icon, chunky forms, crisp silhouette, readable at 32 pixels, no text, no lettering, no watermark.\nComposition: one centered object on the stone tile, generous padding around the object.\nLighting/mood: warm amber torchlight highlights, cool dark stone, moody dungeon era, same palette as a dark stone dungeon door icon."
+}

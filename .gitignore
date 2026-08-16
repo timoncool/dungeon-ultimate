@@ -101,3 +101,27 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# Rust
+/target/
+**/target/
+
+# Веса моделей и рантайм-библиотеки движка картинок (качаются на первом запуске)
+/models/
+
+# Фронт
+/frontend/node_modules/
+/frontend/dist/
+/data/
+/generated/
+/uploads/
+
+# Ресурсы установщика собираются скриптом
+/desktop/src-tauri/staging/
+/desktop/src-tauri/gen/
+/tools/
+
+# Движки и их библиотеки: приложение качает их само по манифесту докачки.
+/tools/llama/
+/tools/openrouter-helper/*.exe
+/downloads/

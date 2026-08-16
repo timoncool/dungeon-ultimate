@@ -1,0 +1,21 @@
+[package]
+name = "du-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Движок картинок: FFI над stable-diffusion.dll (stable-diffusion.cpp, CUDA)"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+libloading = "0.8"
+
+[dev-dependencies]
+# Пример пишет и читает PNG; смоук-проверки грузят настоящую DLL и молча пропускаются без неё.
+png = "0.18"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "scene"
+path = "examples/scene.rs"

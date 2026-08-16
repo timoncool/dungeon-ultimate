@@ -1,0 +1,50 @@
+[package]
+name = "du-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "axum-сервер Dungeon Ultimate: REST и SSE, одна очередь GPU, раздача собранного фронта"
+
+[dependencies]
+du-core = { path = "../du-core" }
+du-rpg = { path = "../du-rpg" }
+du-db = { path = "../du-db" }
+du-llm = { path = "../du-llm" }
+du-image = { path = "../du-image" }
+du-prompts = { path = "../du-prompts" }
+du-asr = { path = "../du-asr" }
+du-tts = { path = "../du-tts" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+axum = { version = "0.8", features = ["multipart"] }
+tower-http = { version = "0.6", features = ["cors"] }
+mime_guess = "2"
+png = "0.18"
+futures-util = "0.3"
+ureq = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Монитор ресурсов: карта через NVML, память через sysinfo.
+nvml-wrapper = "0.10"
+sysinfo = "0.32"
+async-stream = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+[[bin]]
+name = "du-server"
+path = "src/main.rs"
+
+[lib]
+name = "du_server"
+path = "src/lib.rs"

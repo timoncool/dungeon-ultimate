@@ -1,0 +1,29 @@
+[package]
+name = "du-asr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Распознавание речи для голосового ввода: Parakeet-TDT через onnxruntime"
+
+[dependencies]
+# load-dynamic: onnxruntime подгружается из onnxruntime.dll в рантайме, а не линкуется статически.
+# Это обходит рассинхрон MSVC STL (статическая libort_sys собрана новее локального тулчейна) и заодно
+# делает движок портативным (DLL кладётся рядом с бинарём / ищется по ORT_DYLIB_PATH).
+parakeet-rs = { version = "0.3.6", features = ["sortformer", "load-dynamic"] }
+# ort через load-dynamic (disable-linking): onnxruntime.dll 1.24.2 грузится в рантайме через
+# ORT_DYLIB_PATH (ensure_ort_dylib), а не линкуется (статическая libort_sys собрана новее локального
+# MSVC STL 14.42 и не слинкуется). Версия строго rc.12 — под onnxruntime 1.24.2; чужие 1.22/1.23 DLL
+# дают дедлок при commit_from_file (рассинхрон OrtApi). БЕЗ download-binaries: он требует TLS-фичу
+# (ureq) и тянет линкуемую сборку EP, ломающуюся о 1.24 хедеры (VitisAI). DLL уже лежит в
+# models/runtime/. api-24 явно фиксирует OrtApi под 1.24.2. ort нужен напрямую для
+# ExecutionConfig::with_custom_configure (уровень оптимизации графа).
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["load-dynamic", "api-24"] }
+hound = "3.5"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+default = []
+# GPU-исполнение onnxruntime. По умолчанию CPU (провайдер по докам). Собираем CPU в раунде 1.
+cuda = ["parakeet-rs/cuda"]

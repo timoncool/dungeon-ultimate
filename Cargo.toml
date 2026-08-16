@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/du-core",
+    "crates/du-rpg",
+    "crates/du-image",
+    "crates/du-db",
+    "crates/du-llm",
+    "crates/du-prompts",
+    "crates/du-server",
+    "crates/du-asr",
+    "crates/du-tts",
+]
+# Оболочка Tauri — отдельная единица сборки (тяжёлое дерево tauri), собирается своим
+# `npx tauri build`, не тянется в `cargo build --workspace`.
+exclude = ["desktop/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+# Профиль релиза: движки FFI тяжёлые, LTO ускоряет прогон.
+[profile.release]
+opt-level = 3
+lto = "thin"

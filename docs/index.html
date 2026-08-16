@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dungeon Ultimate — Free Offline AI Dungeon Master for Windows</title>
+<meta name="description" content="An offline AI dungeon master: real 3D physics dice, full D&amp;D rules, uncensored on-device image generation, voice narration and voice input — 100% local on your Windows PC. Free, open source, one Rust binary, zero Python." />
+<meta name="keywords" content="AI dungeon master, AI roleplay, offline AI game, local LLM game, D&D AI, uncensored image generation, 3D dice, voice narration, text to speech, speech recognition, open source, Windows, Rust" />
+<link rel="canonical" href="https://timoncool.github.io/dungeon-ultimate/" />
+<link rel="icon" href="favicon.svg" />
+<link rel="alternate" hreflang="en" href="https://timoncool.github.io/dungeon-ultimate/?lang=en" />
+<link rel="alternate" hreflang="ru" href="https://timoncool.github.io/dungeon-ultimate/?lang=ru" />
+<link rel="alternate" hreflang="es" href="https://timoncool.github.io/dungeon-ultimate/?lang=es" />
+<link rel="alternate" hreflang="fr" href="https://timoncool.github.io/dungeon-ultimate/?lang=fr" />
+<link rel="alternate" hreflang="de" href="https://timoncool.github.io/dungeon-ultimate/?lang=de" />
+<link rel="alternate" hreflang="zh" href="https://timoncool.github.io/dungeon-ultimate/?lang=zh" />
+<link rel="alternate" hreflang="ja" href="https://timoncool.github.io/dungeon-ultimate/?lang=ja" />
+<link rel="alternate" hreflang="x-default" href="https://timoncool.github.io/dungeon-ultimate/" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Dungeon Ultimate — Free Offline AI Dungeon Master" />
+<meta property="og:description" content="Real 3D dice, full D&amp;D rules, uncensored local image generation and voice — 100% on your machine. Free &amp; open source." />
+<meta property="og:image" content="https://raw.githubusercontent.com/timoncool/dungeon-ultimate/main/docs/hero.png" />
+<meta property="og:url" content="https://timoncool.github.io/dungeon-ultimate/" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:locale:alternate" content="ru_RU" />
+<meta property="og:locale:alternate" content="es_ES" />
+<meta property="og:locale:alternate" content="fr_FR" />
+<meta property="og:locale:alternate" content="de_DE" />
+<meta property="og:locale:alternate" content="zh_CN" />
+<meta property="og:locale:alternate" content="ja_JP" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Dungeon Ultimate — Free Offline AI Dungeon Master" />
+<meta name="twitter:description" content="Real 3D dice, full D&amp;D rules, uncensored local art and voice — 100% offline, free &amp; open source." />
+<meta name="twitter:image" content="https://raw.githubusercontent.com/timoncool/dungeon-ultimate/main/docs/hero.png" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Dungeon Ultimate",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Windows 10, Windows 11",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "description": "Free, offline AI dungeon master for Windows — real 3D dice, D&D rules, uncensored local image generation, voice narration and voice input, 100% local.",
+  "url": "https://github.com/timoncool/dungeon-ultimate",
+  "downloadUrl": "https://github.com/timoncool/dungeon-ultimate/releases",
+  "softwareVersion": "0.2.0",
+  "license": "https://github.com/timoncool/dungeon-ultimate/blob/main/LICENSE"
+}
+</script>
+<style>
+  :root{
+    --bg:#130d09;--surface:#1c1512;--surface2:#241b16;--border:#33261e;
+    --text:#efe7dd;--muted:#a3927f;--accent:#f0c268;--on-accent:#1a1208;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--text);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  header{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);background:rgba(19,13,9,.78);border-bottom:1px solid var(--border)}
+  header .wrap{display:flex;align-items:center;gap:16px;height:60px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px}
+  .logo span{color:var(--accent)}
+  nav{margin-left:auto;display:flex;gap:20px;align-items:center;font-size:14px;color:var(--muted)}
+  nav a:hover{color:var(--text)}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:var(--on-accent);
+       font-weight:700;padding:10px 18px;border-radius:10px;border:0;cursor:pointer;font-size:15px}
+  .btn:hover{filter:brightness(1.08)}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+  .btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+  select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;
+         padding:6px 8px;font-size:13px;cursor:pointer}
+  .hero{padding:72px 0 56px;text-align:center}
+  .eyebrow{display:inline-block;font-size:13px;color:var(--accent);border:1px solid var(--border);
+           background:var(--surface);border-radius:999px;padding:5px 14px;margin-bottom:22px}
+  h1{font-size:clamp(30px,5.2vw,52px);line-height:1.12;letter-spacing:-.02em;margin-bottom:18px}
+  .lede{font-size:clamp(16px,2.1vw,20px);color:var(--muted);max-width:720px;margin:0 auto 30px}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:16px}
+  .sub{font-size:13px;color:var(--muted)}
+  .shot{margin:44px auto 0;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+        box-shadow:0 24px 70px rgba(0,0,0,.55);max-width:960px}
+  .shot img{display:block;width:100%;height:auto}
+  section{padding:64px 0;border-top:1px solid var(--border)}
+  h2{font-size:clamp(23px,3.4vw,32px);margin-bottom:12px;letter-spacing:-.01em}
+  .sec-lede{color:var(--muted);max-width:720px;margin-bottom:34px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+  .card h3{font-size:16px;margin-bottom:8px;display:flex;align-items:center;gap:9px}
+  .card p{font-size:14px;color:var(--muted)}
+  .ico{font-size:19px;line-height:1}
+  ol.steps{counter-reset:s;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));list-style:none}
+  ol.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+  ol.steps li::before{content:counter(s);display:grid;place-items:center;width:26px;height:26px;border-radius:50%;
+       background:var(--surface2);color:var(--accent);font-weight:700;font-size:13px;margin-bottom:10px}
+  ol.steps b{display:block;margin-bottom:5px;font-size:15px}
+  ol.steps span{font-size:14px;color:var(--muted)}
+  code{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;
+       font:13px/1.5 ui-monospace,"Cascadia Code",Consolas,monospace;color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:13px}
+  td:first-child{white-space:nowrap;color:var(--accent)}
+  .shots{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .shots figure{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface)}
+  .shots img{display:block;width:100%;height:auto}
+  .shots figcaption{padding:11px 14px;font-size:13px;color:var(--muted)}
+  footer{border-top:1px solid var(--border);padding:40px 0;color:var(--muted);font-size:14px}
+  footer .wrap{display:flex;gap:18px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+  footer a{color:var(--text)}footer a:hover{color:var(--accent)}
+  .pills{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px}
+  .pill:hover{border-color:var(--accent);color:var(--accent)}
+  @media (max-width:720px){nav a[data-nav]{display:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="logo">🎲 Dungeon <span>Ultimate</span></div>
+    <nav>
+      <a data-nav href="#features" data-i18n="nav_features">Features</a>
+      <a data-nav href="#how" data-i18n="nav_how">How it works</a>
+      <a data-nav href="#install" data-i18n="nav_install">Install</a>
+      <a data-nav href="#stack" data-i18n="nav_stack">Under the hood</a>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="ru">Русский</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+      </select>
+      <a class="btn" href="https://github.com/timoncool/dungeon-ultimate/releases" data-i18n="nav_get">Get it</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero wrap">
+  <div class="eyebrow" data-i18n="eyebrow">Offline · Uncensored · 7 languages · Free &amp; open source</div>
+  <h1 data-i18n="h1">A dungeon master that never sleeps — and never leaves your PC.</h1>
+  <p class="lede" data-i18n="lede">Real 3D physics dice, honest D&amp;D rules, uncensored art drawn on your own card, and a narrator that reads the scene aloud. No cloud, no accounts, no filters.</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/timoncool/dungeon-ultimate" data-i18n="cta_download">Download free</a>
+    <a class="btn ghost" href="#install" data-i18n="cta_how">How to install</a>
+  </div>
+  <p class="sub" data-i18n="sub">Windows 10/11 · one Rust binary · plays with no GPU too</p>
+  <div class="shot"><img src="hero.png" alt="Dungeon Ultimate" /></div>
+</div>
+
+<section id="features" class="wrap">
+  <h2 data-i18n="f_title">What it does</h2>
+  <p class="sec-lede" data-i18n="f_lede">Everything a table needs — the story, the rules, the dice, the art and the voice — running on one machine.</p>
+  <div class="grid">
+    <div class="card"><h3><span class="ico">🎲</span><span data-i18n="f1_h">Dice that don't lie</span></h3><p data-i18n="f1_p">A real physics d20 tumbles across the scene. The engine rolls first with a cryptographic generator, then the die is pinned to land on exactly that number — the AI cannot fudge a result.</p></div>
+    <div class="card"><h3><span class="ico">⚔️</span><span data-i18n="f2_h">Real D&amp;D rules</span></h3><p data-i18n="f2_p">Six ability scores, armour class, hit points, initiative, crits that double the dice, conditions, timed effects and loot with stat modifiers. A deterministic engine decides outcomes, not the narrator.</p></div>
+    <div class="card"><h3><span class="ico">🖼️</span><span data-i18n="f3_h">Art with no filter</span></h3><p data-i18n="f3_p">Scenes are drawn locally by Krea-2 Turbo with an abliterated text encoder. A location keeps its anchor frame, so the same room stays the same room across the whole adventure.</p></div>
+    <div class="card"><h3><span class="ico">🗣️</span><span data-i18n="f4_h">It reads to you</span></h3><p data-i18n="f4_p">Sentences are voiced while the narrator is still writing, so audio starts in seconds. Character lines are spoken in that character's own voice. A voice pack ships with the game.</p></div>
+    <div class="card"><h3><span class="ico">🎙️</span><span data-i18n="f5_h">Speak your move</span></h3><p data-i18n="f5_p">Press the mic and say what you do. Speech is transcribed on your machine — nothing is uploaded.</p></div>
+    <div class="card"><h3><span class="ico">☁️</span><span data-i18n="f6_h">No GPU? Still plays</span></h3><p data-i18n="f6_p">Narration, art, voice and speech input each switch to the cloud independently. Flip them all and a thin laptop runs the same game.</p></div>
+    <div class="card"><h3><span class="ico">📖</span><span data-i18n="f7_h">Book mode</span></h3><p data-i18n="f7_p">Read your adventure as paginated spreads with the illustrations in place — or have the whole spread read aloud.</p></div>
+    <div class="card"><h3><span class="ico">🌍</span><span data-i18n="f8_h">Seven languages</span></h3><p data-i18n="f8_p">Narration, action chips, suggestions, the adventure journal and the voice all follow your language: Russian, English, Spanish, French, German, Chinese, Japanese.</p></div>
+  </div>
+</section>
+
+<section id="how" class="wrap">
+  <h2 data-i18n="h_title">A turn, start to finish</h2>
+  <p class="sec-lede" data-i18n="h_lede">One card, several jobs — arbitrated so each gets the whole GPU when it needs it.</p>
+  <ol class="steps">
+    <li><b data-i18n="h1_h">You act</b><span data-i18n="h1_p">Type or speak what you do.</span></li>
+    <li><b data-i18n="h2_h">The narrator writes</b><span data-i18n="h2_p">Prose streams into the chat word by word.</span></li>
+    <li><b data-i18n="h3_h">Voice starts</b><span data-i18n="h3_p">Finished sentences are already being read aloud.</span></li>
+    <li><b data-i18n="h4_h">The engine rules</b><span data-i18n="h4_p">Checks, attacks, damage and loot are resolved and logged.</span></li>
+    <li><b data-i18n="h5_h">The scene appears</b><span data-i18n="h5_p">The frame renders and drops into the passage.</span></li>
+  </ol>
+</section>
+
+<section id="shots" class="wrap">
+  <h2 data-i18n="s_title">See it</h2>
+  <p class="sec-lede" data-i18n="s_lede">Real screens from a running game, not mockups.</p>
+  <div class="shots">
+    <figure><img src="shots/play-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s1">A turn in play — hero sheet, stats, effects, journal, prose and the rendered scene.</figcaption></figure>
+    <figure><img src="shots/dice-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s2">The d20 lands on the number the engine already rolled — a critical success.</figcaption></figure>
+    <figure><img src="shots/book-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s3">Book mode — read the adventure as paginated spreads.</figcaption></figure>
+    <figure><img src="shots/new-story-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s4">Start a story — pick a setting, say who you are, or let the game fill it in.</figcaption></figure>
+    <figure><img src="shots/engines-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s5">Engines and cloud — every stage flips between your GPU and the cloud on its own.</figcaption></figure>
+    <figure><img src="shots/setup-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s6">First run — the game lists what it needs, what it weighs and downloads it itself.</figcaption></figure>
+    <figure><img src="shots/party-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s7">The party — characters, their sheets, portraits and the narrator prompt.</figcaption></figure>
+    <figure><img src="shots/voice-ru.png" alt="" loading="lazy" /><figcaption data-i18n="s8">Voice — pick a narrator voice, add your own, give characters their own voices.</figcaption></figure>
+  </div>
+</section>
+
+<section id="install" class="wrap">
+  <h2 data-i18n="i_title">Install</h2>
+  <p class="sec-lede" data-i18n="i_lede">Nothing is installed into the system. Everything — models, saves, generated frames — lives inside the app folder. Delete the folder and the game is gone.</p>
+  <ol class="steps">
+    <li><b data-i18n="i1_h">Get the code</b><span><code>git clone https://github.com/timoncool/dungeon-ultimate</code></span></li>
+    <li><b data-i18n="i2_h">Build it</b><span><code>install.bat</code> — <span data-i18n="i2_p">checks Rust and Node, builds the UI and the binary.</span></span></li>
+    <li><b data-i18n="i3_h">Play</b><span><code>run.bat</code> — <span data-i18n="i3_p">opens the browser and lets the game download its models.</span></span></li>
+    <li><b data-i18n="i4_h">Update later</b><span><code>update.bat</code> — <span data-i18n="i4_p">pulls the new version. Models and saves are untouched.</span></span></li>
+  </ol>
+  <p class="sec-lede" style="margin-top:26px" data-i18n="i_note">The game downloads its own weights: about 17 GB for the required parts, 23 GB with narration and speech input. Interrupted downloads resume where they stopped.</p>
+</section>
+
+<section id="stack" class="wrap">
+  <h2 data-i18n="t_title">Under the hood</h2>
+  <p class="sec-lede" data-i18n="t_lede">One Rust binary. No Python, no Node at runtime, nothing in the registry.</p>
+  <table>
+    <tr><th data-i18n="t_col1">Part</th><th data-i18n="t_col2">What runs it</th></tr>
+    <tr><td data-i18n="t_r1">Story</td><td>Gemma 4 12B uncensored · llama.cpp</td></tr>
+    <tr><td data-i18n="t_r2">Art</td><td>Krea-2 Turbo Q4_K_M · stable-diffusion.cpp</td></tr>
+    <tr><td data-i18n="t_r3">Narration</td><td>Higgs Audio v3 · voice cloning</td></tr>
+    <tr><td data-i18n="t_r4">Speech input</td><td>Parakeet-TDT-0.6B-v3 · ONNX Runtime</td></tr>
+    <tr><td data-i18n="t_r5">Rules</td><td data-i18n="t_r5v">Own deterministic D&amp;D 5e engine, 240 tests</td></tr>
+    <tr><td data-i18n="t_r6">Cloud</td><td data-i18n="t_r6v">OpenRouter, per stage, optional</td></tr>
+    <tr><td data-i18n="t_r7">Needs</td><td data-i18n="t_r7v">Windows 10/11 · NVIDIA 12+ GB, or no GPU in cloud mode</td></tr>
+  </table>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div style="margin-bottom:8px" data-i18n="foot_made">Made by Nerual Dreming · Нейро-Софт · MIT license</div>
+      <div class="pills">
+        <a class="pill" href="https://github.com/timoncool/dungeon-ultimate">GitHub</a>
+        <a class="pill" href="https://t.me/neuroport">Telegram</a>
+        <a class="pill" href="https://boosty.to/neuro_art">Boosty</a>
+        <a class="pill" href="https://github.com/timoncool/dungeon-ultimate/blob/main/DONATE.md" data-i18n="foot_donate">Support</a>
+        <a class="pill" href="https://github.com/timoncool/dub-studio">Dub Studio</a>
+      </div>
+    </div>
+    <a class="btn" href="https://github.com/timoncool/dungeon-ultimate/releases" data-i18n="foot_get">Get it</a>
+  </div>
+</footer>
+
+<script>
+// Переводы страницы на те же семь языков, на которых говорит сама игра.
+const I18N = {
+  en: {},
+  ru: {
+    s_lede:"Живые экраны из работающей игры, а не макеты.",
+    s1:"Ход в игре — лист героя, характеристики, эффекты, журнал, проза и готовый кадр сцены.",
+    s2:"Двадцатигранник ложится тем числом, которое движок уже выбросил, — крит. успех.",
+    s3:"Режим книги — приключение читается разворотами.",
+    s4:"Начало истории — выбери сеттинг, скажи, кто ты, или дай игре заполнить всё самой.",
+    s5:"Движки и облако — каждая стадия отдельно переключается между твоей картой и облаком.",
+    s6:"Первый запуск — игра показывает, что ей нужно, сколько это весит, и качает сама.",
+    s7:"Партия — персонажи, их листы, портреты и промпт рассказчика.",
+    s8:"Голос — выбери голос рассказчика, добавь свой, раздай персонажам их собственные.",
+    nav_features:"Возможности", nav_how:"Как идёт ход", nav_install:"Установка", nav_stack:"Как устроено", nav_get:"Скачать",
+    eyebrow:"Оффлайн · Без цензуры · 7 языков · Открытый код",
+    h1:"Мастер подземелий, который не спит — и не покидает твой компьютер.",
+    lede:"Настоящий трёхмерный кубик, честные правила D&amp;D, картинки без цензуры на твоей карте и рассказчик, читающий сцену вслух. Без облака, учёток и фильтров.",
+    cta_download:"Скачать бесплатно", cta_how:"Как поставить",
+    sub:"Windows 10/11 · один бинарь на Rust · играет и без видеокарты",
+    f_title:"Что умеет", f_lede:"Всё, что нужно за столом: история, правила, кубик, картинки и голос — на одной машине.",
+    f1_h:"Кубик не врёт", f1_p:"По сцене катится настоящий физический двадцатигранник. Сначала бросает движок криптостойким генератором, затем кубику задают лечь ровно этим числом — подкрутить исход нейросеть не может.",
+    f2_h:"Настоящие правила D&amp;D", f2_p:"Шесть характеристик, класс защиты, здоровье, инициатива, криты с удвоением костей, состояния, эффекты на срок и добыча с модификаторами. Исход решает движок, а не рассказчик.",
+    f3_h:"Картинки без фильтра", f3_p:"Сцены рисует Krea-2 Turbo с абляционным энкодером. У места есть опорный кадр, поэтому комната остаётся той же комнатой на всё приключение.",
+    f4_h:"Читает вслух", f4_p:"Фразы озвучиваются, пока рассказчик ещё пишет, — звук начинается через секунды. Реплики персонажей читаются их голосами. Пак голосов идёт в комплекте.",
+    f5_h:"Действие можно сказать", f5_p:"Нажми микрофон и скажи, что делаешь. Речь распознаётся на твоей машине, наружу не уходит.",
+    f6_h:"Нет карты? Играй", f6_p:"Проза, картинки, озвучка и распознавание переключаются в облако по отдельности. Переключи всё — и та же игра пойдёт на тонком ноутбуке.",
+    f7_h:"Режим книги", f7_p:"Читай приключение разворотами с картинками на своих местах — или дай прочитать разворот вслух.",
+    f8_h:"Семь языков", f8_p:"Рассказ, чипсы действий, подсказки, журнал и голос идут на твоём языке: русский, английский, испанский, французский, немецкий, китайский, японский.",
+    h_title:"Ход целиком", h_lede:"Одна карта, несколько задач — очередь следит, чтобы каждой досталась вся.",
+    h1_h:"Ты действуешь", h1_p:"Напиши или скажи, что делаешь.",
+    h2_h:"Рассказчик пишет", h2_p:"Проза приходит в чат по словам.",
+    h3_h:"Начинается озвучка", h3_p:"Законченные фразы уже читаются вслух.",
+    h4_h:"Движок судит", h4_p:"Проверки, атаки, урон и добыча разрешаются и попадают в журнал.",
+    h5_h:"Появляется сцена", h5_p:"Кадр рисуется и встаёт в отрывок.",
+    s_title:"Как выглядит",
+        s2:"Чистое повествование — проза приходит по словам, как в книге.",
+    i_title:"Установка", i_lede:"В систему не ставится ничего. Модели, сохранения и кадры лежат в папке игры. Удалил папку — удалил игру.",
+    i1_h:"Забрать код", i2_h:"Собрать", i2_p:"проверит Rust и Node, соберёт интерфейс и бинарь.",
+    i3_h:"Играть", i3_p:"откроет браузер и даст игре скачать модели.",
+    i4_h:"Обновиться", i4_p:"заберёт свежую версию. Модели и сохранения не трогаются.",
+    i_note:"Веса игра качает сама: около 17 ГБ обязательного, 23 ГБ вместе с озвучкой и распознаванием. Прерванная загрузка продолжается с места обрыва.",
+    t_title:"Как устроено", t_lede:"Один бинарь на Rust. Ни Python, ни Node при запуске, в реестре пусто.",
+    t_col1:"Часть", t_col2:"На чём работает",
+    t_r1:"История", t_r2:"Картинки", t_r3:"Озвучка", t_r4:"Голосовой ввод", t_r5:"Правила",
+    t_r5v:"Свой детерминированный движок D&amp;D 5e, 240 тестов",
+    t_r6:"Облако", t_r6v:"OpenRouter, по стадиям, по желанию",
+    t_r7:"Требования", t_r7v:"Windows 10/11 · NVIDIA от 12 ГБ, либо вовсе без карты в облаке",
+    foot_made:"Сделали Nerual Dreming и Нейро-Софт · лицензия MIT", foot_donate:"Поддержать", foot_get:"Скачать",
+  },
+  es: {
+    s_lede:"Pantallas reales de una partida en marcha, no maquetas.",
+    s1:"Un turno en juego: ficha, características, efectos, diario, prosa y la escena ya dibujada.",
+    s2:"El d20 cae en el número que el motor ya sacó: éxito crítico.",
+    s3:"Modo libro: la aventura se lee en dobles páginas.",
+    s4:"Empezar una historia: elige ambientación, di quién eres o deja que el juego lo rellene.",
+    s5:"Motores y nube: cada etapa cambia por separado entre tu GPU y la nube.",
+    s6:"Primer arranque: el juego enumera lo que necesita, cuánto pesa y lo descarga solo.",
+    s7:"El grupo: personajes, fichas, retratos y el prompt del narrador.",
+    s8:"Voz: elige la voz del narrador, añade la tuya, da a cada personaje la suya.",
+    nav_features:"Funciones", nav_how:"Cómo va un turno", nav_install:"Instalación", nav_stack:"Por dentro", nav_get:"Descargar",
+    eyebrow:"Sin conexión · Sin censura · 7 idiomas · Código abierto",
+    h1:"Un máster que nunca duerme — y nunca sale de tu PC.",
+    lede:"Dados 3D con física real, reglas honestas de D&amp;D, arte sin censura generado en tu propia tarjeta y un narrador que lee la escena en voz alta. Sin nube, sin cuentas, sin filtros.",
+    cta_download:"Descargar gratis", cta_how:"Cómo instalar",
+    sub:"Windows 10/11 · un binario en Rust · también juega sin GPU",
+    f_title:"Qué hace", f_lede:"Todo lo que necesita una mesa: historia, reglas, dados, arte y voz — en una sola máquina.",
+    f1_h:"Dados que no mienten", f1_p:"Un d20 físico rueda por la escena. El motor tira primero con un generador criptográfico y luego el dado aterriza exactamente en ese número: la IA no puede falsear el resultado.",
+    f2_h:"Reglas reales de D&amp;D", f2_p:"Seis características, clase de armadura, puntos de vida, iniciativa, críticos que duplican los dados, estados, efectos temporales y botín con modificadores. Decide el motor, no el narrador.",
+    f3_h:"Arte sin filtro", f3_p:"Las escenas las dibuja Krea-2 Turbo con un codificador liberado. Cada lugar guarda su fotograma ancla, así la misma sala sigue siendo la misma sala.",
+    f4_h:"Te lo lee", f4_p:"Las frases se locutan mientras el narrador aún escribe, así el audio empieza en segundos. Los diálogos suenan con la voz de cada personaje. Incluye un pack de voces.",
+    f5_h:"Di tu acción", f5_p:"Pulsa el micro y di lo que haces. La voz se transcribe en tu equipo; nada se sube.",
+    f6_h:"¿Sin GPU? Igual juega", f6_p:"Narración, arte, voz y dictado pasan a la nube por separado. Cámbialos todos y un portátil ligero corre el mismo juego.",
+    f7_h:"Modo libro", f7_p:"Lee tu aventura en dobles páginas con las ilustraciones en su sitio, o deja que te lean la página entera.",
+    f8_h:"Siete idiomas", f8_p:"Narración, acciones sugeridas, diario y voz siguen tu idioma: ruso, inglés, español, francés, alemán, chino y japonés.",
+    h_title:"Un turno, de principio a fin", h_lede:"Una tarjeta, varias tareas — repartidas para que cada una tenga la GPU entera.",
+    h1_h:"Actúas", h1_p:"Escribe o di lo que haces.",
+    h2_h:"El narrador escribe", h2_p:"La prosa llega al chat palabra por palabra.",
+    h3_h:"Arranca la voz", h3_p:"Las frases terminadas ya se están leyendo.",
+    h4_h:"El motor juzga", h4_p:"Pruebas, ataques, daño y botín se resuelven y quedan en el diario.",
+    h5_h:"Aparece la escena", h5_p:"El fotograma se dibuja y entra en el pasaje.",
+    s_title:"Míralo",
+        s2:"Narrativa pura: la prosa llega palabra por palabra, como en un libro.",
+    i_title:"Instalación", i_lede:"No se instala nada en el sistema. Modelos, partidas y fotogramas viven en la carpeta del juego. Borras la carpeta, borras el juego.",
+    i1_h:"Coge el código", i2_h:"Compílalo", i2_p:"comprueba Rust y Node, construye la interfaz y el binario.",
+    i3_h:"Juega", i3_p:"abre el navegador y deja que el juego descargue sus modelos.",
+    i4_h:"Actualiza después", i4_p:"trae la versión nueva. Modelos y partidas no se tocan.",
+    i_note:"El juego descarga sus propios pesos: unos 17 GB de lo imprescindible, 23 GB con voz y dictado. Las descargas cortadas se reanudan donde quedaron.",
+    t_title:"Por dentro", t_lede:"Un binario en Rust. Ni Python ni Node al ejecutar, nada en el registro.",
+    t_col1:"Parte", t_col2:"Qué lo mueve",
+    t_r1:"Historia", t_r2:"Arte", t_r3:"Narración", t_r4:"Dictado", t_r5:"Reglas",
+    t_r5v:"Motor propio y determinista de D&amp;D 5e, 240 pruebas",
+    t_r6:"Nube", t_r6v:"OpenRouter, por etapas, opcional",
+    t_r7:"Requisitos", t_r7v:"Windows 10/11 · NVIDIA de 12 GB o más, o sin GPU en la nube",
+    foot_made:"Hecho por Nerual Dreming · Нейро-Софт · licencia MIT", foot_donate:"Apoyar", foot_get:"Descargar",
+  },
+  fr: {
+    s_lede:"De vraies captures d'une partie en cours, pas des maquettes.",
+    s1:"Un tour en jeu : fiche, caractéristiques, effets, journal, prose et la scène rendue.",
+    s2:"Le d20 tombe sur le nombre déjà tiré par le moteur — réussite critique.",
+    s3:"Mode livre — l'aventure se lit en double page.",
+    s4:"Démarrer une histoire — choisissez l'univers, dites qui vous êtes, ou laissez le jeu remplir.",
+    s5:"Moteurs et cloud — chaque étape bascule séparément entre votre GPU et le cloud.",
+    s6:"Premier lancement — le jeu liste ce qu'il lui faut, le poids, et télécharge tout seul.",
+    s7:"Le groupe — personnages, fiches, portraits et le prompt du narrateur.",
+    s8:"Voix — choisissez la voix du narrateur, ajoutez la vôtre, donnez la leur aux personnages.",
+    nav_features:"Fonctions", nav_how:"Un tour", nav_install:"Installation", nav_stack:"Sous le capot", nav_get:"Télécharger",
+    eyebrow:"Hors ligne · Sans censure · 7 langues · Open source",
+    h1:"Un maître du jeu qui ne dort jamais — et ne quitte jamais votre PC.",
+    lede:"De vrais dés 3D physiques, des règles D&amp;D honnêtes, des illustrations sans censure calculées sur votre carte et un narrateur qui lit la scène à voix haute. Sans cloud, sans compte, sans filtre.",
+    cta_download:"Télécharger gratuitement", cta_how:"Comment installer",
+    sub:"Windows 10/11 · un binaire Rust · fonctionne aussi sans GPU",
+    f_title:"Ce qu'il fait", f_lede:"Tout ce qu'il faut autour d'une table : l'histoire, les règles, les dés, les images et la voix — sur une seule machine.",
+    f1_h:"Des dés qui ne mentent pas", f1_p:"Un vrai d20 roule à l'écran. Le moteur lance d'abord avec un générateur cryptographique, puis le dé est contraint de tomber sur ce nombre exact : l'IA ne peut pas truquer.",
+    f2_h:"De vraies règles D&amp;D", f2_p:"Six caractéristiques, classe d'armure, points de vie, initiative, critiques qui doublent les dés, états, effets temporaires et butin à modificateurs. C'est le moteur qui tranche, pas le narrateur.",
+    f3_h:"Des images sans filtre", f3_p:"Les scènes sont dessinées par Krea-2 Turbo avec un encodeur libéré. Chaque lieu garde son image d'ancrage : la même salle reste la même salle.",
+    f4_h:"Il vous lit l'histoire", f4_p:"Les phrases sont dites pendant que le narrateur écrit encore : le son démarre en quelques secondes. Les répliques prennent la voix de leur personnage. Un pack de voix est fourni.",
+    f5_h:"Dites votre action", f5_p:"Appuyez sur le micro et dites ce que vous faites. La parole est transcrite chez vous, rien n'est envoyé.",
+    f6_h:"Pas de GPU ? Ça tourne", f6_p:"Récit, images, voix et dictée basculent vers le cloud séparément. Basculez tout et un portable léger fait tourner le même jeu.",
+    f7_h:"Mode livre", f7_p:"Lisez l'aventure en double page avec les illustrations à leur place — ou faites lire la double page à voix haute.",
+    f8_h:"Sept langues", f8_p:"Récit, actions proposées, journal et voix suivent votre langue : russe, anglais, espagnol, français, allemand, chinois, japonais.",
+    h_title:"Un tour de bout en bout", h_lede:"Une carte, plusieurs tâches — arbitrées pour que chacune ait tout le GPU.",
+    h1_h:"Vous agissez", h1_p:"Écrivez ou dites ce que vous faites.",
+    h2_h:"Le narrateur écrit", h2_p:"La prose arrive mot à mot.",
+    h3_h:"La voix démarre", h3_p:"Les phrases finies sont déjà lues.",
+    h4_h:"Le moteur tranche", h4_p:"Tests, attaques, dégâts et butin sont résolus et journalisés.",
+    h5_h:"La scène apparaît", h5_p:"L'image est rendue et s'insère dans le passage.",
+    s_title:"En images",
+        s2:"Récit pur : la prose arrive mot à mot, comme dans un livre.",
+    i_title:"Installation", i_lede:"Rien n'est installé dans le système. Modèles, sauvegardes et images vivent dans le dossier du jeu. Supprimez le dossier, le jeu disparaît.",
+    i1_h:"Récupérer le code", i2_h:"Compiler", i2_p:"vérifie Rust et Node, construit l'interface et le binaire.",
+    i3_h:"Jouer", i3_p:"ouvre le navigateur et laisse le jeu télécharger ses modèles.",
+    i4_h:"Mettre à jour", i4_p:"récupère la nouvelle version. Modèles et sauvegardes intacts.",
+    i_note:"Le jeu télécharge ses poids : environ 17 Go pour l'essentiel, 23 Go avec la voix et la dictée. Un téléchargement interrompu reprend où il s'était arrêté.",
+    t_title:"Sous le capot", t_lede:"Un binaire Rust. Ni Python ni Node à l'exécution, rien dans le registre.",
+    t_col1:"Élément", t_col2:"Ce qui le fait tourner",
+    t_r1:"Histoire", t_r2:"Images", t_r3:"Narration", t_r4:"Dictée", t_r5:"Règles",
+    t_r5v:"Moteur D&amp;D 5e déterministe maison, 240 tests",
+    t_r6:"Cloud", t_r6v:"OpenRouter, par étape, optionnel",
+    t_r7:"Prérequis", t_r7v:"Windows 10/11 · NVIDIA 12 Go+, ou aucun GPU en mode cloud",
+    foot_made:"Par Nerual Dreming · Нейро-Софт · licence MIT", foot_donate:"Soutenir", foot_get:"Télécharger",
+  },
+  de: {
+    s_lede:"Echte Bildschirme aus einem laufenden Spiel, keine Mockups.",
+    s1:"Ein Zug im Spiel — Heldenblatt, Werte, Effekte, Journal, Prosa und die fertige Szene.",
+    s2:"Der W20 zeigt genau die Zahl, die die Engine gewürfelt hat — kritischer Erfolg.",
+    s3:"Buchmodus — das Abenteuer liest sich als Doppelseiten.",
+    s4:"Geschichte starten — Setting wählen, sagen wer du bist, oder das Spiel ausfüllen lassen.",
+    s5:"Engines und Cloud — jede Stufe wechselt einzeln zwischen deiner GPU und der Cloud.",
+    s6:"Erster Start — das Spiel listet auf, was es braucht und wie groß es ist, und lädt selbst.",
+    s7:"Die Gruppe — Figuren, Blätter, Porträts und der Erzähler-Prompt.",
+    s8:"Stimme — Erzählerstimme wählen, eigene hinzufügen, Figuren eigene Stimmen geben.",
+    nav_features:"Funktionen", nav_how:"Ein Zug", nav_install:"Installation", nav_stack:"Unter der Haube", nav_get:"Holen",
+    eyebrow:"Offline · Unzensiert · 7 Sprachen · Open Source",
+    h1:"Ein Spielleiter, der nie schläft — und deinen PC nie verlässt.",
+    lede:"Echte 3D-Physikwürfel, ehrliche D&amp;D-Regeln, unzensierte Bilder auf deiner eigenen Karte und ein Erzähler, der die Szene vorliest. Ohne Cloud, ohne Konto, ohne Filter.",
+    cta_download:"Kostenlos laden", cta_how:"Installation",
+    sub:"Windows 10/11 · eine Rust-Binärdatei · läuft auch ohne GPU",
+    f_title:"Was es kann", f_lede:"Alles, was ein Spieltisch braucht — Geschichte, Regeln, Würfel, Bilder und Stimme — auf einem Rechner.",
+    f1_h:"Würfel, die nicht lügen", f1_p:"Ein echter W20 rollt über die Szene. Erst würfelt die Engine mit einem kryptografischen Generator, dann wird der Würfel gezwungen, genau diese Zahl zu zeigen — die KI kann nichts schönen.",
+    f2_h:"Echte D&amp;D-Regeln", f2_p:"Sechs Attribute, Rüstungsklasse, Trefferpunkte, Initiative, Krits mit doppelten Würfeln, Zustände, befristete Effekte und Beute mit Modifikatoren. Die Engine entscheidet, nicht der Erzähler.",
+    f3_h:"Bilder ohne Filter", f3_p:"Szenen zeichnet Krea-2 Turbo mit befreitem Encoder. Jeder Ort behält sein Ankerbild — derselbe Raum bleibt derselbe Raum.",
+    f4_h:"Es liest dir vor", f4_p:"Sätze werden vertont, während der Erzähler noch schreibt — Ton startet in Sekunden. Figurenreden klingen in der Stimme der Figur. Ein Stimmenpaket liegt bei.",
+    f5_h:"Sag deinen Zug", f5_p:"Mikro drücken und sagen, was du tust. Die Sprache wird lokal erkannt, nichts wird hochgeladen.",
+    f6_h:"Keine GPU? Läuft trotzdem", f6_p:"Erzählung, Bilder, Stimme und Diktat wechseln einzeln in die Cloud. Alles umgestellt — und ein dünnes Notebook spielt dasselbe Spiel.",
+    f7_h:"Buchmodus", f7_p:"Lies dein Abenteuer als Doppelseiten mit Bildern an Ort und Stelle — oder lass die Seite vorlesen.",
+    f8_h:"Sieben Sprachen", f8_p:"Erzählung, Aktionsvorschläge, Journal und Stimme folgen deiner Sprache: Russisch, Englisch, Spanisch, Französisch, Deutsch, Chinesisch, Japanisch.",
+    h_title:"Ein Zug von Anfang bis Ende", h_lede:"Eine Karte, mehrere Aufgaben — so verteilt, dass jede die ganze GPU bekommt.",
+    h1_h:"Du handelst", h1_p:"Schreib oder sag, was du tust.",
+    h2_h:"Der Erzähler schreibt", h2_p:"Die Prosa kommt Wort für Wort.",
+    h3_h:"Die Stimme beginnt", h3_p:"Fertige Sätze werden schon gelesen.",
+    h4_h:"Die Engine urteilt", h4_p:"Proben, Angriffe, Schaden und Beute werden aufgelöst und protokolliert.",
+    h5_h:"Die Szene erscheint", h5_p:"Das Bild wird gerendert und in den Text gesetzt.",
+    s_title:"Ansehen",
+        s2:"Reines Erzählen — die Prosa kommt Wort für Wort, wie in einem Buch.",
+    i_title:"Installation", i_lede:"Ins System wird nichts installiert. Modelle, Spielstände und Bilder liegen im Spielordner. Ordner löschen heißt Spiel löschen.",
+    i1_h:"Code holen", i2_h:"Bauen", i2_p:"prüft Rust und Node, baut Oberfläche und Binärdatei.",
+    i3_h:"Spielen", i3_p:"öffnet den Browser und lässt das Spiel seine Modelle laden.",
+    i4_h:"Später aktualisieren", i4_p:"holt die neue Version. Modelle und Spielstände bleiben unberührt.",
+    i_note:"Das Spiel lädt seine Gewichte selbst: rund 17 GB für das Nötige, 23 GB mit Stimme und Diktat. Abgebrochene Downloads laufen an der Abbruchstelle weiter.",
+    t_title:"Unter der Haube", t_lede:"Eine Rust-Binärdatei. Kein Python, kein Node zur Laufzeit, nichts in der Registry.",
+    t_col1:"Teil", t_col2:"Was es antreibt",
+    t_r1:"Geschichte", t_r2:"Bilder", t_r3:"Vertonung", t_r4:"Spracheingabe", t_r5:"Regeln",
+    t_r5v:"Eigene deterministische D&amp;D-5e-Engine, 240 Tests",
+    t_r6:"Cloud", t_r6v:"OpenRouter, pro Stufe, optional",
+    t_r7:"Voraussetzungen", t_r7v:"Windows 10/11 · NVIDIA ab 12 GB, oder ganz ohne GPU in der Cloud",
+    foot_made:"Von Nerual Dreming · Нейро-Софт · MIT-Lizenz", foot_donate:"Unterstützen", foot_get:"Holen",
+  },
+  zh: {
+    s_lede:"来自实际运行的游戏截图，不是效果图。",
+    s1:"进行中的回合——角色卡、属性、状态、日志、叙述和已生成的场景画面。",
+    s2:"d20 停在引擎早已投出的点数上——大成功。",
+    s3:"书本模式——以对开页阅读冒险。",
+    s4:"开始故事——选择背景，说出你是谁，或让游戏自动填写。",
+    s5:"引擎与云端——每个阶段都能单独在本地显卡和云端之间切换。",
+    s6:"首次启动——游戏列出所需内容与体积，并自行下载。",
+    s7:"队伍——角色、角色卡、肖像以及旁白提示词。",
+    s8:"语音——选择旁白声音，添加自己的声音，为角色分配各自的嗓音。",
+    nav_features:"功能", nav_how:"一个回合", nav_install:"安装", nav_stack:"技术细节", nav_get:"获取",
+    eyebrow:"离线 · 无审查 · 七种语言 · 开源免费",
+    h1:"永不休息的地下城主 —— 也永不离开你的电脑。",
+    lede:"真实的 3D 物理骰子、诚实的 D&amp;D 规则、在你自己显卡上生成的无审查插画，以及朗读场景的旁白。没有云端，没有账号，没有过滤。",
+    cta_download:"免费下载", cta_how:"如何安装",
+    sub:"Windows 10/11 · 单个 Rust 程序 · 没有显卡也能玩",
+    f_title:"它能做什么", f_lede:"一张桌子所需的一切——故事、规则、骰子、插画和声音——都在一台机器上。",
+    f1_h:"骰子不会作弊", f1_p:"真正的物理 d20 在场景中滚动。引擎先用密码学随机数投出结果，再让骰子精确停在那个点数——AI 无法篡改。",
+    f2_h:"真正的 D&amp;D 规则", f2_p:"六项属性、护甲等级、生命值、先攻、暴击翻倍骰数、状态、限时效果，以及带属性加成的战利品。裁决由引擎做出，而不是旁白。",
+    f3_h:"没有滤镜的插画", f3_p:"场景由 Krea-2 Turbo 配合解除限制的文本编码器绘制。每个地点保留锚定画面，同一个房间始终是同一个房间。",
+    f4_h:"它读给你听", f4_p:"旁白还在写，句子就已经在配音，几秒钟内就有声音。角色台词用该角色自己的声音朗读。内置语音包。",
+    f5_h:"用嘴下指令", f5_p:"按下麦克风说出你的行动。语音在本机转写，不会上传。",
+    f6_h:"没有显卡也能玩", f6_p:"叙述、插画、配音和语音输入可分别切到云端。全部切换后，轻薄本也能跑同一个游戏。",
+    f7_h:"书本模式", f7_p:"以对开页阅读你的冒险，插图各就各位——也可以让它朗读整个跨页。",
+    f8_h:"七种语言", f8_p:"叙述、行动提示、冒险日志和语音都跟随你的语言：俄语、英语、西班牙语、法语、德语、中文、日语。",
+    h_title:"一个完整回合", h_lede:"一张显卡，多项任务——统一调度，让每项任务都能独占显卡。",
+    h1_h:"你行动", h1_p:"打字或说出你要做的事。",
+    h2_h:"旁白书写", h2_p:"文字逐词流入对话。",
+    h3_h:"配音开始", h3_p:"写完的句子已经在朗读。",
+    h4_h:"引擎裁决", h4_p:"检定、攻击、伤害与战利品被结算并记入日志。",
+    h5_h:"场景出现", h5_p:"画面渲染完成并嵌入段落。",
+    s_title:"看看效果",
+        s2:"纯粹的叙事——文字逐词到来，像在读书。",
+    i_title:"安装", i_lede:"不向系统安装任何东西。模型、存档和画面都在游戏文件夹里。删掉文件夹，游戏就没了。",
+    i1_h:"获取代码", i2_h:"构建", i2_p:"检查 Rust 和 Node，构建界面与程序。",
+    i3_h:"开玩", i3_p:"打开浏览器，让游戏下载所需模型。",
+    i4_h:"之后更新", i4_p:"拉取新版本。模型与存档不受影响。",
+    i_note:"游戏自行下载权重：必需部分约 17 GB，含配音与语音输入约 23 GB。中断的下载会从断点继续。",
+    t_title:"技术细节", t_lede:"一个 Rust 程序。运行时不需要 Python 和 Node，注册表里什么都不写。",
+    t_col1:"部分", t_col2:"由什么驱动",
+    t_r1:"故事", t_r2:"插画", t_r3:"配音", t_r4:"语音输入", t_r5:"规则",
+    t_r5v:"自研确定性 D&amp;D 5e 引擎，240 项测试",
+    t_r6:"云端", t_r6v:"OpenRouter，按阶段，可选",
+    t_r7:"配置要求", t_r7v:"Windows 10/11 · NVIDIA 12 GB 以上，或云端模式下无需显卡",
+    foot_made:"作者 Nerual Dreming · Нейро-Софт · MIT 许可", foot_donate:"支持作者", foot_get:"获取",
+  },
+  ja: {
+    s_lede:"実際に動いているゲームの画面です。モックではありません。",
+    s1:"進行中のターン——キャラクターシート、能力値、効果、日誌、本文、そして描かれた場面。",
+    s2:"d20はエンジンが先に出した目のまま止まります——クリティカル成功。",
+    s3:"本モード——冒険を見開きで読めます。",
+    s4:"物語を始める——舞台を選び、自分が誰かを告げるか、ゲームに任せることもできます。",
+    s5:"エンジンとクラウド——各工程を個別にGPUとクラウドで切り替えられます。",
+    s6:"初回起動——必要なものと容量を提示し、ゲーム自身がダウンロードします。",
+    s7:"パーティ——キャラクター、シート、肖像、ナレーターのプロンプト。",
+    s8:"音声——ナレーターの声を選び、自分の声を追加し、各キャラに声を割り当てます。",
+    nav_features:"できること", nav_how:"1ターンの流れ", nav_install:"インストール", nav_stack:"内部構成", nav_get:"入手する",
+    eyebrow:"オフライン · 無検閲 · 7言語 · オープンソース",
+    h1:"眠らないダンジョンマスター。しかもPCの外へ出ない。",
+    lede:"本物の3D物理ダイス、ごまかしのないD&amp;Dルール、自分のGPUで描かれる無検閲の挿絵、そして場面を読み上げるナレーター。クラウドもアカウントもフィルターもありません。",
+    cta_download:"無料でダウンロード", cta_how:"インストール方法",
+    sub:"Windows 10/11 · Rust製の単一実行ファイル · GPUなしでも遊べます",
+    f_title:"できること", f_lede:"卓に必要なものすべて——物語、ルール、ダイス、挿絵、声——が1台の中に。",
+    f1_h:"ごまかせないダイス", f1_p:"本物の物理d20が転がります。まずエンジンが暗号論的乱数で出目を決め、その目でダイスが止まるよう固定されます。AIに細工はできません。",
+    f2_h:"本物のD&amp;Dルール", f2_p:"6能力値、AC、HP、イニシアチブ、ダイスが倍になるクリティカル、状態異常、期限つき効果、能力補正つきの戦利品。判定するのはナレーターではなくエンジンです。",
+    f3_h:"フィルターのない絵", f3_p:"場面はKrea-2 Turboと制限解除エンコーダーが描きます。場所ごとに基準となる一枚を保つので、同じ部屋は同じ部屋のままです。",
+    f4_h:"読み上げてくれる", f4_p:"ナレーターが書いている最中から文が音声になるので、数秒で声が始まります。台詞はその人物自身の声で読まれます。音声パック同梱。",
+    f5_h:"声で行動を伝える", f5_p:"マイクを押して行動を話すだけ。音声は手元で文字になり、外には送られません。",
+    f6_h:"GPUがなくても動く", f6_p:"叙述・挿絵・音声・音声入力は個別にクラウドへ切り替えられます。すべて切り替えれば薄型ノートでも同じ遊びができます。",
+    f7_h:"本モード", f7_p:"見開きで冒険を読めます。挿絵もその位置に。見開きごと読み上げることもできます。",
+    f8_h:"7つの言語", f8_p:"叙述、行動候補、冒険日誌、音声すべてが選んだ言語に従います：ロシア語、英語、スペイン語、フランス語、ドイツ語、中国語、日本語。",
+    h_title:"1ターンの最初から最後まで", h_lede:"1枚のGPUを複数の処理で共有し、必要なときは丸ごと使えるよう調停します。",
+    h1_h:"あなたが動く", h1_p:"行動を打つか、話す。",
+    h2_h:"ナレーターが書く", h2_p:"文章が一語ずつ流れてきます。",
+    h3_h:"音声が始まる", h3_p:"書き終えた文はもう読み上げられています。",
+    h4_h:"エンジンが裁定", h4_p:"判定、攻撃、ダメージ、戦利品が処理され日誌に残ります。",
+    h5_h:"場面が現れる", h5_p:"絵が生成され本文に収まります。",
+    s_title:"画面",
+        s2:"純粋な叙述——本のように、文章が一語ずつ届きます。",
+    i_title:"インストール", i_lede:"システムには何も入りません。モデルもセーブも生成画像もゲームのフォルダの中。フォルダを消せばゲームも消えます。",
+    i1_h:"コードを取得", i2_h:"ビルド", i2_p:"RustとNodeを確認し、画面と実行ファイルを作ります。",
+    i3_h:"遊ぶ", i3_p:"ブラウザが開き、必要なモデルをゲーム自身がダウンロードします。",
+    i4_h:"あとで更新", i4_p:"新しい版を取得します。モデルとセーブはそのままです。",
+    i_note:"重みはゲームが自分で取得します。必須分で約17GB、音声と音声入力を含めて約23GB。中断してもその位置から再開します。",
+    t_title:"内部構成", t_lede:"Rust製の単一実行ファイル。実行時にPythonもNodeも不要、レジストリにも何も書きません。",
+    t_col1:"部分", t_col2:"動かしているもの",
+    t_r1:"物語", t_r2:"挿絵", t_r3:"読み上げ", t_r4:"音声入力", t_r5:"ルール",
+    t_r5v:"自作の決定論的D&amp;D 5eエンジン、240件のテスト",
+    t_r6:"クラウド", t_r6v:"OpenRouter、工程ごと、任意",
+    t_r7:"必要環境", t_r7v:"Windows 10/11 · NVIDIA 12GB以上、クラウドならGPU不要",
+    foot_made:"制作 Nerual Dreming · Нейро-Софт · MITライセンス", foot_donate:"支援する", foot_get:"入手する",
+  },
+};
+
+// Английский — исходный текст в разметке, поэтому запоминаем его при загрузке.
+const BASE = {};
+document.querySelectorAll("[data-i18n]").forEach((node) => { BASE[node.dataset.i18n] = node.innerHTML; });
+
+const SUPPORTED = ["en", "ru", "es", "fr", "de", "zh", "ja"];
+
+function apply(lang) {
+  const dict = I18N[lang] || {};
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    const key = node.dataset.i18n;
+    node.innerHTML = dict[key] !== undefined ? dict[key] : BASE[key];
+  });
+  document.documentElement.lang = lang;
+  document.getElementById("lang").value = lang;
+  const url = new URL(location.href);
+  if (lang === "en") url.searchParams.delete("lang"); else url.searchParams.set("lang", lang);
+  history.replaceState(null, "", url);
+  try { localStorage.setItem("du-lang", lang); } catch { /* приватный режим */ }
+}
+
+// Язык берём из адреса, потом из прошлого выбора, потом из настроек браузера.
+const asked = new URL(location.href).searchParams.get("lang");
+let saved = null;
+try { saved = localStorage.getItem("du-lang"); } catch { /* приватный режим */ }
+const browser = (navigator.language || "en").slice(0, 2);
+apply(SUPPORTED.find((l) => l === asked) || SUPPORTED.find((l) => l === saved) || SUPPORTED.find((l) => l === browser) || "en");
+
+document.getElementById("lang").addEventListener("change", (event) => apply(event.target.value));
+</script>
+</body>
+</html>

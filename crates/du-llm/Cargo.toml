@@ -1,0 +1,16 @@
+[package]
+name = "du-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Текстовая модель: сайдкар llama-server + OpenAI-совместимый клиент со стримингом и выводом по JSON-схеме"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# Блокирующий клиент: ход истории живёт в задаче на блокирующем пуле, TLS нужен только
+# для облачных бэкендов, поэтому берём rustls, а не системный стек.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+base64 = "0.22"
