@@ -75,6 +75,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/local-data", get(characters::local_data).delete(characters::wipe))
         .route("/api/settings/defaults", get(characters::default_settings))
         .route("/api/where", get(routes::where_it_runs))
+        .route("/api/jobs/{job}/stop", post(routes::stop_job))
         .route("/api/runtime", get(routes::runtime_get).put(routes::runtime_put))
         .route("/api/hw", get(routes::hardware))
         .route("/api/setup/status", get(routes::setup_status))
@@ -87,6 +88,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/images", post(routes::create_image))
         .route("/api/story", post(story::story))
         .fallback(serve_static)
+        // Предела на размер запроса нет вовсе. Стандартные два мегабайта существуют, чтобы
+        // публичный сервер не завалили чужие запросы; этот слушает только 127.0.0.1, и
+        // защищаться ему не от кого. Зато предел резал запись голоса на нескольких секундах
+        // речи и картинки-референсы, отвечая «слишком большой запрос» вместо работы.
+        .layer(axum::extract::DefaultBodyLimit::disable())
         .with_state(state)
 }
 
@@ -108,6 +114,11 @@ async fn serve_static(State(state): State<AppState>, request: axum::extract::Req
 /// Поднять сервер на 127.0.0.1 и работать до завершения процесса. Вызывается из оболочки
 /// на фоновом потоке, поэтому внутри создаётся собственный рантайм.
 pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
+    // Убираем процессы модели, оставшиеся от прошлого запуска. Штатный выход закрывает их
+    // сам, но после падения или снятия силой они живут дальше и держат видеопамять: у меня
+    // так набралось три штуки на 23.7 ГБ из 24.5, и всё после этого ползло.
+    du_llm::kill_orphans(&root.join("tools").join("llama"));
+
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {
         let state = AppState::new(root)?;

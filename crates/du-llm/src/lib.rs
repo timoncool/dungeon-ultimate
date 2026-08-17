@@ -10,7 +10,7 @@ pub mod server;
 
 pub use client::{
     Effort, Reasoning,chat_endpoint, parse_json_lenient, ChatClient, Message, Part, Sampling};
-pub use server::{resolve_llama_bin, LlamaServer, ServerOpts};
+pub use server::{kill_orphans, resolve_llama_bin, LlamaServer, ServerOpts};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {

@@ -17,11 +17,18 @@ type ApiResult<T> = Result<T, ApiError>;
 /// кладёт `faster-whisper-xxl.exe` либо прямо в `tools/whisper`, либо в подкаталог.
 fn whisper_bin(root: &std::path::Path) -> std::path::PathBuf {
     let dir = root.join("tools").join("whisper");
-    let nested = dir.join("Faster-Whisper-XXL").join("faster-whisper-xxl.exe");
-    if nested.is_file() {
-        return nested;
+    // Имя зависит от пака: обычная сборка кладёт `whisper-faster.exe`, XXL — свой файл в
+    // подкаталоге. Берём то, что реально лежит.
+    for candidate in [
+        dir.join("whisper-faster.exe"),
+        dir.join("faster-whisper-xxl.exe"),
+        dir.join("Faster-Whisper-XXL").join("faster-whisper-xxl.exe"),
+    ] {
+        if candidate.is_file() {
+            return candidate;
+        }
     }
-    dir.join("faster-whisper-xxl.exe")
+    dir.join("whisper-faster.exe")
 }
 
 /// Браузер пишет 16 кГц моно WAV — ровно то, что ждёт распознавание.
@@ -47,7 +54,7 @@ pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult
     let root = state.root.clone();
     let (_, result) = state
         .queue
-        .enqueue_awaitable(Box::new(move |_| {
+        .enqueue_awaitable(Box::new(move |_, _| {
             if in_cloud {
                 // Облачный разбор карту не трогает вовсе.
                 let text = crate::cloud::transcribe(&root, &runtime, &path, "ru")?;

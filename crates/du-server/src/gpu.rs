@@ -20,6 +20,8 @@ pub enum Resident {
     Nobody,
     Text,
     Image,
+    /// Движок озвучки: он тоже занимает карту, и это должно быть видно снаружи.
+    Speech,
 }
 
 /// Где лежат веса и рантайм-библиотеки.
@@ -146,9 +148,14 @@ impl Gpu {
         self.drop_image_context();
 
         // Настройки читаем при КАЖДОМ запуске: изменил контекст — следующий ход уже с ним.
+        // Голос уходит с карты перед рассказчиком — по той же причине, что и наоборот.
+        self.release_speech();
         let runtime = crate::runtime::load(&self.root);
         let bin = du_llm::resolve_llama_bin(&self.paths.llama_tools);
         let mut opts = ServerOpts::new(bin, self.paths.text_model.clone())
+            // Зрение подключаем, только если файл кто-то положил руками: игра картинки
+            // рассказчику не показывает — приложенное игроком уходит в конвейер кадра, а
+            // ему достаётся лишь строка с именем файла. Качать эти 180 МБ было незачем.
             .with_mmproj(self.paths.text_mmproj.clone().filter(|path| path.is_file()))
             .with_ctx(runtime.narrator_ctx);
         opts.n_gpu_layers = narrator_layers(&runtime);
@@ -181,10 +188,23 @@ impl Gpu {
         if !dll.is_file() {
             return Err(GpuError::Missing("движок озвучки не установлен".into()));
         }
+        // Голосу нужна карта — значит текстовая модель с неё уходит. Без этого Гемма на 8 ГБ
+        // и голос на 4 ГБ жили на карте одновременно, всё упиралось в память и ход занимал
+        // одиннадцать минут вместо десятков секунд. Кадр так делал давно, озвучка — нет.
+        self.release_text();
+        *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Speech;
+
         let engine = du_tts::AudiocppEngine::load(&dll)
             .map_err(|error| GpuError::Missing(error.to_string()))?;
+        let runtime = crate::runtime::load(&self.root);
         engine
-            .load_model(&model_root, "cuda", 0, 8, None)
+            .load_model(
+                &model_root,
+                crate::backend::stage_backend(&runtime, crate::backend::Stage::Tts).engine_name(),
+                0,
+                8,
+                None,
+            )
             .map_err(|error| GpuError::Missing(error.to_string()))?;
         let engine = Arc::new(engine);
         *self.speech.lock().unwrap_or_else(|e| e.into_inner()) = Some(engine.clone());
@@ -196,6 +216,10 @@ impl Gpu {
         let mut speech = self.speech.lock().unwrap_or_else(|e| e.into_inner());
         if speech.take().is_some() {
             tracing::info!("освобождаю карту: выгружаю движок озвучки");
+        }
+        let mut resident = self.resident.lock().unwrap_or_else(|e| e.into_inner());
+        if *resident == Resident::Speech {
+            *resident = Resident::Nobody;
         }
     }
 
@@ -307,14 +331,17 @@ mod tests {
         assert_eq!(config.backend.as_deref(), Some("cuda"));
         assert!(config.offload_to_cpu, "на карте выгрузка весов в память сохраняется");
 
-        let on_cpu = Runtime { local_backend: "cpu".into(), image_offload_to_cpu: true, ..Default::default() };
+        // Кадр не уводится на процессор ДАЖЕ по прямому указанию: там он считается десятки
+        // минут вместо десятка секунд.
+        let on_cpu = Runtime {
+            local_backend: "cpu".into(),
+            image_backend: "cpu".into(),
+            image_offload_to_cpu: true,
+            ..Default::default()
+        };
         let config = super::image_config(base(), &on_cpu);
-        assert_eq!(config.backend.as_deref(), Some("cpu"));
-        assert!(!config.offload_to_cpu, "на процессоре выгружать некуда");
-
-        // Стадия важнее общего: картинки на карте, всё остальное на процессоре.
-        let mixed = Runtime { local_backend: "cpu".into(), image_backend: "gpu".into(), ..Default::default() };
-        assert_eq!(super::image_config(base(), &mixed).backend.as_deref(), Some("cuda"));
+        assert_eq!(config.backend.as_deref(), Some("cuda"));
+        assert!(config.offload_to_cpu, "выгрузка весов в память при этом сохраняется");
     }
     use super::*;
 

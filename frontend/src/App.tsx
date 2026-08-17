@@ -108,6 +108,9 @@ const SIDEBAR_ICONS = {
 
 /// Как назвать игроку то, что сервер сейчас делает.
 const STAGE_WORDS: Record<string, string> = {
+  // Загрузка весов на карту — это минута с лишним, и молчать о ней нельзя: игрок видел
+  // «формируется отрывок» и думал, что игра зависла.
+  "загрузка модели": "Модель едет на карту, это разово…",
   "проза": "Рассказчик пишет…",
   "механика": "Движок разрешает бросок…",
   "кадр": "Оператор выбирает кадр…",
@@ -570,6 +573,9 @@ export default function Home() {
   const endRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const storyAbortRef = useRef<AbortController | null>(null);
+  /// Номер текущего хода на сервере. Без него «Прервать» отцепляло только браузер, а
+  /// сервер досчитывал ход и держал карту — следом вставало всё остальное.
+  const storyJobRef = useRef<string>("");
   const stoppedByUserRef = useRef(false);
   const [speakingId, setSpeakingId] = useState("");
   const audioCacheRef = useRef<Map<string, string>>(new Map());
@@ -802,6 +808,11 @@ export default function Home() {
   // minutes on a loaded GPU); flagged so the catch treats it as a stop, not an error.
   const stopTurn = useCallback(() => {
     stoppedByUserRef.current = true;
+    // Сначала просим остановиться сервер, потом отцепляемся сами.
+    const job = storyJobRef.current;
+    if (job) {
+      void fetch(`/api/jobs/${job}/stop`, { method: "POST" }).catch(() => {});
+    }
     storyAbortRef.current?.abort();
   }, []);
 
@@ -1456,7 +1467,15 @@ export default function Home() {
     const controller = new AbortController();
     storyAbortRef.current = controller;
     stoppedByUserRef.current = false;
-    const timeoutId = window.setTimeout(() => controller.abort(), STORY_REQUEST_TIMEOUT_MS);
+    const timeoutId = window.setTimeout(() => {
+      // Ход затянулся: отцепиться мало — сервер надо остановить, иначе карта останется
+      // занятой ходом, результат которого уже никто не ждёт.
+      const job = storyJobRef.current;
+      if (job) {
+        void fetch(`/api/jobs/${job}/stop`, { method: "POST" }).catch(() => {});
+      }
+      controller.abort();
+    }, STORY_REQUEST_TIMEOUT_MS);
     // Returned to the caller so playInput can chain the roll-outcome beat.
     let turnResult: { events: GameEvent[]; content: string; id: string } = {
       events: [],
@@ -1583,7 +1602,10 @@ export default function Home() {
           } catch {
             return;
           }
-          if (eventName === "delta") {
+          if (eventName === "job") {
+            // Номер хода приходит первым событием — запоминаем, чтобы было что прерывать.
+            storyJobRef.current = String((data as { job?: string }).job || "");
+          } else if (eventName === "delta") {
             pushDelta(data.text || "");
           } else if (eventName === "stage") {
             // Что именно считается прямо сейчас: игроку важно видеть, ждёт он текста,

@@ -51,6 +51,25 @@ fn stage_choice(runtime: &Runtime, stage: Stage) -> &str {
     }
 }
 
+impl Stage {
+    /// Умеет ли стадия считаться на процессоре.
+    ///
+    /// Замеры на живом железе:
+    ///
+    /// * распознавание речи — секунды, процессор годится вполне;
+    /// * рассказчик — 14 знаков в секунду, около полутора минут на обычный отрывок. Медленно,
+    ///   но текст идёт потоком и первые слова появляются через девять секунд, поэтому играть
+    ///   можно; в интерфейсе это подписано прямо;
+    /// * кадр — за шесть минут не выдал ни одной картинки (на карте те же 13 секунд);
+    /// * озвучка — голос отстаёт от чтения настолько, что слушать нечего.
+    ///
+    /// Последние два поэтому и не предлагаются: выбор, которым нельзя пользоваться, хуже,
+    /// чем его отсутствие.
+    pub fn supports_cpu(self) -> bool {
+        matches!(self, Stage::Narrator | Stage::Asr)
+    }
+}
+
 /// Разобрать значение настройки. Незнакомое слово — не выбор.
 fn parse(choice: &str) -> Option<Backend> {
     match choice.trim().to_lowercase().as_str() {
@@ -67,6 +86,10 @@ pub fn gpu_present() -> bool {
 
 /// Где считать эту стадию: сначала её собственный выбор, потом общий, потом по факту железа.
 pub fn stage_backend(runtime: &Runtime, stage: Stage) -> Backend {
+    // Кадр и озвучка считаются только видеокартой — даже если общий выбор говорит иначе.
+    if !stage.supports_cpu() {
+        return Backend::Gpu;
+    }
     parse(stage_choice(runtime, stage))
         .or_else(|| parse(&runtime.local_backend))
         .unwrap_or(if gpu_present() { Backend::Gpu } else { Backend::Cpu })
@@ -83,12 +106,30 @@ mod tests {
     #[test]
     fn a_stage_follows_the_common_choice_until_it_says_otherwise() {
         let mut settings = runtime();
-        assert_eq!(stage_backend(&settings, Stage::Image), Backend::Gpu);
+        assert_eq!(stage_backend(&settings, Stage::Asr), Backend::Gpu);
 
-        settings.image_backend = "cpu".into();
-        assert_eq!(stage_backend(&settings, Stage::Image), Backend::Cpu);
+        settings.asr_backend = "cpu".into();
+        assert_eq!(stage_backend(&settings, Stage::Asr), Backend::Cpu);
         // Остальные стадии чужой выбор не задевает.
+        assert_eq!(stage_backend(&settings, Stage::Narrator), Backend::Gpu);
+    }
+
+    #[test]
+    fn the_frame_and_the_voice_are_never_pushed_to_the_processor() {
+        // Кадр, рассказчик и озвучка не уводятся с карты ДАЖЕ по прямому указанию: замеры
+        // показали минуты вместо секунд.
+        let settings = Runtime {
+            local_backend: "cpu".into(),
+            image_backend: "cpu".into(),
+            tts_backend: "cpu".into(),
+            narrator_backend: "cpu".into(),
+            ..Default::default()
+        };
+        assert_eq!(stage_backend(&settings, Stage::Image), Backend::Gpu);
         assert_eq!(stage_backend(&settings, Stage::Tts), Backend::Gpu);
+        // Рассказчик и распознавание слушаются: это медленно, но играть можно.
+        assert_eq!(stage_backend(&settings, Stage::Narrator), Backend::Cpu);
+        assert_eq!(stage_backend(&settings, Stage::Asr), Backend::Cpu);
     }
 
     #[test]

@@ -542,6 +542,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sysinfo",
  "thiserror 2.0.20",
  "tracing",
 ]

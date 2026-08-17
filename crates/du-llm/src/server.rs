@@ -212,6 +212,35 @@ impl Drop for LlamaServer {
     }
 }
 
+/// Убить процессы модели, оставшиеся от прошлого запуска.
+///
+/// `Drop` закрывает свой процесс, но только при штатном выходе. Если игру сняли силой или
+/// она упала, дочерний `llama-server` остаётся жить и держит гигабайты видеопамяти: у меня
+/// на карте набралось три таких, 23.7 ГБ из 24.5, и всё после этого ползло. Поэтому при
+/// старте подчищаем чужих сирот — тех, чей путь ведёт в наш каталог инструментов.
+pub fn kill_orphans(tools_dir: &Path) {
+    let ours = tools_dir.canonicalize().unwrap_or_else(|_| tools_dir.to_path_buf());
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let mine = std::process::id();
+    for (pid, process) in system.processes() {
+        let name = process.name().to_string_lossy().to_lowercase();
+        if !name.starts_with("llama-server") {
+            continue;
+        }
+        // Свой собственный процесс и чужие сборки не трогаем: убиваем только то, что
+        // запускали мы, из нашего каталога.
+        let from_us = process
+            .exe()
+            .and_then(|path| path.parent().map(|dir| dir.starts_with(&ours)))
+            .unwrap_or(false);
+        if from_us && pid.as_u32() != mine {
+            tracing::info!("убираю оставшийся llama-server {pid}");
+            process.kill();
+        }
+    }
+}
+
 /// Найти `llama-server` в каталоге инструментов.
 pub fn resolve_llama_bin(tools_dir: &Path) -> PathBuf {
     if let Ok(path) = std::env::var("DU_LLAMA_BIN") {

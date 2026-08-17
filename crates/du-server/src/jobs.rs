@@ -16,7 +16,11 @@ use serde_json::{json, Value};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
 /// Тело задачи: получает колбэк прогресса, возвращает результат.
-pub type JobFn = Box<dyn FnOnce(ProgressFn) -> Result<Value, String> + Send + 'static>;
+pub type JobFn = Box<dyn FnOnce(ProgressFn, AbortFlag) -> Result<Value, String> + Send + 'static>;
+
+/// Флаг «задачу бросили». Тело задачи смотрит на него между стадиями и в потоке текста:
+/// иначе «Прервать» лишь отцепляет браузер, а сервер продолжает считать и держит карту.
+pub type AbortFlag = Arc<std::sync::atomic::AtomicBool>;
 
 /// Колбэк прогресса, который тело задачи зовёт по ходу работы.
 pub type ProgressFn = Arc<dyn Fn(Value) + Send + Sync + 'static>;
@@ -38,6 +42,8 @@ struct Job {
     result: Option<Value>,
     error: Option<String>,
     abandoned: bool,
+    /// Виден телу задачи: по нему она останавливается на полпути.
+    abort: AbortFlag,
     result_sender: Option<oneshot::Sender<Result<Value, String>>>,
 }
 
@@ -60,7 +66,7 @@ impl JobQueue {
         tokio::spawn(async move {
             while let Some((id, body)) = incoming.recv().await {
                 // Клиент мог уйти, пока задача ждала очереди — тогда работу не начинаем.
-                let events = {
+                let (events, abort) = {
                     let mut map = worker_jobs.lock().await;
                     match map.get_mut(&id) {
                         None => continue,
@@ -70,7 +76,7 @@ impl JobQueue {
                         }
                         Some(job) => {
                             job.status = JobStatus::Running;
-                            job.events.clone()
+                            (job.events.clone(), job.abort.clone())
                         }
                     }
                 };
@@ -91,7 +97,7 @@ impl JobQueue {
                 });
 
                 // Тело синхронное и тяжёлое, поэтому уезжает в блокирующий пул.
-                let outcome = tokio::task::spawn_blocking(move || body(progress))
+                let outcome = tokio::task::spawn_blocking(move || body(progress, abort))
                     .await
                     .unwrap_or_else(|error| Err(format!("задача упала: {error}")));
 
@@ -137,12 +143,66 @@ impl JobQueue {
                 result: None,
                 error: None,
                 abandoned: false,
+                abort: AbortFlag::default(),
                 result_sender,
             },
         )
     }
 
     /// Поставить задачу в очередь и вернуть её идентификатор.
+    /// Запустить задачу СРАЗУ, минуя очередь к видеокарте.
+    ///
+    /// Очередь существует ради одной вещи: на карте помещается по одной модели, поэтому
+    /// ход, кадр и озвучка идут по очереди. Но закачка — это сеть, карта ей не нужна, и
+    /// стоять за чужим кадром она не должна: игрок жаловался, что скачивание висит на нуле,
+    /// пока считается кадр. Отчёт о ходе и подписка на события — те же, что у очереди.
+    pub async fn spawn_detached(&self, body: JobFn) -> String {
+        let (id, mut job) = self.make_job(None);
+        job.status = JobStatus::Running;
+        let events = job.events.clone();
+        let abort = job.abort.clone();
+        self.jobs.lock().await.insert(id.clone(), job);
+
+        let jobs = self.jobs.clone();
+        let done_id = id.clone();
+        let sink = events.clone();
+        tokio::spawn(async move {
+            let progress: ProgressFn = Arc::new(move |event: Value| {
+                let mut fields = match event {
+                    Value::Object(map) => map,
+                    other => {
+                        let mut map = serde_json::Map::new();
+                        map.insert("msg".into(), other);
+                        map
+                    }
+                };
+                fields.insert("type".into(), json!("progress"));
+                let _ = sink.send(Value::Object(fields));
+            });
+            let outcome = tokio::task::spawn_blocking(move || body(progress, abort))
+                .await
+                .unwrap_or_else(|error| Err(format!("задача упала: {error}")));
+
+            if let Some(job) = jobs.lock().await.get_mut(&done_id) {
+                match &outcome {
+                    Ok(value) => {
+                        job.status = JobStatus::Done;
+                        job.result = Some(value.clone());
+                        let _ = events.send(json!({ "type": "done", "result": value }));
+                    }
+                    Err(error) => {
+                        job.status = JobStatus::Error;
+                        job.error = Some(error.clone());
+                        let _ = events.send(json!({ "type": "error", "error": error }));
+                    }
+                }
+            }
+            tokio::time::sleep(REAP_AFTER).await;
+            jobs.lock().await.remove(&done_id);
+        });
+        id
+    }
+
     pub async fn enqueue(&self, body: JobFn) -> String {
         let (id, job) = self.make_job(None);
         self.jobs.lock().await.insert(id.clone(), job);
@@ -178,11 +238,21 @@ impl JobQueue {
         Some((receiver, terminal))
     }
 
-    /// Пометить, что результат больше не нужен: если задача ещё не начата, её не запустят.
+    /// Пометить, что результат больше не нужен.
+    ///
+    /// Не начатую задачу не запустят вовсе, а начатая увидит флаг и остановится сама —
+    /// без этого нажатие «Прервать» освобождало только браузер, а карта оставалась занятой
+    /// до конца хода.
     pub async fn abandon(&self, id: &str) {
         if let Some(job) = self.jobs.lock().await.get_mut(id) {
             job.abandoned = true;
+            job.abort.store(true, std::sync::atomic::Ordering::Relaxed);
         }
+    }
+
+    /// Флаг отмены конкретной задачи — тело задачи держит его у себя.
+    pub async fn abort_flag(&self, id: &str) -> Option<AbortFlag> {
+        self.jobs.lock().await.get(id).map(|job| job.abort.clone())
     }
 
     pub async fn status(&self, id: &str) -> Option<JobStatus> {
@@ -198,13 +268,73 @@ impl Default for JobQueue {
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancelling_stops_the_work_itself_not_just_the_listener() {
+        let queue = JobQueue::new();
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = seen.clone();
+
+        // Длинная задача, которая честно смотрит на флаг отмены между шагами.
+        let id = queue
+            .enqueue(Box::new(move |_, abort| {
+                for _ in 0..200 {
+                    if abort.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Err("прервано".into());
+                    }
+                    counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Ok(json!({ "ok": true }))
+            }))
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        queue.abandon(&id).await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let done = seen.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(done > 0, "задача должна была начаться");
+        assert!(done < 200, "и оборваться на полпути, а не досчитать до конца: {done}");
+        assert_eq!(queue.status(&id).await, Some(JobStatus::Error));
+    }
+
+    // Настоящие потоки обязательны: на однопоточной среде ожидание в самом тесте
+    // останавливает и проверяемые задачи.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_detached_job_does_not_wait_for_the_queue() {
+        let queue = JobQueue::new();
+        // Занимаем очередь надолго: обычная задача будет ждать её, отдельная — нет.
+        let (block_tx, block_rx) = std::sync::mpsc::channel::<()>();
+        queue
+            .enqueue(Box::new(move |_, _| {
+                let _ = block_rx.recv_timeout(std::time::Duration::from_secs(5));
+                Ok(json!({ "ok": true }))
+            }))
+            .await;
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        queue
+            .spawn_detached(Box::new(move |_, _| {
+                let _ = done_tx.send(());
+                Ok(json!({ "ok": true }))
+            }))
+            .await;
+
+        // Отдельная задача обязана отработать, пока очередь занята.
+        assert!(
+            done_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok(),
+            "закачка не должна ждать освобождения карты"
+        );
+        let _ = block_tx.send(());
+    }
     use super::*;
 
     #[tokio::test]
     async fn a_job_runs_and_delivers_its_result() {
         let queue = JobQueue::new();
         let (_, result) = queue
-            .enqueue_awaitable(Box::new(|progress| {
+            .enqueue_awaitable(Box::new(|progress, _| {
                 progress(json!({ "msg": "работаю" }));
                 Ok(json!({ "готово": true }))
             }))
@@ -217,7 +347,7 @@ mod tests {
     async fn a_failing_job_reports_its_error() {
         let queue = JobQueue::new();
         let (_, result) = queue
-            .enqueue_awaitable(Box::new(|_| Err("не вышло".to_string())))
+            .enqueue_awaitable(Box::new(|_, _| Err("не вышло".to_string())))
             .await;
         assert_eq!(result.await.unwrap().unwrap_err(), "не вышло");
     }
@@ -226,12 +356,12 @@ mod tests {
     async fn a_panicking_job_does_not_take_the_queue_down() {
         let queue = JobQueue::new();
         let (_, first) = queue
-            .enqueue_awaitable(Box::new(|_| panic!("внутренняя ошибка")))
+            .enqueue_awaitable(Box::new(|_, _| panic!("внутренняя ошибка")))
             .await;
         assert!(first.await.unwrap().is_err());
 
         // Очередь обязана продолжить работать после падения предыдущей задачи.
-        let (_, second) = queue.enqueue_awaitable(Box::new(|_| Ok(json!(2)))).await;
+        let (_, second) = queue.enqueue_awaitable(Box::new(|_, _| Ok(json!(2)))).await;
         assert_eq!(second.await.unwrap().unwrap(), 2);
     }
 
@@ -246,7 +376,7 @@ mod tests {
             let running = running.clone();
             let peak = peak.clone();
             let (_, result) = queue
-                .enqueue_awaitable(Box::new(move |_| {
+                .enqueue_awaitable(Box::new(move |_, _| {
                     use std::sync::atomic::Ordering;
                     let now = running.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
@@ -274,7 +404,7 @@ mod tests {
 
         // Занимаем воркер, чтобы следующая задача точно постояла в очереди.
         let (_, blocker) = queue
-            .enqueue_awaitable(Box::new(|_| {
+            .enqueue_awaitable(Box::new(|_, _| {
                 std::thread::sleep(Duration::from_millis(120));
                 Ok(json!(null))
             }))
@@ -282,7 +412,7 @@ mod tests {
 
         let flag = started.clone();
         let id = queue
-            .enqueue(Box::new(move |_| {
+            .enqueue(Box::new(move |_, _| {
                 flag.store(true, std::sync::atomic::Ordering::SeqCst);
                 Ok(json!(null))
             }))
@@ -297,7 +427,7 @@ mod tests {
     #[tokio::test]
     async fn a_late_subscriber_still_gets_the_final_event() {
         let queue = JobQueue::new();
-        let (id, result) = queue.enqueue_awaitable(Box::new(|_| Ok(json!("всё")))).await;
+        let (id, result) = queue.enqueue_awaitable(Box::new(|_, _| Ok(json!("всё")))).await;
         result.await.unwrap().unwrap();
 
         let (_, terminal) = queue.subscribe(&id).await.expect("задача ещё не убрана");

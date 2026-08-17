@@ -343,7 +343,7 @@ async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> A
     let inner = state.0.clone();
     let (_, result) = state
         .queue
-        .enqueue_awaitable(Box::new(move |_| {
+        .enqueue_awaitable(Box::new(move |_, _| {
             let base_url = inner.gpu.text_base_url().map_err(|error| error.to_string())?;
             let client = ChatClient::new(&base_url, std::time::Duration::from_secs(180))
                 .map_err(|error| error.to_string())?;
@@ -372,7 +372,7 @@ async fn ask_text(state: &AppState, messages: Vec<Message>, sampling: Sampling) 
     let inner = state.0.clone();
     let (_, result) = state
         .queue
-        .enqueue_awaitable(Box::new(move |_| {
+        .enqueue_awaitable(Box::new(move |_, _| {
             let base_url = inner.gpu.text_base_url().map_err(|error| error.to_string())?;
             let client = ChatClient::new(&base_url, std::time::Duration::from_secs(180))
                 .map_err(|error| error.to_string())?;

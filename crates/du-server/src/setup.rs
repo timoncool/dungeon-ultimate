@@ -226,17 +226,6 @@ static COMPONENTS: &[Component] = &[
             )],
         },
         Component {
-            id: "narrator-vision",
-            title: "Зрение рассказчика",
-            note: "позволяет показывать модели свои картинки",
-            requirement: Requirement::Optional,
-            files: &[FileSpec::plain(
-                "models/text/mmproj.gguf",
-                "https://huggingface.co/zaakirio/gemma-4-12b-it-uncensored-GGUF/resolve/main/mmproj-gemma-4-12B-it-bf16.gguf",
-                180_000_000,
-            )],
-        },
-        Component {
             id: "voice-engine",
             title: "Движок озвучки",
             note: "Higgs: читает текст голосом из пака",
@@ -298,7 +287,7 @@ static COMPONENTS: &[Component] = &[
                 "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip",
                 87_654_143,
                 "tools/whisper",
-                "tools/whisper/faster-whisper-xxl.exe",
+                "tools/whisper/whisper-faster.exe",
             )],
         },
         Component {
@@ -373,10 +362,11 @@ fn file_present(root: &Path, file: &FileSpec) -> bool {
         return false;
     }
     // Размер в манифесте — ОЦЕНКА для полосы прогресса, а не отпечаток файла: там круглые
-    // числа, а на диске точные, и расхождение в мегабайт — норма. Требовать совпадения
-    // байт-в-байт нельзя: так целые файлы объявлялись недокачанными и качались заново.
-    // Обрубок же короче в разы, поэтому порога в девять десятых достаточно.
-    file.bytes == 0 || meta.len() * 10 >= file.bytes * 9
+    // числа, а на диске точные. У мелочи вроде config.json оценка расходится в разы
+    // (заявлено 1400 байт, на деле 97), поэтому размер сверяем только у КРУПНЫХ файлов —
+    // там обрыв закачки и виден. Мелкий файл либо скачан целиком, либо его нет.
+    const SIZE_MATTERS_FROM: u64 = 8 * 1024 * 1024;
+    file.bytes < SIZE_MATTERS_FROM || meta.len() * 10 >= file.bytes * 9
 }
 
 /// Сколько байт этого файла уже лежит на диске: готовый файл или незавершённая докачка.
@@ -776,9 +766,15 @@ mod tests {
             marker: "",
         };
 
-        // Оборванная закачка: файл есть, но короче обещанного в разы.
+        // Оборванная закачка КРУПНОГО файла: сверяем размер.
+        let big = FileSpec { bytes: 100 * 1024 * 1024, ..spec };
+        write_of_size(&dir.join("модель.gguf"), 5 * 1024 * 1024);
+        assert!(!file_present(&dir, &big), "обрубок не считается установленным");
+        write_of_size(&dir.join("модель.gguf"), 99 * 1024 * 1024);
+        assert!(file_present(&dir, &big), "почти точный размер — это норма");
+
+        // Мелочь вроде config.json: оценка в манифесте расходится в разы, верим наличию.
         std::fs::write(dir.join("модель.gguf"), b"12345").unwrap();
-        assert!(!file_present(&dir, &spec), "обрубок не считается установленным");
 
         // Дописали до нужного размера — теперь на месте.
         std::fs::write(dir.join("модель.gguf"), b"1234567890").unwrap();

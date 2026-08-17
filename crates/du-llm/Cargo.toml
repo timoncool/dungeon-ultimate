@@ -14,3 +14,5 @@ tracing = { workspace = true }
 # для облачных бэкендов, поэтому берём rustls, а не системный стек.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 base64 = "0.22"
+# Нужен, чтобы находить и убирать процессы модели, оставшиеся от прошлого запуска.
+sysinfo = "0.32"

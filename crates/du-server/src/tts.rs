@@ -324,7 +324,7 @@ pub async fn speak(State(state): State<AppState>, Json(body): Json<TtsBody>) -> 
 
     let (_, result) = state
         .queue
-        .enqueue_awaitable(Box::new(move |_| {
+        .enqueue_awaitable(Box::new(move |_, _| {
             synthesize(&root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
         }))
         .await;

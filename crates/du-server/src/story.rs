@@ -88,10 +88,11 @@ pub async fn story(
 
     let job_id = state
         .queue
-        .enqueue(Box::new(move |progress| {
-            run_turn(&inner, &chat_id, &input, &chat, progress)
+        .enqueue(Box::new(move |progress, abort| {
+            run_turn(&inner, &chat_id, &input, &chat, progress, abort)
         }))
         .await;
+
 
     let (mut receiver, terminal) = state
         .queue
@@ -101,7 +102,10 @@ pub async fn story(
 
     // Контракт потока — ИМЕНОВАННЫЕ события: интерфейс различает их по имени, а безымянные
     // просто игнорирует, из-за чего экран оставался пустым при уже готовом ходе.
+    let told_job = job_id.clone();
     let stream = async_stream::stream! {
+        // Первым делом сообщаем номер хода: по нему интерфейс сможет его прервать.
+        yield Ok(Event::default().event("job").data(json!({ "job": told_job }).to_string()));
         if let Some(event) = terminal {
             if let Some(named) = to_named(&event) {
                 yield Ok(named);
@@ -267,8 +271,11 @@ fn run_turn(
     input: &str,
     chat: &du_core::StoryChat,
     progress: crate::jobs::ProgressFn,
+    // Поднят, когда игрок нажал «Прервать» или ушёл со страницы.
+    abort: crate::jobs::AbortFlag,
 ) -> Result<Value, String> {
     let settings = &chat.summary.settings;
+    let stopped = || abort.load(std::sync::atomic::Ordering::Relaxed);
 
     // Рассказчик идёт либо на своей карте, либо в облако — тогда карта вообще не нужна.
     let runtime = crate::runtime::load(&state.root);
@@ -549,6 +556,10 @@ fn run_turn(
     let mut held = String::new();
     let narration = client
         .chat_stream(&messages, &sampling, |delta| {
+            // Игрок прервал — прекращаем писать прямо здесь, не досчитывая ход до конца.
+            if stopped() {
+                return false;
+            }
             held.push_str(delta);
             let keep = crate::voice_tags::dangling(&held);
             let show: String = held[..held.len() - keep].to_string();
@@ -610,6 +621,9 @@ fn run_turn(
             }
         }
     }
+    if stopped() {
+        return Err("ход прерван".into());
+    }
     if narration.trim().is_empty() {
         return Err("нарратор вернул пустой текст".into());
     }
@@ -634,7 +648,7 @@ fn run_turn(
     // Механика хода: модель объявляет, движок считает.
     let mut events = Vec::new();
     let mut granted = Vec::new();
-    if settings.rpg_enabled {
+    if settings.rpg_enabled && !stopped() {
         progress(json!({ "stage": "механика" }));
         let ask = vec![
             Message::system(
@@ -750,7 +764,7 @@ fn run_turn(
 
     // Кадр: оператор выбирает ОДИН ключевой момент этой сцены.
     let mut image_request: Option<ImageRequest> = None;
-    if settings.image_generation_enabled {
+    if settings.image_generation_enabled && !stopped() {
         progress(json!({ "stage": "кадр" }));
         let ask = vec![
             Message::system(

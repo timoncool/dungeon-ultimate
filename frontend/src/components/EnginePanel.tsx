@@ -42,6 +42,9 @@ type CloudVoice = { name: string; gender: string; age: string; ru: boolean };
 /// Стадия хода: каждая живёт своей жизнью и переключается отдельно от остальных.
 type Stage = {
   key: "narrator" | "image" | "tts" | "asr";
+  /// Считается ли стадия на процессоре. У кадра и озвучки — нет: там это десятки минут на
+  /// картинку и отставание голоса от чтения, то есть выбор, которым нельзя пользоваться.
+  cpu: boolean;
   title: string;
   kind: string;
   on: keyof Runtime;
@@ -57,10 +60,10 @@ type Stage = {
 type Where = "gpu" | "cpu" | "cloud";
 
 const STAGES: Stage[] = [
-  { key: "narrator", title: "Рассказчик", kind: "text", on: "openrouterNarratorOn", model: "openrouterNarratorModel", backend: "narratorBackend", local: "Гемма" },
-  { key: "image", title: "Кадр", kind: "image", on: "openrouterImageOn", model: "openrouterImageModel", backend: "imageBackend", local: "Krea" },
-  { key: "tts", title: "Озвучка", kind: "tts", on: "openrouterTtsOn", model: "openrouterTtsModel", backend: "ttsBackend", local: "Higgs" },
-  { key: "asr", title: "Речь в текст", kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", backend: "asrBackend", local: "Parakeet" },
+  { key: "narrator", cpu: true, title: "Рассказчик", kind: "text", on: "openrouterNarratorOn", model: "openrouterNarratorModel", backend: "narratorBackend", local: "Гемма" },
+  { key: "image", cpu: false, title: "Кадр", kind: "image", on: "openrouterImageOn", model: "openrouterImageModel", backend: "imageBackend", local: "Krea" },
+  { key: "tts", cpu: false, title: "Озвучка", kind: "tts", on: "openrouterTtsOn", model: "openrouterTtsModel", backend: "ttsBackend", local: "Higgs" },
+  { key: "asr", cpu: true, title: "Речь в текст", kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", backend: "asrBackend", local: "Parakeet" },
 ];
 
 const WHERE_OPTIONS: Array<{ value: Where; label: string }> = [
@@ -386,7 +389,8 @@ export default function EnginePanel() {
             </div>
             <p className="text-[11px] leading-relaxed text-stone-600">
               «Как есть» — карта, если она в системе есть, иначе процессор. Любую стадию
-              ниже можно увести отдельно.
+              ниже можно увести отдельно. Кадр и озвучка считаются только картой: на
+              процессоре кадр рисуется десятки минут, а голос не поспевает за чтением.
             </p>
           </div>
 
@@ -414,7 +418,9 @@ export default function EnginePanel() {
                   <span className="truncate text-sm text-stone-200">{stage.title}</span>
                   {/* Три положения в одну строку: перенос читался бы как отдельные кнопки. */}
                   <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
-                    {WHERE_OPTIONS.map((option) => (
+                    {WHERE_OPTIONS.filter(
+                      (option) => option.value !== "cpu" || stage.cpu,
+                    ).map((option) => (
                       <button
                         key={option.value}
                         type="button"
@@ -474,6 +480,12 @@ export default function EnginePanel() {
                           <option value="parakeet">Parakeet — быстрый, работает сразу</option>
                           <option value="whisper">Whisper large-v3 — точнее, нужна докачка</option>
                         </select>
+                      </span>
+                    )}
+                    {stage.key === "narrator" && chosenWhere === "cpu" && (
+                      <span className="mb-1 block text-amber-500/80">
+                        Очень медленно: около полутора минут на отрывок против секунд на
+                        карте. Замерено — 14 знаков в секунду.
                       </span>
                     )}
                     {stage.local} · считает{" "}

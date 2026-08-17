@@ -74,6 +74,19 @@ pub async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// Прервать ход: снимает задачу и освобождает карту.
+///
+/// Без этого кнопка «Прервать» отцепляла только браузер: сервер досчитывал ход до конца и
+/// держал карту занятой, а всё остальное — озвучка, распознавание, следующий ход — стояло
+/// за ним в очереди.
+pub async fn stop_job(
+    State(state): State<AppState>,
+    Path(job): Path<String>,
+) -> ApiResult<Json<Value>> {
+    state.queue.abandon(&job).await;
+    Ok(Json(json!({ "ok": true })))
+}
+
 /// Где НА САМОМ ДЕЛЕ считается каждая стадия — облако, видеокарта или процессор.
 ///
 /// Настройки показывают выбор игрока, а этот ответ — итог: пустой выбор стадии подменяется
@@ -222,8 +235,11 @@ pub async fn create_image(
     } else {
         let (_, result) = state
             .queue
-            .enqueue_awaitable(Box::new(move |progress| {
-                let sink = progress.clone();
+            .enqueue_awaitable(Box::new(move |progress, _| {
+                    let sink = progress.clone();
+                // Первый кадр после запуска грузит на карту тринадцать гигабайт весов —
+                // молчать об этом нельзя, иначе минута тишины выглядит зависанием.
+                sink(json!({ "stage": "загрузка модели" }));
                 let images = gpu
                     .gpu
                     .generate_image(
@@ -428,9 +444,10 @@ pub async fn setup_download(
     Json(body): Json<SetupDownload>,
 ) -> ApiResult<Json<Value>> {
     let inner = state.0.clone();
+    // Закачка идёт МИМО очереди к видеокарте: это сеть, и ждать чужого кадра ей незачем.
     let job = state
         .queue
-        .enqueue(Box::new(move |progress| {
+        .spawn_detached(Box::new(move |progress, _| {
             let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             for component in crate::setup::manifest() {
                 if !body.ids.is_empty() && !body.ids.iter().any(|id| id == component.id) {
@@ -445,8 +462,16 @@ pub async fn setup_download(
                         "total": total,
                     }));
                 };
-                crate::setup::download_component(&inner.root, &component, &report, abort.clone())
-                    .map_err(|error| format!("{title}: {error}"))?;
+                // Ход закачки пишем в лог: раньше сбой уходил в события задачи, на которые
+                // никто не подписан, и снаружи это выглядело как «висит на нуле».
+                tracing::info!("качаю компонент «{title}»");
+                if let Err(error) =
+                    crate::setup::download_component(&inner.root, &component, &report, abort.clone())
+                {
+                    tracing::warn!("компонент «{title}» не скачался: {error}");
+                    return Err(format!("{title}: {error}"));
+                }
+                tracing::info!("компонент «{title}» готов");
             }
             Ok(json!({ "ok": true }))
         }))
@@ -608,7 +633,7 @@ pub async fn item_image(
 
     let (_, result) = state
         .queue
-        .enqueue_awaitable(Box::new(move |_| {
+        .enqueue_awaitable(Box::new(move |_, _| {
             let images = inner
                 .gpu
                 .generate_image(&params, None)
