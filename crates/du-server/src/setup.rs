@@ -73,6 +73,21 @@ impl FileSpec {
     }
 }
 
+/// Насколько компонент нужен для игры.
+///
+/// Три ступени вместо «да/нет»: раньше всё, что не обязательно, выглядело одинаково
+/// необязательным, и игрок не понимал, что скачать сверх минимума, а что не трогать вовсе.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Requirement {
+    /// Без него игра не пойдёт — держит первый запуск.
+    Required,
+    /// Игра пойдёт и без него, но заметно беднее: голос, распознавание речи.
+    Recommended,
+    /// Дело вкуса: альтернативные веса, дополнительные паки.
+    Optional,
+}
+
 /// Набор файлов, который игрок ставит одной кнопкой.
 #[derive(Debug, Clone, Serialize)]
 pub struct Component {
@@ -80,14 +95,19 @@ pub struct Component {
     pub title: &'static str,
     /// Зачем оно нужно — показывается под названием.
     pub note: &'static str,
-    /// Без него приложение не работает вовсе.
-    pub required: bool,
+    /// Насколько нужен для игры.
+    pub requirement: Requirement,
     pub files: &'static [FileSpec],
 }
 
 impl Component {
     pub fn bytes(&self) -> u64 {
         self.files.iter().map(|file| file.bytes).sum()
+    }
+
+    /// Держит ли он первый запуск.
+    pub fn required(&self) -> bool {
+        self.requirement == Requirement::Required
     }
 }
 
@@ -119,7 +139,7 @@ static COMPONENTS: &[Component] = &[
             id: "image-engine",
             title: "Движок картинок",
             note: "stable-diffusion.cpp с поддержкой видеокарты и библиотеки CUDA к нему",
-            required: true,
+            requirement: Requirement::Required,
             files: &[
                 FileSpec::zip(
                     "downloads/sd-engine.zip",
@@ -141,7 +161,7 @@ static COMPONENTS: &[Component] = &[
             id: "image-dit",
             title: "Модель картинок Krea-2 Turbo",
             note: "рисует кадры сцены; квант Q4_K_M",
-            required: true,
+            requirement: Requirement::Required,
             files: &[FileSpec::plain(
                 "models/image/krea2-turbo-Q4_K_M.gguf",
                 "https://huggingface.co/realrebelai/KREA-2_GGUFs/resolve/main/TURBO/Krea-2-Turbo-Q4_K_M.gguf",
@@ -152,7 +172,7 @@ static COMPONENTS: &[Component] = &[
             id: "image-encoder",
             title: "Текстовый энкодер картинок",
             note: "переводит промпт в понятное модели; без цензуры",
-            required: true,
+            requirement: Requirement::Required,
             files: &[FileSpec::plain(
                 "models/image/qwen3-vl-4b-abliterated-Q4_K_M.gguf",
                 "https://huggingface.co/noctrex/Huihui-Qwen3-VL-4B-Instruct-abliterated-GGUF/resolve/main/Huihui-Qwen3-VL-4B-Instruct-abliterated-Q4_K_M.gguf",
@@ -163,7 +183,7 @@ static COMPONENTS: &[Component] = &[
             id: "image-vae",
             title: "Декодер картинок",
             note: "превращает результат модели в саму картинку",
-            required: true,
+            requirement: Requirement::Required,
             files: &[FileSpec::plain(
                 "models/image/wan_2.1_vae.safetensors",
                 "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
@@ -174,7 +194,7 @@ static COMPONENTS: &[Component] = &[
             id: "image-edit",
             title: "Правка кадра по референсу",
             note: "держит облик героя и места одинаковым от кадра к кадру",
-            required: false,
+            requirement: Requirement::Optional,
             files: &[FileSpec::plain(
                 "models/image/krea2-identity-edit-r128.safetensors",
                 "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_identity_edit_v1_2_r128.safetensors",
@@ -185,7 +205,7 @@ static COMPONENTS: &[Component] = &[
             id: "narrator-engine",
             title: "Движок рассказчика",
             note: "llama.cpp, считает текст на видеокарте",
-            required: true,
+            requirement: Requirement::Required,
             files: &[FileSpec::zip(
                 "downloads/llama.zip",
                 concat!("https://github.com/ggml-org/llama.cpp/releases/download/b9966/", "llama-b9966-bin-win-cuda-13.3-x64.zip"),
@@ -198,7 +218,7 @@ static COMPONENTS: &[Component] = &[
             id: "narrator",
             title: "Рассказчик",
             note: "ведёт историю; без цензуры",
-            required: true,
+            requirement: Requirement::Required,
             files: &[FileSpec::plain(
                 "models/text/narrator.gguf",
                 "https://huggingface.co/zaakirio/gemma-4-12b-it-uncensored-GGUF/resolve/main/gemma-4-12b-it-uncensored-Q4_K_M.gguf",
@@ -209,7 +229,7 @@ static COMPONENTS: &[Component] = &[
             id: "narrator-vision",
             title: "Зрение рассказчика",
             note: "позволяет показывать модели свои картинки",
-            required: false,
+            requirement: Requirement::Optional,
             files: &[FileSpec::plain(
                 "models/text/mmproj.gguf",
                 "https://huggingface.co/zaakirio/gemma-4-12b-it-uncensored-GGUF/resolve/main/mmproj-gemma-4-12B-it-bf16.gguf",
@@ -220,7 +240,7 @@ static COMPONENTS: &[Component] = &[
             id: "voice-engine",
             title: "Движок озвучки",
             note: "Higgs: читает текст голосом из пака",
-            required: false,
+            requirement: Requirement::Recommended,
             files: &[FileSpec::plain(
                 "models/tts-engine/audiocpp_engine.dll",
                 concat!("https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/main/", "engines/audiocpp_engine.dll"),
@@ -231,7 +251,7 @@ static COMPONENTS: &[Component] = &[
             id: "voice-model",
             title: "Модель озвучки",
             note: "квант Q4_K_M; вместе с ней идут настройки и словарь",
-            required: false,
+            requirement: Requirement::Recommended,
             files: &[
                 FileSpec::plain("models/tts/q4_k_m.gguf", concat!("https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/main/", "models/higgs-q4_k_m/q4_k_m.gguf"), 4_086_000_000),
                 FileSpec::plain("models/tts/config.json", concat!("https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/main/", "models/higgs-q4_k_m/config.json"), 2_755),
@@ -245,7 +265,7 @@ static COMPONENTS: &[Component] = &[
             id: "voice-pack",
             title: "Пак голосов",
             note: "готовые голоса для чтения; можно добавить свой",
-            required: false,
+            requirement: Requirement::Recommended,
             files: &[FileSpec::zip(
                 "downloads/voice-pack.zip",
                 "https://huggingface.co/datasets/nerualdreming/VibeVoice/resolve/main/voice-pack.zip",
@@ -258,7 +278,7 @@ static COMPONENTS: &[Component] = &[
             id: "asr",
             title: "Распознавание речи",
             note: "голосовой ввод действий; Parakeet и среда onnx",
-            required: false,
+            requirement: Requirement::Recommended,
             files: &[
                 FileSpec::zip("downloads/onnxruntime.zip", ORT, 12_000_000, "models/asr", "models/asr/onnxruntime.dll"),
                 FileSpec::plain("models/asr/encoder-model.int8.onnx", concat!("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/", "encoder-model.int8.onnx"), 651_000_000),
@@ -285,13 +305,24 @@ pub struct ComponentStatus {
 }
 
 /// Есть ли этот файл на диске уже в готовом виде.
+///
+/// «Файл существует» — не то же самое, что «файл целый»: оборванная закачка оставляет
+/// обрубок, и раньше он считался установленным. Игра потом падала на загрузке весов, а
+/// качалка была уверена, что всё на месте. Поэтому у прямых файлов сверяем размер: он
+/// известен точно, до байта.
 fn file_present(root: &Path, file: &FileSpec) -> bool {
     if file.extract == Extract::ZipFlat {
         // Архив после распаковки удаляется, поэтому смотрим на результат распаковки.
         let marker = root.join(file.marker);
         return if marker.extension().is_some() { marker.is_file() } else { voices_installed(&marker) };
     }
-    root.join(file.path).is_file()
+    let target = root.join(file.path);
+    let Ok(meta) = std::fs::metadata(&target) else { return false };
+    if !meta.is_file() {
+        return false;
+    }
+    // Размер ноль в манифесте — источник без точного размера; тогда верим наличию.
+    file.bytes == 0 || meta.len() == file.bytes
 }
 
 /// Сколько байт этого файла уже лежит на диске: готовый файл или незавершённая докачка.
@@ -676,6 +707,45 @@ fn unpack_flat(archive: &Path, dir: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_truncated_file_is_not_installed() {
+        use super::{file_present, Extract, FileSpec};
+        let dir = std::env::temp_dir().join("du-setup-size");
+        std::fs::create_dir_all(&dir).unwrap();
+        let spec = FileSpec {
+            path: "модель.gguf",
+            url: "https://example/модель.gguf",
+            bytes: 10,
+            extract: Extract::None,
+            extract_dir: "",
+            marker: "",
+        };
+
+        // Оборванная закачка: файл есть, но короче обещанного.
+        std::fs::write(dir.join("модель.gguf"), b"12345").unwrap();
+        assert!(!file_present(&dir, &spec), "обрубок не считается установленным");
+
+        // Дописали до нужного размера — теперь на месте.
+        std::fs::write(dir.join("модель.gguf"), b"1234567890").unwrap();
+        assert!(file_present(&dir, &spec));
+
+        // Источник без точного размера: верим наличию, иначе файл не установить никогда.
+        let rolling = FileSpec { bytes: 0, ..spec };
+        assert!(file_present(&dir, &rolling));
+    }
+
+    #[test]
+    fn the_first_run_is_held_only_by_the_required_ones() {
+        use super::{manifest, Requirement};
+        let all = manifest();
+        assert!(all.iter().any(|c| c.requirement == Requirement::Required));
+        assert!(all.iter().any(|c| c.requirement == Requirement::Recommended));
+        // Обязательные — это движки и веса, без которых ход не пойдёт.
+        for component in all.iter().filter(|c| c.required()) {
+            assert!(!component.files.is_empty(), "{} нечего качать", component.id);
+        }
+    }
     use super::*;
 
     #[test]
@@ -709,7 +779,7 @@ mod tests {
         let manifest = manifest();
         let required: Vec<&str> = manifest
             .iter()
-            .filter(|component| component.required)
+            .filter(|component| component.required())
             .map(|component| component.id)
             .collect();
         // Без этих четырёх приложение не нарисует кадр и не напишет ход.
@@ -739,13 +809,23 @@ mod tests {
     #[test]
     fn a_finished_file_is_reported_as_present() {
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("models/image/wan_2.1_vae.safetensors");
+        let vae_spec = manifest().into_iter().find(|c| c.id == "image-vae").unwrap();
+        let file = &vae_spec.files[0];
+        let target = dir.path().join(file.path);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(&target, vec![7u8; 2048]).unwrap();
+        // Ровно столько байт, сколько обещает манифест: недобор теперь считается недокачкой.
+        write_of_size(&target, file.bytes);
+
         let statuses = status(dir.path());
         let vae = statuses.iter().find(|status| status.component.id == "image-vae").unwrap();
         assert!(vae.present);
-        assert_eq!(vae.have_bytes, 2048);
+        assert_eq!(vae.have_bytes, file.bytes);
+    }
+
+    /// Файл заданной длины без выделения памяти под него.
+    fn write_of_size(path: &Path, bytes: u64) {
+        let file = std::fs::File::create(path).unwrap();
+        file.set_len(bytes).unwrap();
     }
 
     #[test]
@@ -767,7 +847,7 @@ mod tests {
         let component = manifest().into_iter().find(|c| c.id == "image-vae").unwrap();
         let target = dir.path().join(component.files[0].path);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(&target, "уже на месте").unwrap();
+        write_of_size(&target, component.files[0].bytes);
 
         // Адрес заведомо недостижим: если функция полезет в сеть, проверка упадёт.
         let result = download_component(
@@ -777,6 +857,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
         assert!(result.is_ok());
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "уже на месте");
+        // Файл не тронут: качалка увидела целый файл и в сеть не пошла.
+        assert_eq!(std::fs::metadata(&target).unwrap().len(), component.files[0].bytes);
     }
 }

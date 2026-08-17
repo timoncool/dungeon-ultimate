@@ -10,7 +10,9 @@ type Component = {
   id: string;
   title: string;
   note: string;
-  required: boolean;
+  /// Насколько нужен: required держит первый запуск, recommended — заметно улучшает,
+  /// optional — дело вкуса.
+  requirement: "required" | "recommended" | "optional";
   present: boolean;
   haveBytes: number;
   files: Array<{ bytes: number }>;
@@ -42,7 +44,7 @@ export default function SetupPanel() {
     void (async () => {
       const list = await refresh();
       // Пока не хватает обязательного — раздел открыт сам: играть всё равно нечем.
-      if (list.some((component) => component.required && !component.present)) setOpen(true);
+      if (list.some((component) => component.requirement === "required" && !component.present)) setOpen(true);
     })();
   }, [refresh]);
 
@@ -85,7 +87,7 @@ export default function SetupPanel() {
   if (!components) return null;
 
   const missing = components.filter((component) => !component.present);
-  const missingRequired = missing.filter((component) => component.required);
+  const missingRequired = missing.filter((component) => component.requirement === "required");
   const totalMissing = missing.reduce((sum, component) => sum + size(component) - component.haveBytes, 0);
 
   return (
@@ -125,7 +127,11 @@ export default function SetupPanel() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void download(missing.filter((c) => c.required).map((c) => c.id))}
+              onClick={() =>
+                void download(
+                  missing.filter((c) => c.requirement === "required").map((c) => c.id),
+                )
+              }
               className="flex w-full items-center justify-center gap-2 rounded bg-amber-200 px-3 py-2 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
             >
               <Download className="size-4" aria-hidden="true" />
@@ -172,7 +178,11 @@ export default function SetupPanel() {
                   </span>
                   <span className="block text-[11px] leading-relaxed text-stone-600">
                     {component.note}
-                    {component.required ? " · нужен обязательно" : ""}
+                    {component.requirement === "required"
+                      ? " · без него игра не пойдёт"
+                      : component.requirement === "recommended"
+                        ? " · рекомендуется"
+                        : " · по желанию"}
                   </span>
                 </span>
                 {!component.present && !busy && (

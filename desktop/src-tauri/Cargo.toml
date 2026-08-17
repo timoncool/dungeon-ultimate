@@ -1,6 +1,6 @@
 [package]
 name = "dungeon-ultimate-desktop"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "Оболочка Dungeon Ultimate: поднимает сервер на 127.0.0.1 и открывает окно"
 
