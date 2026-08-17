@@ -9,16 +9,45 @@ use axum::body::Body;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 
+/// Интерфейс, вшитый в сам бинарь.
+///
+/// Благодаря этому игра — ОДИН файл: рядом с ним не нужна папка `frontend/dist`. Каталог на
+/// диске всё равно имеет приоритет: так правку интерфейса видно без пересборки сервера.
+#[derive(rust_embed::RustEmbed)]
+#[folder = "$CARGO_MANIFEST_DIR/../../frontend/dist"]
+struct Ui;
+
 /// Отдать файл из корня или, если такого нет, точку входа приложения. Возврат точки входа
 /// вместо ошибки нужен, чтобы обновление страницы на любом маршруте не давало 404.
 pub async fn serve_spa(web_root: Option<&Path>, path: &str) -> Response {
-    let Some(root) = web_root.and_then(|root| root.canonicalize().ok()) else {
-        return (StatusCode::NOT_FOUND, "фронт не собран").into_response();
-    };
-    if let Some(file) = resolve_inside(&root, path) {
-        return file_response(&file).await;
+    if let Some(root) = web_root.and_then(|root| root.canonicalize().ok()) {
+        if let Some(file) = resolve_inside(&root, path) {
+            return file_response(&file).await;
+        }
+        let entry = root.join("index.html");
+        if entry.is_file() {
+            return file_response(&entry).await;
+        }
     }
-    file_response(&root.join("index.html")).await
+    embedded(path).unwrap_or_else(|| {
+        embedded("index.html")
+            .unwrap_or_else(|| (StatusCode::NOT_FOUND, "интерфейс не собран").into_response())
+    })
+}
+
+/// Файл из вшитого интерфейса.
+fn embedded(path: &str) -> Option<Response> {
+    let path = path.trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+    let file = Ui::get(path)?;
+    let kind = mime_guess::from_path(path).first_or_octet_stream();
+    Some(
+        (
+            [(header::CONTENT_TYPE, kind.as_ref())],
+            Body::from(file.data.into_owned()),
+        )
+            .into_response(),
+    )
 }
 
 /// Отдать файл из каталога сгенерированного (картинки, озвучка). Здесь подмена на точку

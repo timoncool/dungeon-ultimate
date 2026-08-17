@@ -125,3 +125,8 @@ yarn-error.log*
 /tools/llama/
 /tools/openrouter-helper/*.exe
 /downloads/
+
+# Ресурсы установщика собираются скриптом и в репозитории не хранятся.
+/desktop/src-tauri/staging/
+/desktop/node_modules/
+/desktop/src-tauri/gen/schemas/

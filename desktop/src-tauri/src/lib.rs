@@ -20,26 +20,25 @@ fn app_root_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Найти корень репо в dev (…/desktop/src-tauri/target/<profile>/exe -> вверх до dub-studio).
-/// В портативной сборке возвращаем каталог рядом с exe (там лежат frontend/, models/, fonts/).
+/// Корень, в котором игра держит своё добро: модели, сохранения, кадры.
+///
+/// В разработке это корень репозитория — иначе разработчик качал бы модели заново рядом с
+/// каждой сборкой. У установленной игры — каталог рядом с exe: интерфейс вшит в сам бинарь,
+/// поэтому никаких папок рядом не требуется, а всё скачанное лежит там же, где приложение.
 fn resolve_repo_root() -> PathBuf {
     // Явное переопределение (dev / тесты).
-    if let Ok(r) = std::env::var("DU_ROOT") {
-        return PathBuf::from(r);
+    if let Ok(root) = std::env::var("DU_ROOT") {
+        return PathBuf::from(root);
     }
     let exe_dir = app_root_dir();
-    // Портативная раскладка: ресурсы (frontend/models) лежат рядом с оболочкой (сервер встроен в exe).
-    if exe_dir.join("frontend").is_dir() && exe_dir.join("models").is_dir() {
-        return exe_dir;
-    }
     // Dev: exe в …/desktop/src-tauri/target/<profile>/. Поднимаемся до каталога с crates/.
-    let mut d = exe_dir.as_path();
+    let mut dir = exe_dir.as_path();
     for _ in 0..6 {
-        if d.join("crates").is_dir() && d.join("frontend").is_dir() {
-            return d.to_path_buf();
+        if dir.join("crates").is_dir() && dir.join("Cargo.toml").is_file() {
+            return dir.to_path_buf();
         }
-        match d.parent() {
-            Some(p) => d = p,
+        match dir.parent() {
+            Some(parent) => dir = parent,
             None => break,
         }
     }
@@ -115,6 +114,55 @@ fn hide_console_window() {
     }
 }
 
+/// Проверка обновления на GitHub-релизе и, по согласию игрока, установка.
+///
+/// Ведём из Rust, а не из окна: фронт грузится с внешнего http-адреса встроенного сервера, где
+/// JS-мост Tauri ненадёжен, а апдейтер на стороне Rust работает независимо от webview. Нет сети
+/// или обновления — выходим молча. Портативную раскладку на лету не обновляем: перезаписать
+/// каталог, из которого прямо сейчас запущена игра, нельзя — предлагаем открыть страницу.
+const RELEASES_URL: &str = "https://github.com/timoncool/dungeon-ultimate/releases/latest";
+
+fn spawn_update_check(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    use tauri_plugin_updater::UpdaterExt;
+    tauri::async_runtime::spawn(async move {
+        let Ok(updater) = app.updater() else { return };
+        let update = match updater.check().await {
+            Ok(Some(update)) => update,
+            _ => return,
+        };
+        let version = update.version.clone();
+        let yes = app
+            .dialog()
+            .message(format!("Вышла версия {version}. Обновить сейчас? Игра перезапустится."))
+            .title("Обновление Dungeon Ultimate")
+            .kind(MessageDialogKind::Info)
+            .buttons(MessageDialogButtons::OkCancelCustom("Обновить".into(), "Позже".into()))
+            .blocking_show();
+        if !yes {
+            return;
+        }
+        match update.download_and_install(|_, _| {}, || {}).await {
+            Ok(_) => app.restart(),
+            Err(error) => {
+                // Не вышло само — не оставляем игрока ни с чем: предлагаем страницу релиза.
+                use tauri_plugin_opener::OpenerExt;
+                let open = app
+                    .dialog()
+                    .message(format!("Не удалось обновить: {error}
+Открыть страницу загрузки?"))
+                    .title("Обновление Dungeon Ultimate")
+                    .kind(MessageDialogKind::Error)
+                    .buttons(MessageDialogButtons::OkCancelCustom("Открыть".into(), "Позже".into()))
+                    .blocking_show();
+                if open {
+                    let _ = app.opener().open_url(RELEASES_URL, None::<&str>);
+                }
+            }
+        }
+    });
+}
+
 pub fn run() {
     #[cfg(windows)]
     hide_console_window();
@@ -150,6 +198,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             // Иконка бандла для GUI-окна: без явной установки окно оставалось пустым в ALT+TAB/панели задач
             // (иконка висела на консольном окне). Ставим её на само GUI-окно.
@@ -171,6 +220,8 @@ pub fn run() {
             if let Some(ic) = icon {
                 let _ = win.set_icon(ic);
             }
+            // Новая версия проверяется в фоне и ставится по согласию игрока.
+            spawn_update_check(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

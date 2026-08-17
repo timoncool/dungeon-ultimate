@@ -1,0 +1,14 @@
+{
+  "name": "dungeon-ultimate-desktop",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Оболочка Dungeon Ultimate: поднимает встроенный сервер и открывает окно игры",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

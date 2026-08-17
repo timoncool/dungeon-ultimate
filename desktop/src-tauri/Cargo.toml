@@ -1,6 +1,6 @@
 [package]
 name = "dungeon-ultimate-desktop"
-version = "0.1.0"
+version = "0.6.0"
 edition = "2021"
 description = "Оболочка Dungeon Ultimate: поднимает сервер на 127.0.0.1 и открывает окно"
 
@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"    # нативный диалог «Обновить? [Обновить] [Позже]»
+tauri-plugin-updater = "2"   # авто-обновление: подписанный установщик с GitHub-релиза, в один клик
 tauri-plugin-opener = "2"    # открыть страницу релиза (портатив) — замена устаревшего shell.open
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
