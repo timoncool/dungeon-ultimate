@@ -10,6 +10,8 @@ pub mod server;
 
 pub use client::{
     Effort, Reasoning,chat_endpoint, parse_json_lenient, ChatClient, Message, Part, Sampling};
+pub mod tools;
+pub use tools::{Tool, ToolCall};
 pub use server::{kill_orphans, resolve_llama_bin, LlamaServer, ServerOpts};
 
 #[derive(Debug, thiserror::Error)]

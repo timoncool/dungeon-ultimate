@@ -233,6 +233,22 @@ export type StoryCharacter = {
 
 /// Состояние задания. `offered` ждёт решения игрока, `active` висит в контексте хода,
 /// остальные — закрытые.
+export type AchievementRarity = "common" | "rare" | "legendary";
+
+/// Достижение: награда за поступок. Выдаётся один раз и не отменяется — менять тут нечего.
+export type Achievement = {
+  id: string;
+  title: string;
+  summary: string;
+  icon: string;
+  rarity: AchievementRarity;
+  turn: number;
+  /// Где заслужено. История может быть удалена — тогда остаётся только её название.
+  chatId?: string;
+  story?: string;
+  createdAt: string;
+};
+
 export type QuestStatus = "offered" | "active" | "done" | "failed" | "declined";
 
 export type Quest = {

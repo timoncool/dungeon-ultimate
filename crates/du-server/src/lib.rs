@@ -14,6 +14,7 @@ mod dialogue;
 pub mod cloud;
 pub mod cloud_models;
 pub mod runtime;
+pub mod game_tools;
 pub mod gpu;
 pub mod hw;
 pub mod jobs;
@@ -54,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/chats/{chat_id}/events", get(chats::list_events))
         .route("/api/chats/{chat_id}/items", get(chats::list_items))
         .route("/api/chats/{chat_id}/quests", get(chats::list_quests))
+        .route("/api/achievements", get(chats::list_achievements))
         .route("/api/chats/{chat_id}/quests/{quest_id}", patch(chats::patch_quest))
         .route("/api/chats/{chat_id}/items/{item_id}", patch(chats::equip_item))
         .route("/api/chats/{chat_id}/items/{item_id}/image", post(routes::item_image))
@@ -75,6 +77,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/local-data", get(characters::local_data).delete(characters::wipe))
         .route("/api/settings/defaults", get(characters::default_settings))
         .route("/api/where", get(routes::where_it_runs))
+        .route("/api/tools/try", post(routes::try_tools))
         .route("/api/jobs/{job}/stop", post(routes::stop_job))
         .route("/api/runtime", get(routes::runtime_get).put(routes::runtime_put))
         .route("/api/hw", get(routes::hardware))

@@ -47,6 +47,38 @@ function BookEventCard({ event }: { event: GameEvent }) {
       </div>
     );
   }
+  if (event.kind === "achievement") {
+    // Достижение — награда, а не строчка в журнале: плашка выделена рамкой и золотом, и
+    // редкость видно с одного взгляда, иначе легендарное неотличимо от рядового.
+    const award = event.data as
+      | { title?: string; summary?: string; icon?: string; rarity?: string }
+      | undefined;
+    const rare = award?.rarity === "rare";
+    const legendary = award?.rarity === "legendary";
+    const tone = legendary
+      ? "border-amber-500 bg-gradient-to-r from-[#f7e6b0] to-[#efd48a] shadow-[0_0_0_1px_rgba(180,120,20,0.35)]"
+      : rare
+        ? "border-[#a8792f] bg-[#f3e4bd]"
+        : "border-[#9c7b46]/70 bg-[#eee0c2]";
+    return (
+      <div className={cn("mb-3.5 flex items-start gap-3 rounded-lg border-2 px-3.5 py-2.5", tone)}>
+        <span className="mt-0.5 text-2xl leading-none" aria-hidden="true">
+          {award?.icon || "🏆"}
+        </span>
+        <div className="min-w-0">
+          <div className="font-serif text-[11px] uppercase tracking-[0.18em] text-[#8a6a2c]">
+            {legendary ? "Легендарное достижение" : rare ? "Редкое достижение" : "Достижение"}
+          </div>
+          <div className="font-serif text-base font-bold text-[#3a2a18]">
+            {award?.title ?? event.text}
+          </div>
+          {award?.summary && (
+            <div className="font-serif text-sm text-[#6a4f2c]">{award.summary}</div>
+          )}
+        </div>
+      </div>
+    );
+  }
   if (event.kind === "roll") {
     const result = (event.data as { result?: CheckResult } | undefined)?.result;
     const tone =
@@ -294,7 +326,10 @@ export default function BookReader({
       m.style.width = `${dims.pageW - CHROME - 26}px`;
       const measured = textHeight(event.text);
       m.style.width = prevW;
-      return Math.max(measured, event.kind === "item" ? 52 : 0) + 24;
+      // Плашка достижения выше строки текста: у неё значок, надзаголовок и повод. Не учесть
+      // это — и последний блок страницы уедет за край.
+      const floor = event.kind === "item" ? 52 : event.kind === "achievement" ? 84 : 0;
+      return Math.max(measured, floor) + 24;
     };
     const pushAtomic = (block: Block, height: number) => {
       if (page.length && height + GAP > avail()) flushPage();

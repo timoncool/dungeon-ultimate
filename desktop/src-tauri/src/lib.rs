@@ -215,6 +215,13 @@ pub fn run() {
             // Tauri v2 по умолчанию перехватывает OS-drop файлов -> HTML5 onDrop в дропзоне НЕ срабатывает
             // (юзеры жаловались «перетаскивание не работает»). Отключаем перехват -> webview сам ловит drop.
             .disable_drag_drop_handler()
+            // Озвучка играет САМА, без предварительного клика по странице: WebView2 иначе
+            // отклоняет `audio.play()` — фразы синтезируются, а игрок сидит в тишине.
+            // Стандартные аргументы wry перечисляем заново: своя строка их затирает.
+            .additional_browser_args(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                 --autoplay-policy=no-user-gesture-required",
+            )
             .build()?;
             // Иконка окна (ALT+TAB/таскбар) — ПОСЛЕ создания: не паникуем, если не выйдет, окно рабочее.
             if let Some(ic) = icon {

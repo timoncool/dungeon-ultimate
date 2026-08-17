@@ -144,6 +144,31 @@ fn hero_is_dead(state: &AppState, chat_id: &str) -> bool {
 
 /// Разложить готовую фразу на куски с голосами. Контекстом для поиска говорящего служит
 /// хвост уже прочитанного: имя часто называют фразой раньше самой реплики.
+/// Забрать САМЫЙ СТАРЫЙ из запущенных запросов озвучки и отдать клип игроку.
+///
+/// Порядок важнее скорости: фразы должны звучать так, как написаны, поэтому ждём именно
+/// первый в очереди, даже если следующий уже готов.
+fn take_ready(
+    flying: &mut Vec<std::thread::JoinHandle<(usize, String, Result<String, String>)>>,
+    sink: &crate::jobs::ProgressFn,
+    first: &mut Option<String>,
+) {
+    if flying.is_empty() {
+        return;
+    }
+    match flying.remove(0).join() {
+        Ok((index, voice, Ok(url))) => {
+            sink(json!({ "stage": "озвучка", "clip": url, "index": index, "voice": voice }));
+            first.get_or_insert(url);
+        }
+        Ok((_, _, Err(error))) => {
+            tracing::warn!("фраза не озвучилась: {error}");
+            sink(json!({ "stage": "озвучка", "voiceError": error }));
+        }
+        Err(_) => tracing::warn!("поток озвучки не дожил до ответа"),
+    }
+}
+
 fn voiced_lines(
     sentence: &str,
     settings: &du_core::StorySettings,
@@ -276,6 +301,10 @@ fn run_turn(
 ) -> Result<Value, String> {
     let settings = &chat.summary.settings;
     let stopped = || abort.load(std::sync::atomic::Ordering::Relaxed);
+    // Инструменты включаем там, где они проверены: в облаке. Своя Гемма их тоже умеет, но
+    // её вызовы приходят иначе — включим, когда проверю живьём, а не на веру.
+    let tools_client_is_local =
+        !crate::cloud::stage_enabled(&crate::runtime::load(&state.root), crate::cloud::Stage::Narrator);
 
     // Рассказчик идёт либо на своей карте, либо в облако — тогда карта вообще не нужна.
     let runtime = crate::runtime::load(&state.root);
@@ -474,7 +503,37 @@ fn run_turn(
             let mut references: std::collections::HashMap<String, Option<(std::path::PathBuf, Option<String>)>> =
                 std::collections::HashMap::new();
             let mut first = None;
+            // В облаке фразы синтезируются ОДНОВРЕМЕННО: это независимые запросы к чужому
+            // серверу, и ждать, пока договорит предыдущая, незачем. На своей карте так нельзя —
+            // движок там один, и очередь обязательна.
+            let side_by_side = in_cloud && runtime_for_tts.tts_parallel;
+            let mut flying: Vec<std::thread::JoinHandle<(usize, String, Result<String, String>)>> =
+                Vec::new();
             for (index, sentence, line_voice) in sentences_rx {
+                if side_by_side {
+                    // Больше четырёх запросов разом провайдер не любит, а игрок всё равно
+                    // столько вперёд не прослушает.
+                    while flying.len() >= 4 {
+                        take_ready(&mut flying, &sink, &mut first);
+                    }
+                    let root = root.clone();
+                    let generated = generated.clone();
+                    let mut runtime_for_line = runtime_for_tts.clone();
+                    runtime_for_line.openrouter_tts_voice = line_voice.clone();
+                    let key = key.clone();
+                    flying.push(std::thread::spawn(move || {
+                        let spoken = crate::tts::synthesize_with(
+                            &root,
+                            &generated,
+                            &runtime_for_line,
+                            &sentence,
+                            &line_voice,
+                            &format!("{key}-{index}"),
+                        );
+                        (index, line_voice, spoken)
+                    }));
+                    continue;
+                }
                 let spoken = if in_cloud {
                     // В облаке голос — это имя из набора модели, эталон не нужен.
                     let mut runtime_for_line = runtime_for_tts.clone();
@@ -532,6 +591,10 @@ fn run_turn(
                         sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
                     }
                 }
+            }
+            // Хвост: последние запросы ещё в полёте, их клипы игрок ждёт.
+            while !flying.is_empty() {
+                take_ready(&mut flying, &sink, &mut first);
             }
             first
         }))
@@ -644,6 +707,35 @@ fn run_turn(
         }
     }
     drop(sentences_tx);
+
+    // Инструменты: модель сама смотрит состояние и сама закрывает то, что выполнено.
+    //
+    // Это отдельный короткий проход ПОСЛЕ прозы: подсказка со списком заданий не работала —
+    // модель её не помнила, и задания висели открытыми сотню ходов. Теперь она спрашивает.
+    // Проход не обязателен: не вышел — ход идёт дальше, как раньше.
+    if settings.rpg_enabled && !stopped() && !tools_client_is_local {
+        progress(json!({ "stage": "инструменты" }));
+        let talk = vec![
+            json!({ "role": "system", "content":
+                "Ты ведёшь эту партию. Перед тем как решать, посмотри состояние инструментами:                  открытые задания, лист персонажей, журнал. Если в отрывке ВЫПОЛНЕНО условие                  взятого задания — закрой его. Если заговорил тот, кого нет в листе, — заведи                  его character_add с полом и возрастом, чтобы у него был свой голос. Ничего                  не выдумывай: числа и исходы берутся инструментами. В конце ответь одним                  коротким предложением о том, что ты сделал." }),
+            json!({ "role": "user", "content": narration.clone() }),
+        ];
+        let sink = progress.clone();
+        // Инструменты надо ВЫДАТЬ: клиент рассказчика их не несёт, и без этого модель просто
+        // не знает, что у неё есть руки.
+        let with_tools = client.clone().with_tools(crate::game_tools::all());
+        match crate::game_tools::converse(
+            state,
+            chat_id,
+            &with_tools,
+            &turn::structured_sampling(),
+            talk,
+            &|name, _| sink(json!({ "stage": "инструменты", "tool": name })),
+        ) {
+            Ok(_) => {}
+            Err(error) => tracing::warn!("проход инструментов не удался: {error}"),
+        }
+    }
 
     // Механика хода: модель объявляет, движок считает.
     let mut events = Vec::new();

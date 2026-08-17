@@ -228,6 +228,12 @@ pub async fn list_quests(
     Ok(Json(json!({ "quests": quests })))
 }
 
+/// Достижения ИГРОКА: список общий, историю выбирать не нужно.
+pub async fn list_achievements(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    let achievements = state.store.list_achievements()?;
+    Ok(Json(json!({ "achievements": achievements })))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestPatch {

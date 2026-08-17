@@ -74,6 +74,75 @@ pub async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TryTools {
+    pub chat_id: String,
+    pub passage: String,
+}
+
+/// Проверочный прогон разговора с инструментами: даёт увидеть, что модель зовёт и что
+/// получает в ответ. Нужен, чтобы проверять слой инструментов отдельно от целого хода.
+pub async fn try_tools(
+    State(state): State<AppState>,
+    Json(body): Json<TryTools>,
+) -> ApiResult<Json<Value>> {
+    let runtime = crate::runtime::load(&state.root);
+    if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
+        return Err(ApiError::bad_request("проверка идёт через облако: включи его для рассказчика"));
+    }
+    let messages = vec![
+        json!({ "role": "system", "content":
+            "Ты ведёшь партию. У тебя есть инструменты: посмотри открытые задания и, если в              отрывке условие выполнено, закрой задание. Если нужен исход проверки — брось её              инструментом. Если игрок отличился поступком — посмотри выданные достижения и              награди новым. Ответь одним абзацем прозы." }),
+        json!({ "role": "user", "content": body.passage }),
+    ];
+    let called = std::sync::Mutex::new(Vec::<Value>::new());
+    // ВСЁ вместе в рабочем потоке: и опрос модели, и создание клиента. Клиент внутри держит
+    // собственный рантайм, и рождение или смерть такого клиента в асинхронном обработчике
+    // роняет поток целиком — сервер отвечал обрывом связи вместо ответа.
+    let text = tokio::task::spawn_blocking({
+        let state = state.clone();
+        let chat_id = body.chat_id.clone();
+        move || {
+            let caps = crate::model_caps::caps(
+                &runtime.openrouter_narrator_model,
+                &runtime.openrouter_key,
+            );
+            let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
+                (true, false) => du_llm::Reasoning::Off,
+                (true, true) => du_llm::Reasoning::Hide,
+                _ => du_llm::Reasoning::AsIs,
+            };
+            let client = du_llm::ChatClient::new(
+                "https://openrouter.ai/api/v1",
+                std::time::Duration::from_secs(300),
+            )
+            .map_err(|error| error.to_string())?
+            .with_api_key(Some(runtime.openrouter_key.clone()))
+            .with_model(Some(runtime.openrouter_narrator_model.clone()))
+            .with_reasoning(reasoning)
+            .with_tools(crate::game_tools::all());
+            crate::game_tools::converse(
+                &state.0,
+                &chat_id,
+                &client,
+                &crate::turn::structured_sampling(),
+                messages,
+                &|name, answer| {
+                    called.lock().unwrap_or_else(|e| e.into_inner())
+                        .push(json!({ "tool": name, "answer": answer }));
+                },
+            )
+            .map(|text| (text, called.into_inner().unwrap_or_else(|e| e.into_inner())))
+        }
+    })
+    .await
+    .map_err(|_| ApiError::internal("задача пропала"))?
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(json!({ "text": text.0, "calls": text.1 })))
+}
+
 /// Прервать ход: снимает задачу и освобождает карту.
 ///
 /// Без этого кнопка «Прервать» отцепляла только браузер: сервер досчитывал ход до конца и

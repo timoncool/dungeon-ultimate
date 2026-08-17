@@ -39,6 +39,7 @@ import {
   WandSparkles,
   X,
   ScrollText,
+  Trophy,
 } from "lucide-react";
 import {
   lazy,
@@ -59,6 +60,8 @@ import { LOCAL_TEXT_MODELS, type LocalTextModelId, type TextProvider } from "./l
 import {
   LANGUAGE_LABELS,
   LANGUAGE_VALUES,
+  type Achievement,
+  type AchievementRarity,
   type AspectPreset,
   type Attachment,
   type GeneratedImage,
@@ -112,6 +115,7 @@ const STAGE_WORDS: Record<string, string> = {
   // «формируется отрывок» и думал, что игра зависла.
   "загрузка модели": "Модель едет на карту, это разово…",
   "проза": "Рассказчик пишет…",
+  "инструменты": "Сверяюсь с состоянием игры…",
   "механика": "Движок разрешает бросок…",
   "кадр": "Оператор выбирает кадр…",
   "озвучка": "Читаю вслух…",
@@ -226,6 +230,7 @@ type MobileTool = "characters" | "story" | "images" | "data";
 type DesktopPanel =
   | "chats"
   | "characters"
+  | "achievements"
   | "textModel"
   | "story"
   | "images"
@@ -266,6 +271,7 @@ type PanelControlProps = {
 const DESKTOP_PANEL_ORDER: DesktopPanel[] = [
   "chats",
   "characters",
+  "achievements",
   "story",
   "images",
   "voice",
@@ -517,6 +523,7 @@ export default function Home() {
   const [heroId, setHeroId] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [quests, setQuests] = useState<Quest[]>([]);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
   // The protagonist character (matches the server's getHeroCharacter / heroId), used
   // for the HUD name + portrait so they don't flip to a recently-edited companion.
   const heroChar = characters.find((character) => character.id === heroId) ?? characters[0] ?? null;
@@ -721,6 +728,21 @@ export default function Home() {
     },
     [items, selectedChatId],
   );
+
+  /// Награды игрока: список общий на все истории, поэтому и обновляется отдельно от них.
+  const refreshAchievements = useCallback(async () => {
+    try {
+      const response = await fetch("/api/achievements", { cache: "no-store" });
+      const payload = await readApi<{ achievements: Achievement[] }>(response);
+      setAchievements(payload.achievements ?? []);
+    } catch {
+      // без списка наград игра работает — молча живём дальше
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAchievements();
+  }, [refreshAchievements]);
 
   // Pull the authoritative hero stats + inventory back after a turn changed them,
   // so the HUD's HP bar / inventory update live instead of only on reload.
@@ -1380,7 +1402,17 @@ export default function Home() {
       };
       audio.onended = finish;
       audio.onerror = finish;
-      audio.play().catch(finish);
+      audio.play().catch((reason: unknown) => {
+        // Браузер вправе отклонить самостоятельный звук. Раньше отказ проглатывался, и
+        // игрок сидел в тишине без единого слова о причине — теперь она названа.
+        const blocked = reason instanceof DOMException && reason.name === "NotAllowedError";
+        setError(
+          blocked
+            ? "Звук заблокирован окном: щёлкните по странице — озвучка пойдёт дальше."
+            : `Клип не проигрался: ${reason instanceof Error ? reason.message : String(reason)}`,
+        );
+        finish();
+      });
     });
   }
 
@@ -1775,6 +1807,10 @@ export default function Home() {
             payload.events.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death" || e.kind === "effect")
           ) {
             void refreshRpg(selectedChatId);
+          }
+          // Награда за ход должна появиться в разделе сразу, а не после перезапуска.
+          if (payload.events.some((event) => event.kind === "achievement")) {
+            void refreshAchievements();
           }
           if (selectedChatId) void illustrateDroppedItems(selectedChatId, payload.events);
         }
@@ -2342,6 +2378,16 @@ export default function Home() {
           key={panel}
           clearing={clearingLocalData}
           onClear={() => void clearAllLocalData()}
+          {...desktopPanelControls(panel)}
+        />
+      );
+    }
+
+    if (panel === "achievements") {
+      return (
+        <AchievementsSection
+          key={panel}
+          achievements={achievements}
           {...desktopPanelControls(panel)}
         />
       );
@@ -5263,6 +5309,121 @@ const SLOT_ICON: Record<Item["slot"], typeof Swords> = {
   misc: Backpack,
 };
 
+/// Значок награды: рисунок из пака game-icons, покрашенный под редкость.
+///
+/// Файлы одноцветные и чёрные, поэтому цвет даём маской: так один и тот же рисунок
+/// подходит и золотой легенде, и тусклой рядовой награде.
+function AchievementIcon({
+  icon,
+  rarity,
+  className,
+}: {
+  icon: string;
+  rarity: AchievementRarity;
+  className?: string;
+}) {
+  const tint =
+    rarity === "legendary" ? "bg-amber-300" : rarity === "rare" ? "bg-sky-300" : "bg-stone-300";
+  // Первые награды получили эмодзи вместо рисунка из пака — показываем их как есть,
+  // вместо пустого места на месте несуществующего файла.
+  if (!icon.endsWith(".svg")) {
+    return (
+      <span className={cn("grid place-items-center text-2xl leading-none", className)} aria-hidden="true">
+        {icon || "🏆"}
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("block", tint, className)}
+      style={{
+        maskImage: `url(/game-icons/${icon})`,
+        WebkitMaskImage: `url(/game-icons/${icon})`,
+        maskRepeat: "no-repeat",
+        WebkitMaskRepeat: "no-repeat",
+        maskSize: "contain",
+        WebkitMaskSize: "contain",
+        maskPosition: "center",
+        WebkitMaskPosition: "center",
+      }}
+    />
+  );
+}
+
+const RARITY_WORDS: Record<AchievementRarity, string> = {
+  common: "Достижение",
+  rare: "Редкое достижение",
+  legendary: "Легендарное достижение",
+};
+
+/// Раздел «Достижения»: всё, что игрок заслужил за все истории.
+///
+/// Здесь видно не только название, но и повод, редкость, историю и день — награда без
+/// объяснения, за что она, через месяц ничего не значит.
+function AchievementsSection({
+  achievements,
+  open,
+  onOpenChange,
+  divided,
+}: { achievements: Achievement[] } & PanelControlProps) {
+  const legendary = achievements.filter((award) => award.rarity === "legendary").length;
+  return (
+    <PanelSection
+      icon={Trophy}
+      title="Достижения"
+      open={open}
+      onOpenChange={onOpenChange}
+      divided={divided ?? true}
+    >
+      {!achievements.length ? (
+        <p className="text-xs leading-5 text-stone-500">
+          Пока пусто. Награды дают за поступок — выстоять против сильнейшего, пощадить
+          побеждённого, пройти сцену без единого удара. Их не выпрашивают: они случаются.
+        </p>
+      ) : (
+        <>
+          <div className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
+            Всего {achievements.length}
+            {legendary > 0 && ` · легендарных ${legendary}`}
+          </div>
+          <div className="space-y-2">
+            {achievements
+              .slice()
+              .reverse()
+              .map((award) => (
+                <article
+                  key={award.id}
+                  className={cn(
+                    "flex gap-3 rounded-lg border px-3 py-2.5",
+                    award.rarity === "legendary"
+                      ? "border-amber-400/60 bg-gradient-to-r from-amber-400/10 to-transparent"
+                      : award.rarity === "rare"
+                        ? "border-sky-400/40 bg-sky-400/5"
+                        : "border-stone-700/70 bg-stone-900/40",
+                  )}
+                >
+                  <AchievementIcon icon={award.icon} rarity={award.rarity} className="size-10 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-stone-500">
+                      {RARITY_WORDS[award.rarity]}
+                    </div>
+                    <h4 className="text-sm font-semibold text-stone-100">{award.title}</h4>
+                    <p className="mt-0.5 text-xs leading-5 text-stone-400">{award.summary}</p>
+                    <div className="mt-1 text-[11px] text-stone-600">
+                      {award.story ? `История «${award.story}»` : "История удалена"} ·{" "}
+                      {new Date(award.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                </article>
+              ))}
+          </div>
+        </>
+      )}
+    </PanelSection>
+  );
+}
+
 /// Задания героя: предложенные ждут решения, взятые висят до конца.
 ///
 /// Задание выдаёт персонаж истории, и игрок сам решает, брать его или нет. Взятое уходит
@@ -5741,6 +5902,63 @@ function EventCard({ event }: { event: GameEvent }) {
             {event.text.replace(/^📦\s*Получен предмет:\s*/, "Добыча — ")}
           </div>
         </div>
+      </div>
+    );
+  }
+  if (event.kind === "achievement") {
+    // Карточка награды сделана по образцу карточек в prompt-warrior: медальон слева,
+    // справа — название цветом редкости, метка редкости и строка «за что». Повод виден
+    // сразу: награда без объяснения через неделю ничего не значит.
+    const award = event.data as Achievement | undefined;
+    const rarity = award?.rarity ?? "common";
+    const ink =
+      rarity === "legendary"
+        ? "text-amber-300"
+        : rarity === "rare"
+          ? "text-sky-300"
+          : "text-stone-200";
+    const edge =
+      rarity === "legendary"
+        ? "border-amber-400/70"
+        : rarity === "rare"
+          ? "border-sky-400/50"
+          : "border-stone-600/70";
+    return (
+      <div
+        className={cn(
+          // w-fit + self-start: родитель — колонка flex, иначе карточка растянется во всю
+          // ширину ленты и превратится в баннер.
+          "flex w-fit max-w-md self-start items-center gap-3 rounded-[9px] border bg-gradient-to-b from-[#2B231D] to-[#221B16] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,.06),0_2px_3px_rgba(0,0,0,.4)]",
+          edge,
+        )}
+      >
+        <span
+          className={cn(
+            "grid size-[54px] shrink-0 place-items-center rounded-[11px] border bg-[radial-gradient(circle_at_50%_35%,#2E2620,#191411_78%)] shadow-[inset_0_2px_5px_rgba(0,0,0,.5)]",
+            edge,
+          )}
+        >
+          <AchievementIcon
+            icon={award?.icon ?? "lorc/trophy.svg"}
+            rarity={rarity}
+            className="size-9"
+          />
+        </span>
+        <span className="min-w-0">
+          <span className="flex items-baseline gap-2">
+            <span className={cn("font-serif text-base font-bold leading-tight", ink)}>
+              {award?.title ?? event.text}
+            </span>
+            <span className={cn("text-[8.5px] uppercase tracking-[0.1em] opacity-85", ink)}>
+              {RARITY_WORDS[rarity]}
+            </span>
+          </span>
+          {award?.summary && (
+            <span className="mt-0.5 block text-[12.5px] leading-[1.4] text-[#C0AF9A]">
+              {award.summary}
+            </span>
+          )}
+        </span>
       </div>
     );
   }

@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS quests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quests_chat_created ON quests(chat_id, created_at);
+
+-- Достижения принадлежат ИГРОКУ, а не истории: заслуженное однажды остаётся в профиле,
+-- даже если саму историю потом удалили. Поэтому ни ссылки на чат, ни каскада тут нет —
+-- чат помнится строкой, просто чтобы знать, где это случилось.
+CREATE TABLE IF NOT EXISTS profile_achievements (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL UNIQUE,
+  data_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_achievements_created ON profile_achievements(created_at);
 "#;
 
 /// Колонки, доехавшие до схемы позже: (таблица, колонка, определение).
@@ -113,6 +125,28 @@ pub fn ensure(conn: &Connection) -> DbResult<()> {
             conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"))?;
         }
     }
+    carry_over_achievements(conn)?;
+    Ok(())
+}
+
+/// Перенести награды из первой, привязанной к истории таблицы в профиль.
+///
+/// Достижения недолго прожили внутри чата, и заработанное тогда терять нельзя: переносим
+/// и оставляем старую таблицу нетронутой — удалять чужие данные не наше дело.
+fn carry_over_achievements(conn: &Connection) -> DbResult<()> {
+    let exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'achievements'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "INSERT OR IGNORE INTO profile_achievements (id, title, data_json, created_at)
+         SELECT id, json_extract(data_json, '$.title'), data_json, created_at FROM achievements
+          WHERE json_extract(data_json, '$.title') IS NOT NULL",
+    )?;
     Ok(())
 }
 

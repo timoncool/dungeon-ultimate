@@ -12,7 +12,7 @@ use du_core::{
     normalize_location, Attachment, GeneratedImage, ImageRequest, Scene, StoryChat, StoryChatSummary,
     StoryCharacter, StoryMessage, StoryRole, StorySettings,
 };
-use du_rpg::{CharacterRpg, Enemy, GameEvent, Item, Quest, QuestStatus, RpgState};
+use du_rpg::{Achievement, CharacterRpg, Enemy, GameEvent, Item, Quest, QuestStatus, RpgState};
 use rusqlite::{params, Connection, OptionalExtension};
 
 #[derive(Debug, thiserror::Error)]
@@ -633,6 +633,52 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    // ── Достижения ─────────────────────────────────────────────────────────────
+
+    /// Сколько сообщений в чате. Номер хода нужен многим проверкам, а тянуть ради него всю
+    /// переписку — расточительство: в долгой истории это сотни строк.
+    pub fn message_count(&self, chat_id: &str) -> DbResult<i64> {
+        let conn = self.lock();
+        let count = conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE chat_id = ?",
+            params![chat_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Записать достижение в профиль игрока. Одно название — одна награда: повторно
+    /// заслужить то же самое нельзя, и `INSERT OR IGNORE` этого не позволит даже гонке.
+    pub fn add_achievement(&self, achievement: &Achievement) -> DbResult<bool> {
+        let conn = self.lock();
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO profile_achievements (id, title, data_json, created_at) VALUES (?, ?, ?, ?)",
+            params![
+                achievement.id,
+                achievement.title,
+                serde_json::to_string(achievement).unwrap_or_else(|_| "{}".into()),
+                achievement.created_at
+            ],
+        )?;
+        Ok(inserted > 0)
+    }
+
+    /// Все награды игрока — по всем историям, включая уже удалённые.
+    pub fn list_achievements(&self) -> DbResult<Vec<Achievement>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT data_json FROM profile_achievements ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut achievements = Vec::new();
+        for raw in rows {
+            if let Ok(achievement) = serde_json::from_str::<Achievement>(&raw?) {
+                achievements.push(achievement);
+            }
+        }
+        Ok(achievements)
     }
 
     pub fn add_items(&self, chat_id: &str, items: &[Item]) -> DbResult<()> {

@@ -210,6 +210,7 @@ pub enum EventKind {
     Effect,
     Quest,
     Level,
+    Achievement,
     Note,
 }
 
@@ -322,6 +323,45 @@ pub struct Quest {
     pub turn: i64,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Насколько заметно достижение. От этого зависит, как его показать: обычное отмечают
+/// строкой, а легендарное — плашкой, мимо которой не пройдёшь.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AchievementRarity {
+    #[default]
+    Common,
+    Rare,
+    Legendary,
+}
+
+/// Достижение: чем именно игрок отличился и когда.
+///
+/// Живёт отдельно от заданий: задание игрок берёт и выполняет, а достижение случается —
+/// его нельзя «взять», о нём узнают постфактум.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Achievement {
+    pub id: String,
+    pub title: String,
+    /// За что выдано — словами игрока, а не разбором механики.
+    pub summary: String,
+    /// Значок плашки. Одна картинка-эмодзи, подобранная под повод.
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub rarity: AchievementRarity,
+    /// На каком ходу выдано: по нему держится редкость.
+    #[serde(default)]
+    pub turn: i64,
+    /// В какой истории заработано. Сама история может быть давно удалена — награда живёт
+    /// в профиле игрока и переживает её.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub story: Option<String>,
+    pub created_at: String,
 }
 
 /// Предложение задания от модели.

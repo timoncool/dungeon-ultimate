@@ -116,6 +116,7 @@ pub enum Reasoning {
 #[derive(Clone, Debug, Default)]
 pub struct Effort(pub Option<String>);
 
+#[derive(Clone)]
 pub struct ChatClient {
     endpoint: String,
     http: reqwest::blocking::Client,
@@ -123,6 +124,8 @@ pub struct ChatClient {
     model: Option<String>,
     reasoning: Reasoning,
     effort: Effort,
+    /// Инструменты, которыми модель вправе пользоваться в этом вызове.
+    tools: Vec<crate::tools::Tool>,
 }
 
 /// Привести введённый пользователем адрес к эндпоинту `/chat/completions`: принимаем и голый
@@ -154,6 +157,7 @@ impl ChatClient {
             model: None,
             reasoning: Reasoning::AsIs,
             effort: Effort::default(),
+            tools: Vec::new(),
         })
     }
 
@@ -169,6 +173,12 @@ impl ChatClient {
     }
 
     /// Какой уровень усилия просить — строго из тех, что перечислила схема модели.
+    /// Дать модели инструменты на этот вызов.
+    pub fn with_tools(mut self, tools: Vec<crate::tools::Tool>) -> Self {
+        self.tools = tools;
+        self
+    }
+
     pub fn with_effort(mut self, effort: Effort) -> Self {
         self.effort = effort;
         self
@@ -196,6 +206,14 @@ impl ChatClient {
             body.insert("repeat_penalty".into(), json!(penalty));
         }
         body.insert("stream".into(), json!(stream));
+        // Инструменты: модель сама решает, звать ли их. `auto` — договор провайдера.
+        if !self.tools.is_empty() {
+            body.insert(
+                "tools".into(),
+                Value::Array(self.tools.iter().map(crate::tools::Tool::to_value).collect()),
+            );
+            body.insert("tool_choice".into(), json!("auto"));
+        }
         // «Размышления» отключаем ОБОИМ бэкендам: иначе модель сжигает на них весь лимит
         // токенов, а видимый ответ приходит ПУСТЫМ — структурные проходы молча возвращают
         // ничего. Так вело себя и облако: DeepSeek расписывал ход рассуждениями на весь
@@ -237,6 +255,40 @@ impl ChatClient {
     /// Один буферизованный вызов. Пустой ответ ошибкой не считается.
     pub fn chat(&self, messages: &[Message], sampling: &Sampling) -> Result<String, LlmError> {
         self.chat_with_format(messages, sampling, None)
+    }
+
+    /// Вызов с инструментами: возвращает и текст, и просьбы модели что-то сделать.
+    ///
+    /// Сообщения принимаем уже готовыми значениями, потому что в разговор с инструментами
+    /// вплетаются чужие роли — `assistant` с вызовами и `tool` с ответами, — а обычное
+    /// `Message` их не описывает.
+    pub fn chat_tools(
+        &self,
+        messages: &[Value],
+        sampling: &Sampling,
+    ) -> Result<(String, Vec<crate::tools::ToolCall>), LlmError> {
+        let mut body = self.body(&[], sampling, false);
+        body.insert("messages".into(), Value::Array(messages.to_vec()));
+        let body = Value::Object(body);
+
+        let response = self
+            .post(&body)
+            .send()
+            .map_err(|error| LlmError::Http(error.to_string()))?;
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .map_err(|error| LlmError::Http(format!("разбор ответа: {error}")))?;
+        if !status.is_success() {
+            let message = value
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .unwrap_or("провайдер отказал");
+            return Err(LlmError::Http(format!("{status}: {message}")));
+        }
+        let message = value.pointer("/choices/0/message").cloned().unwrap_or(Value::Null);
+        let text = message.get("content").and_then(Value::as_str).unwrap_or_default().to_string();
+        Ok((text, crate::tools::parse_calls(&message)))
     }
 
     fn chat_with_format(

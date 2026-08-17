@@ -166,6 +166,8 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 
 Built on [**open-dungeon**](https://github.com/newideas99/open-dungeon) by [@newideas99](https://github.com/newideas99) — the original local AI roleplay app this fork extends. Huge thanks for the foundation.
 
+Achievement art comes from [**game-icons.net**](https://github.com/game-icons/icons) — 4176 icons by Lorc, Delapouite, Skoll, Caro Asercion, Viscious Speed, sbed, Carl Olsen and other contributors, used under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) (see `frontend/public/game-icons/license.txt`). The idea of gamified, icon-backed achievements is borrowed from [prompt-warrior](https://github.com/timoncool/prompt-warrior).
+
 The 3D dice are powered by [@3d-dice/dice-box-threejs](https://github.com/3d-dice/dice-box-threejs). Images run on [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) by [@leejet](https://github.com/leejet) with [Krea-2](https://huggingface.co/realrebelai/KREA-2_GGUFs) weights. Text runs on [llama.cpp](https://github.com/ggml-org/llama.cpp). Speech recognition uses NVIDIA's [Parakeet-TDT-0.6B](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3); narration uses [Higgs Audio v3](https://huggingface.co/drbaph/Higgs-Audio-v3-Studio).
 
 ## Support the author
