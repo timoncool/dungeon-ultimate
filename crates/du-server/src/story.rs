@@ -713,8 +713,17 @@ fn run_turn(
     // Это отдельный короткий проход ПОСЛЕ прозы: подсказка со списком заданий не работала —
     // модель её не помнила, и задания висели открытыми сотню ходов. Теперь она спрашивает.
     // Проход не обязателен: не вышел — ход идёт дальше, как раньше.
+    // Что инструменты успели записать в журнал: броски, награды, закрытые задания. Их надо
+    // отдать игроку вместе с ходом — иначе кубик не крутится и строки в журнале появляются
+    // только после перезагрузки.
+    let mut tool_events: Vec<du_rpg::GameEvent> = Vec::new();
     if settings.rpg_enabled && !stopped() && !tools_client_is_local {
         progress(json!({ "stage": "инструменты" }));
+        let known: std::collections::HashSet<String> = state
+            .store
+            .list_events(chat_id, 60)
+            .map(|events| events.into_iter().map(|event| event.id).collect())
+            .unwrap_or_default();
         let talk = vec![
             json!({ "role": "system", "content":
                 "Ты ведёшь эту партию. Перед тем как решать, посмотри состояние инструментами:                  открытые задания, лист персонажей, журнал. Если в отрывке ВЫПОЛНЕНО условие                  взятого задания — закрой его. Если заговорил тот, кого нет в листе, — заведи                  его character_add с полом и возрастом, чтобы у него был свой голос. Ничего                  не выдумывай: числа и исходы берутся инструментами. В конце ответь одним                  коротким предложением о том, что ты сделал." }),
@@ -735,10 +744,14 @@ fn run_turn(
             Ok(_) => {}
             Err(error) => tracing::warn!("проход инструментов не удался: {error}"),
         }
+        if let Ok(after) = state.store.list_events(chat_id, 60) {
+            tool_events = after.into_iter().filter(|event| !known.contains(&event.id)).collect();
+        }
     }
 
     // Механика хода: модель объявляет, движок считает.
-    let mut events = Vec::new();
+    // Порядок событий — хронологический: инструменты отработали до этого прохода.
+    let mut events = tool_events;
     let mut granted = Vec::new();
     if settings.rpg_enabled && !stopped() {
         progress(json!({ "stage": "механика" }));
@@ -811,7 +824,8 @@ fn run_turn(
                 journal: du_prompts::prompts_for(settings.language).journal.clone(),
             };
             let applied = apply_game_update(&update, &mut actors, &opts);
-            events = applied.events;
+            // Дописываем, а НЕ заменяем: иначе броски и награды инструментов пропадут.
+            events.extend(applied.events);
             granted = applied.items;
 
             // Сохраняем всё, что изменил ход.

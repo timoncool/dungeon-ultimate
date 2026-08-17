@@ -557,8 +557,35 @@ fn roll_check(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
 
     // Кубик кидает движок по характеристикам листа: подменить его модель не может.
     let result = roll(rpg.stats.get(ability), dc, 0);
+    let who = chosen.map(|character| character.name.clone()).unwrap_or_else(|| "герой".into());
+
+    // Бросок обязан оставить СЛЕД. Раньше инструмент отдавал исход только модели: игрок
+    // видел статус «движок разрешает бросок», а ни кубика, ни строки в журнале не было —
+    // будто кидали за ширмой. Событие того же вида, что и у прохода механики, поэтому его
+    // так же подхватывают журнал и трёхмерный кубик.
+    let verdict = match result.crit {
+        Some(du_rpg::dice::Crit::Success) => "критический успех",
+        Some(du_rpg::dice::Crit::Fail) => "критический провал",
+        None if result.success => "успех",
+        None => "провал",
+    };
+    let event = du_rpg::GameEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        kind: du_rpg::EventKind::Roll,
+        text: format!(
+            "🎲 {who} · {label}: d20 {} {}{} = {} против {dc} → {verdict}",
+            result.d20,
+            if result.modifier < 0 { "" } else { "+" },
+            result.modifier,
+            result.total
+        ),
+        data: Some(json!({ "result": result })),
+        created_at: crate::story::now_iso(),
+    };
+    let _ = state.store.add_events(chat_id, std::slice::from_ref(&event));
+
     json!({
-        "who": chosen.map(|character| character.name.clone()).unwrap_or_else(|| "герой".into()),
+        "who": who,
         "label": label,
         "die": result.d20,
         "modifier": result.modifier,
