@@ -68,6 +68,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/actions", post(assist::actions))
         .route("/api/suggest", post(assist::suggest))
         .route("/api/story-setup", post(assist::story_setup))
+        .route("/api/image-style", post(assist::image_style))
         .route("/api/character", post(assist::character))
         .route("/api/upload", post(characters::upload))
         .route("/api/local-data", get(characters::local_data).delete(characters::wipe))

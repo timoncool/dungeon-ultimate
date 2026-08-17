@@ -56,6 +56,16 @@ pub async fn story(
         .map_err(|error| ApiError::internal(error.to_string()).into_response())?
         .ok_or_else(|| ApiError::not_found("чат не найден").into_response())?;
 
+    // Погибшим героем история кончается. Раньше можно было писать дальше как ни в чём не
+    // бывало: движок помечал героя мёртвым, а ход шёл своим чередом. Отменить роковой ход
+    // по-прежнему можно — «Стереть» и «Повтор» откатывают его последствия.
+    if chat.summary.settings.rpg_enabled && hero_is_dead(&state, &body.chat_id) {
+        return Err(ApiError::conflict(
+            "Герой погиб — история окончена. Отмени последний ход или начни новую историю.",
+        )
+        .into_response());
+    }
+
     // Реплику игрока сохраняем сразу: если ход сорвётся, она не потеряется.
     let user_message = StoryMessage {
         id: new_id(),
@@ -110,6 +120,22 @@ pub async fn story(
         }
     };
     Ok(Sse::new(stream))
+}
+
+/// Погиб ли герой этой истории.
+///
+/// Герой — самый ранний персонаж чата, как и везде в игре. Ошибку чтения считаем «жив»:
+/// молчание базы не повод запирать игрока.
+fn hero_is_dead(state: &AppState, chat_id: &str) -> bool {
+    let Ok(characters) = state.store.list_characters(chat_id) else { return false };
+    let Some(hero) = characters.into_iter().next() else { return false };
+    state
+        .store
+        .character_rpg(chat_id, &hero.id)
+        .ok()
+        .flatten()
+        .map(|rpg| rpg.dead)
+        .unwrap_or(false)
 }
 
 /// Разложить готовую фразу на куски с голосами. Контекстом для поиска говорящего служит
@@ -627,6 +653,44 @@ fn run_turn(
             ),
             Message::user(narration.clone()),
         ];
+        // Взятые задания ОБЯЗАНЫ дойти до движка: он видит только текст отрывка, а раздел
+        // состояния уходит рассказчику. Без этого списка ему нечего называть в
+        // completeQuests — выполнение не засчитывалось никогда.
+        let taken: Vec<&du_rpg::Quest> = open_quests
+            .iter()
+            .filter(|quest| quest.status == du_rpg::QuestStatus::Active)
+            .collect();
+        let mut ask = ask;
+        if !taken.is_empty() {
+            let rows = taken
+                .iter()
+                .map(|quest| {
+                    let conditions = if quest.conditions.is_empty() {
+                        String::new()
+                    } else {
+                        format!("
+    условия: {}", quest.conditions.join("; "))
+                    };
+                    let giver = quest
+                        .giver
+                        .as_deref()
+                        .map(|giver| format!(" (дал: {giver})"))
+                        .unwrap_or_default();
+                    format!("• «{}»{giver}{conditions}", quest.title)
+                })
+                .collect::<Vec<_>>()
+                .join("
+");
+            ask.insert(
+                1,
+                Message::system(format!(
+                    "ВЗЯТЫЕ ЗАДАНИЯ героя:
+{rows}
+
+Если в отрывке выполнено условие                      одного из них — верни его в completeQuests с ТЕМ ЖЕ заголовком в                      кавычках. Если задание стало невыполнимым — в failQuests. Ничего из                      этого в отрывке не произошло — оставь оба списка пустыми."
+                )),
+            );
+        }
         match client.chat_json(&ask, &turn::structured_sampling(), &turn::engine_schema()) {
             Err(error) => tracing::warn!("проход механики не удался: {error}"),
             Ok(raw) => {
@@ -691,10 +755,27 @@ fn run_turn(
         let ask = vec![
             Message::system(
                 "You are the cinematographer for an illustrated roleplay. Decide the ONE key \
-                 image that best illustrates THIS passage. The prompt must be English, concrete \
-                 and cinematic. Set location to a short STABLE label for the physical place and \
-                 reuse it verbatim while the scene stays there; set sameLocation to true when \
-                 this shot is the same place as the previous illustrated turn."
+                 image that best illustrates THIS passage.\n\n\
+                 WRITE A FULL PROMPT, NOT A LABEL — a short prompt gives a weak, generic \
+                 picture. In English, as flowing comma-separated phrases, in this order:\n\
+                 1) the subject and what they are DOING at this exact instant — posture, \
+                 hands, gaze, expression;\n\
+                 2) how they look and what they wear — fabric, wear and tear, colour;\n\
+                 3) the place and the concrete things visible in it, near and far;\n\
+                 4) the light — its source, direction, hardness, what it touches and what \
+                 stays in shadow;\n\
+                 5) the camera — shot size, angle, lens feel, depth of field;\n\
+                 6) palette and mood, in a few words.\n\
+                 Prefer specific nouns to adjectives: not \"an old room\" but \"a low room of \
+                 soot-blackened beams, a cracked clay pot on the sill\". No proper names — \
+                 describe people by appearance. No text or lettering in the frame.\n\n\
+                 Set location to a short STABLE label for the physical place and reuse it \
+                 verbatim while the scene stays there; set sameLocation to true when this \
+                 shot is the same place as the previous illustrated turn.\n\
+                 Set reference to what this picture should grow from: \"scene\" when the \
+                 action continues in a place already drawn, \"characters\" when a known face \
+                 or figure must stay recognisable, \"none\" for a new place with nobody \
+                 familiar in it."
                     .to_string(),
             ),
             Message::user(narration.clone()),
@@ -711,6 +792,7 @@ fn run_turn(
                     prompt: Some(prompt),
                     location: raw.get("location").and_then(Value::as_str).map(str::to_string),
                     same_location: raw.get("sameLocation").and_then(Value::as_bool),
+                    reference: raw.get("reference").and_then(Value::as_str).map(str::to_string),
                     shot: serde_json::from_value(raw.get("shot").cloned().unwrap_or(Value::Null)).ok(),
                     character_ids: raw
                         .get("characters")

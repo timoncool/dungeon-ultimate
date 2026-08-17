@@ -74,6 +74,17 @@ pub fn decide(
         }
     }
 
+    // Что класть в основу, решает ОПЕРАТОР: он видел отрывок целиком. `none` — новое место
+    // и новые лица, рисуем с чистого листа; `characters` — важна внешность, а не место;
+    // `scene` — действие продолжается там же. Не сказал ничего — работаем как раньше, по
+    // совпадению места.
+    let asked = request.and_then(|request| request.reference.as_deref());
+    let want_characters = !matches!(asked, Some("none") | Some("scene"));
+    let want_scene = !matches!(asked, Some("none") | Some("characters"));
+    if !want_scene {
+        decision.edit_from = None;
+    }
+
     // (1) Персонажи идут первыми: именно внешность плывёт сильнее всего.
     let hero = store.hero(chat_id)?;
     let mut character_ids: Vec<String> =
@@ -84,7 +95,7 @@ pub fn decide(
         }
     }
     for id in &character_ids {
-        if decision.references.len() >= MAX_REFERENCES {
+        if !want_characters || decision.references.len() >= MAX_REFERENCES {
             break;
         }
         if let Some(reference) = store.character_reference(chat_id, id)? {

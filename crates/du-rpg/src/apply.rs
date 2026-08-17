@@ -191,6 +191,27 @@ fn looks_like_deliberation(note: &str) -> bool {
     MARKS.iter().filter(|mark| low.contains(*mark)).count() >= 2
 }
 
+/// Отговорка вместо значения: модель пишет так, когда сказать нечего.
+///
+/// Формулировки бывают длиннее короткого «нет» — «не обещано, но мельник в отчаянии», —
+/// поэтому смотрим на начало строки, а не только на точное совпадение.
+fn is_placeholder(value: &str) -> bool {
+    let value = value.trim().trim_end_matches(['.', '!']).to_lowercase();
+    const EXCUSES: [&str; 8] = [
+        "не указан",
+        "не обещан",
+        "не оговорен",
+        "не назван",
+        "нет наград",
+        "без наград",
+        "none",
+        "n/a",
+    ];
+    value.is_empty()
+        || matches!(value.as_str(), "нет" | "-" | "—" | "unknown")
+        || EXCUSES.iter().any(|excuse| value.starts_with(excuse))
+}
+
 /// Одно и то же ли это задание. Модель редко повторяет заголовок слово в слово, поэтому
 /// сверяем без регистра и по вхождению — «Найти пропавшего сына» и «найти пропавшего сына
 /// мельника» это одно задание.
@@ -542,7 +563,12 @@ pub fn apply_game_update(
             giver: Some(giver.to_string()),
             summary: offer.summary.clone().unwrap_or_default(),
             conditions: offer.conditions.iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
-            reward: offer.reward.clone(),
+            reward: offer
+                .reward
+                .as_deref()
+                .map(str::trim)
+                .filter(|reward| !is_placeholder(reward))
+                .map(str::to_string),
             // Модель часто оставляет опыт нулём. Задание без награды не имеет смысла —
             // ставим средний вес, а свой вес она может назначить сама.
             xp: match offer.xp.unwrap_or(0) {
@@ -594,6 +620,10 @@ pub fn apply_game_update(
             let reward = quest
                 .reward
                 .as_deref()
+                .map(str::trim)
+                // Модель нередко пишет в награду отговорку вместо награды — показывать
+                // игроку «награда: Не указано» хуже, чем не писать ничего.
+                .filter(|reward| !is_placeholder(reward))
                 .map(|reward| format!(" — награда: {reward}"))
                 .unwrap_or(tail.clone());
             render(&labels.quest_completed, &[("title", &quest.title), ("reward", &reward)])
@@ -901,6 +931,16 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_game_update(&update, &mut actors, &busy).quests_offered.is_empty());
+    }
+
+    #[test]
+    fn an_excuse_is_not_a_reward() {
+        use super::is_placeholder;
+        assert!(is_placeholder("Не указано"));
+        assert!(is_placeholder("нет."));
+        assert!(is_placeholder("—"));
+        assert!(is_placeholder("Не обещано, но мельник явно в отчаянии"));
+        assert!(!is_placeholder("Мешок муки"));
     }
 
     #[test]

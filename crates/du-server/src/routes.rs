@@ -27,6 +27,11 @@ impl ApiError {
         Self(StatusCode::NOT_FOUND, message.into())
     }
 
+    /// Действие противоречит текущему состоянию игры — например, ход после гибели героя.
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self(StatusCode::CONFLICT, message.into())
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self(StatusCode::INTERNAL_SERVER_ERROR, message.into())
     }
@@ -178,7 +183,10 @@ pub async fn create_image(
         format!("{:?}", body.settings.image_backend).to_lowercase()
     };
     let value = if in_cloud {
-        draw_in_cloud(gpu, runtime, params.prompt.clone(), (width, height))
+        // Прошлый кадр этой же сцены уходит в облако референсом: без него каждая
+        // иллюстрация рисуется с нуля и сцена «переезжает» из кадра в кадр.
+        let refs = reference_paths(&state, &decision.references);
+        draw_in_cloud(gpu, runtime, params.prompt.clone(), (width, height), refs)
             .await
             .map_err(ApiError::internal)?
     } else {
@@ -247,12 +255,14 @@ async fn draw_in_cloud(
     runtime: crate::runtime::Runtime,
     prompt: String,
     size: (u32, u32),
+    references: Vec<std::path::PathBuf>,
 ) -> Result<Value, String> {
     let (width, height) = size;
     tokio::task::spawn_blocking(move || -> Result<Value, String> {
         let path = inner.generated.join(format!("{}.png", uuid::Uuid::new_v4()));
         // Имя может смениться: формат кадра выбирает провайдер.
-        let path = crate::cloud::draw(&inner.root, &runtime, &prompt, (width, height), &path)?;
+        let path =
+            crate::cloud::draw(&inner.root, &runtime, &prompt, (width, height), &references, &path)?;
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         Ok(json!({ "url": format!("/generated/{name}"), "width": width, "height": height }))
     })
@@ -300,6 +310,27 @@ fn record_continuity(
             let _ = state.store.set_item_image(chat_id, &item.id, &image.url);
         }
     }
+}
+
+/// Пути к файлам референсов — как есть, без разбора картинки.
+///
+/// Локальному движку нужны распакованные пиксели, а облаку — сам файл: он уходит туда
+/// строкой data-url. Разбирать и собирать картинку обратно ради этого незачем.
+fn reference_paths(state: &AppState, references: &[Attachment]) -> Vec<std::path::PathBuf> {
+    references
+        .iter()
+        .filter_map(|reference| {
+            let relative = reference.url.trim_start_matches('/');
+            let path = if let Some(name) = relative.strip_prefix("generated/") {
+                state.generated.join(name)
+            } else if let Some(name) = relative.strip_prefix("uploads/") {
+                state.uploads.join(name)
+            } else {
+                return None;
+            };
+            path.is_file().then_some(path)
+        })
+        .collect()
 }
 
 /// Подгрузить пиксели референсов с диска. Недоступный файл просто пропускаем: кадр важнее.
@@ -538,7 +569,8 @@ pub async fn item_image(
     // просыпалась на каждой находке, хотя игрок выбрал «всё в облаке».
     let runtime = crate::runtime::load(&state.root);
     if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Image) {
-        let value = draw_in_cloud(inner, runtime, params.prompt.clone(), (768, 768))
+        // Иконке предмета референс не нужен: это отдельная вещь на пустом фоне.
+        let value = draw_in_cloud(inner, runtime, params.prompt.clone(), (768, 768), Vec::new())
             .await
             .map_err(ApiError::internal)?;
         return finish_item_image(state, &chat_id, &item_id, value).await;

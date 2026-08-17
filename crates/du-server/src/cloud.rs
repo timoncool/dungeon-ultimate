@@ -458,6 +458,33 @@ fn explain(stage: &str, status: u16, raw: &str) -> String {
     }
 }
 
+/// Сколько картинок-основ отдаём за раз. Каждая — это её вес в теле запроса.
+const MAX_REFERENCES: usize = 3;
+/// Картинка тяжелее этого в основу не идёт: тело запроса раздувается втрое от base64.
+const MAX_REFERENCE_BYTES: u64 = 6 * 1024 * 1024;
+
+/// Переложить файл в ту форму, которую ждёт ручка рисования.
+///
+/// Форма строгая: `{"type": "image_url", "image_url": {"url": "data:image/png;base64,…"}}`.
+/// Ни голая строка, ни объект без `type` не принимаются.
+fn as_reference(path: &PathBuf) -> Option<Value> {
+    let size = std::fs::metadata(path).ok()?.len();
+    if size == 0 || size > MAX_REFERENCE_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let kind = match path.extension().and_then(|ext| ext.to_str()) {
+        Some("jpg") | Some("jpeg") => "jpeg",
+        Some("webp") => "webp",
+        _ => "png",
+    };
+    let encoded = base64_encode(&bytes);
+    Some(json!({
+        "type": "image_url",
+        "image_url": { "url": format!("data:image/{kind};base64,{encoded}") },
+    }))
+}
+
 /// Нарисовать кадр в облаке.
 ///
 /// Идём в отдельную ручку рисования, а не в чат с модальностью `image`: через чат отвечают
@@ -469,16 +496,26 @@ pub fn draw(
     runtime: &Runtime,
     prompt: &str,
     size: (u32, u32),
+    references: &[PathBuf],
     out: &Path,
 ) -> Result<PathBuf, String> {
     let (width, height) = size;
-    let body = json!({
+    let mut body = json!({
         "model": runtime.openrouter_image_model,
         "prompt": prompt,
         // Без размера провайдер рисует в своих пропорциях, и заказанный портрет приходил
         // горизонтальным. Точное разрешение он выбирает сам, но соотношение сторон держит.
         "size": format!("{width}x{height}"),
     });
+
+    // Основа кадра: прошлая картинка этого места или портреты персонажей. Без неё каждая
+    // иллюстрация рисуется с нуля, и сцена «переезжает» из кадра в кадр. Входную картинку
+    // принимают ВСЕ модели картинок — у каждой в каталоге `image` стоит во входных
+    // модальностях, поэтому перебирать их не нужно.
+    let attached: Vec<Value> = references.iter().filter_map(as_reference).collect();
+    if !attached.is_empty() {
+        body["input_references"] = Value::Array(attached);
+    }
 
     let response = tolerant_agent(std::time::Duration::from_secs(180))
         .post("https://openrouter.ai/api/v1/images/generations")
@@ -537,6 +574,31 @@ pub fn draw(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_reference_goes_in_the_shape_the_endpoint_demands() {
+        // Форма строгая: голая строка и объект без `type` отвергаются с 400.
+        let dir = std::env::temp_dir().join("du-ref-test");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("кадр.png");
+        std::fs::write(&path, "не пустой файл").unwrap();
+        let value = super::as_reference(&path).expect("файл на месте — референс собран");
+        assert_eq!(value["type"], "image_url");
+        let url = value["image_url"]["url"].as_str().unwrap();
+        assert!(url.starts_with("data:image/png;base64,"), "{url}");
+
+        // Пустой файл в основу не идёт: провайдер на него отвечает отказом.
+        let empty = dir.join("пусто.png");
+        std::fs::write(&empty, "").unwrap();
+        assert!(super::as_reference(&empty).is_none());
+
+        // Расширение определяет тип: jpg не должен уехать как png.
+        let jpeg = dir.join("кадр.jpg");
+        std::fs::write(&jpeg, "не пустой файл").unwrap();
+        let value = super::as_reference(&jpeg).unwrap();
+        assert!(value["image_url"]["url"].as_str().unwrap().starts_with("data:image/jpeg;"));
+    }
 
     #[test]
     fn a_refusal_carries_the_providers_own_words() {

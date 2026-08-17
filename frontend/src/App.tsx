@@ -588,6 +588,10 @@ export default function Home() {
     return [...messages].reverse().find((message) => message.role === "user")?.attachments || [];
   }, [messages]);
 
+  /// История окончена: герой погиб. Ход сервер больше не примет, поэтому и ввод закрыт —
+  /// иначе игрок пишет в пустоту и получает отказ уже после отправки.
+  const heroDead = Boolean(settings.rpgEnabled && heroRpg?.dead);
+
   const orderedDesktopPanels = useMemo(() => {
     return activeDesktopPanel ? [activeDesktopPanel] : DESKTOP_PANEL_ORDER;
   }, [activeDesktopPanel]);
@@ -647,6 +651,8 @@ export default function Home() {
         const response = await fetch(`/api/chats/${chatId}`, { cache: "no-store" });
         const payload = await readApi<ChatResponse>(response);
         applyChat(payload.chat, payload.heroRpg ?? null, payload.items ?? [], payload.events ?? [], payload.heroId ?? null);
+      // applyChat подставляет настройки чата — стиль среди них, поэтому поле в панели
+      // картинок сразу показывает придуманную манеру, и её можно поправить.
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
       } finally {
@@ -1024,6 +1030,7 @@ export default function Home() {
     const audio = audioRef.current;
     if (!audio) return;
     audio.volume = Math.min(1, Math.max(0, settings.ttsVolume));
+    audio.preservesPitch = true;
     audio.playbackRate = settings.ttsSpeed;
   }, [settings.ttsVolume, settings.ttsSpeed]);
 
@@ -1350,6 +1357,9 @@ export default function Home() {
     return new Promise((resolve) => {
       audio.src = url;
       audio.volume = Math.min(1, Math.max(0, settings.ttsVolume));
+      // Темп ставим мы сами: клипы приходят готовыми файлами, а не живым потоком. Тон при
+      // этом держим — иначе на 1.2× голос звучит как у бурундука.
+      audio.preservesPitch = true;
       audio.playbackRate = settings.ttsSpeed;
       const finish = () => {
         audio.onended = null;
@@ -1988,7 +1998,30 @@ export default function Home() {
     setError("");
 
     try {
-      const seedSettings: StorySettings = { ...settings, world: options.world };
+      // Единый облик иллюстраций на всю игру. Без него каждый кадр рисуется в своей
+      // манере — один похож на фотографию, другой на комикс, — и серия рассыпается.
+      // Придумываем стиль ОДИН раз под этот мир и дальше подставляем во все промпты.
+      // Уже заданный вручную стиль не трогаем: это выбор игрока.
+      let styleForGame = settings.imageStylePrefix?.trim() ?? "";
+      if (!styleForGame && settings.imageGenerationEnabled) {
+        try {
+          const styleResponse = await fetch("/api/image-style", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ setting: options.world }),
+          });
+          const style = await readApi<{ style?: string; name?: string }>(styleResponse);
+          styleForGame = style.style?.trim() ?? "";
+        } catch {
+          // Не придумался — играем без общего стиля, это не повод не начать историю.
+        }
+      }
+
+      const seedSettings: StorySettings = {
+        ...settings,
+        world: options.world,
+        imageStylePrefix: styleForGame,
+      };
       const response = await fetch("/api/chats", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2454,6 +2487,9 @@ export default function Home() {
                     : undefined
                 }
               />
+              {/* Задания — часть профиля героя, поэтому живут в левой колонке под листом,
+                  а не только в мобильной раскладке, где их на широком экране не видно. */}
+              <QuestsPanel quests={quests} onDecide={decideQuest} disabled={busy} />
               {journal.length > 0 && (
                 <div className="space-y-1 rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
                   <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
@@ -2736,20 +2772,29 @@ export default function Home() {
                   />
                 )}
 
+                {heroDead && (
+                  <div className="mb-2 rounded-lg border border-red-800/70 bg-red-950/30 px-3 py-2">
+                    <p className="text-sm font-medium text-red-200">Герой погиб. История окончена.</p>
+                    <p className="mt-0.5 text-xs text-stone-400">
+                      Роковой ход можно отменить кнопкой «Стереть» — или начать новую историю.
+                    </p>
+                  </div>
+                )}
+
                 {messages.length > 0 && (
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <StoryActionButton
                       icon={ChevronRight}
                       label="Продолжить"
                       title="Пусть рассказчик продолжит без тебя"
-                      disabled={busy || !selectedChatId}
+                      disabled={busy || !selectedChatId || heroDead}
                       onClick={() => void continueStory()}
                     />
                     <StoryActionButton
                       icon={RotateCcw}
                       label="Повторить"
                       title="Перегенерировать последний отрывок"
-                      disabled={busy || !selectedChatId}
+                      disabled={busy || !selectedChatId || heroDead}
                       onClick={() => void retryLastTurn()}
                     />
                     <StoryActionButton
@@ -2785,10 +2830,13 @@ export default function Home() {
                     }}
                     rows={2}
                     placeholder={
-                      INPUT_MODES.find((m) => m.value === inputMode)?.placeholder ?? "Что ты делаешь?"
+                      heroDead
+                        ? "Герой погиб — писать больше некому"
+                        : INPUT_MODES.find((m) => m.value === inputMode)?.placeholder ??
+                          "Что ты делаешь?"
                     }
                     className="max-h-40 min-h-16 w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base text-stone-100 outline-none placeholder:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-600 sm:min-h-20"
-                    disabled={libraryLoading || loadingChat}
+                    disabled={libraryLoading || loadingChat || heroDead}
                   />
                   <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">
                     <div className="flex items-center gap-1">
@@ -2835,7 +2883,9 @@ export default function Home() {
                       <button
                         type="submit"
                         aria-label="Отправить"
-                        disabled={busy || !input.trim() || !selectedChatId || libraryLoading}
+                        disabled={
+                          busy || !input.trim() || !selectedChatId || libraryLoading || heroDead
+                        }
                         className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-amber-200 px-4 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
                       >
                         <Send className="size-4" aria-hidden="true" />
@@ -4720,7 +4770,7 @@ function VoiceControl({
       </div>
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-medium uppercase text-stone-500">Скорость</span>
+          <span className="text-xs font-medium uppercase text-stone-500">Скорость речи</span>
           <span className="text-xs font-medium text-amber-100">{settings.ttsSpeed.toFixed(2)}×</span>
         </div>
         <input
@@ -4729,12 +4779,16 @@ function VoiceControl({
           max={2}
           step={0.05}
           value={settings.ttsSpeed}
-          aria-label="Скорость"
+          aria-label="Скорость речи"
           onChange={(event) =>
             setSettings((current) => ({ ...current, ttsSpeed: Number(event.target.value) }))
           }
           className="w-full accent-amber-200"
         />
+        <p className="mt-1 text-[11px] leading-4 text-stone-500">
+          Работает с любым голосом — и своим, и облачным: темп ставит сам проигрыватель, тон
+          не меняется.
+        </p>
       </div>
     </div>
   );
@@ -5078,14 +5132,21 @@ function QuestsPanel({
 }) {
   const open = quests.filter((quest) => quest.status === "offered" || quest.status === "active");
   const closed = quests.filter((quest) => quest.status === "done" || quest.status === "failed");
-  if (!open.length && !closed.length) return null;
 
+  // shrink-0 обязателен: колонка — это flex, и длинный журнал ужимал панель заданий в
+  // полоску высотой в несколько пикселей.
   return (
-    <div className="max-h-56 space-y-1.5 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
+    <div className="max-h-56 shrink-0 space-y-1.5 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
         <ScrollText className="size-3.5" aria-hidden="true" />
         Задания
       </div>
+
+      {!open.length && !closed.length && (
+        <p className="text-[11px] leading-4 text-stone-500">
+          Пока ни одного. Задания дают жители мира — выслушай того, кому нужна помощь.
+        </p>
+      )}
 
       {open.map((quest) => (
         <div

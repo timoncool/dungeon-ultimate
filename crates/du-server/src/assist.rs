@@ -202,6 +202,60 @@ pub async fn story_setup(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StyleBody {
+    /// Мир истории: по нему и придумывается облик иллюстраций.
+    #[serde(default)]
+    pub setting: String,
+    /// Пожелание игрока: «акварель», «нуар», «как в старой книге». Может быть пустым.
+    #[serde(default)]
+    pub wish: String,
+}
+
+/// Визуальный стиль ИЛЛЮСТРАЦИЙ на всю игру — одной строкой, которая ляжет в каждый кадр.
+///
+/// Без неё каждый кадр рисуется в своей манере: один похож на фотографию, другой на
+/// комикс, третий на 3D. Придумываем стиль ОДИН раз под конкретный мир и дальше
+/// подставляем во все промпты — так серия держится вместе.
+pub async fn image_style(
+    State(state): State<AppState>,
+    Json(body): Json<StyleBody>,
+) -> ApiResult<Json<Value>> {
+    let schema = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "style": {
+                "type": "string",
+                "description": "английская строка стиля: техника и материал, манера мазка                     или линии, палитра, свет, уровень детализации, отсылка к школе или эпохе                     иллюстрации. Без сюжета, без персонажей, без места — только КАК нарисовано",
+                "minLength": 80,
+                "maxLength": 400
+            },
+            "name": { "type": "string", "description": "название стиля по-русски, 2-4 слова" }
+        },
+        "required": ["style", "name"]
+    });
+    let wish = body.wish.trim();
+    let messages = vec![
+        Message::system(
+            "Ты — арт-директор иллюстрированной ролевой игры. Придумай ОДИН визуальный стиль              для всех иллюстраций этой игры: он должен подходить её миру и быть интересным,              а не дежурным «цифровой арт». Опиши только МАНЕРУ — технику, материал, характер              линии и мазка, палитру, свет, степень детализации, узнаваемую школу или эпоху              иллюстрации. Ни сюжета, ни персонажей, ни мест: эта строка будет добавляться к              промпту каждого кадра и не должна спорить с его содержанием. Строку стиля пиши              по-английски."
+                .to_string(),
+        ),
+        Message::user(if body.setting.trim().is_empty() {
+            format!("Мир на твой вкус. {wish}").trim().to_string()
+        } else {
+            format!("Мир: {}. {wish}", body.setting.trim()).trim().to_string()
+        }),
+    ];
+    let value = ask_json(&state, messages, &schema).await?;
+    Ok(Json(json!({
+        "ok": true,
+        "style": value.get("style").and_then(Value::as_str).unwrap_or_default().trim(),
+        "name": value.get("name").and_then(Value::as_str).unwrap_or_default().trim(),
+    })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CharacterBody {
     #[serde(default)]
     pub hint: String,

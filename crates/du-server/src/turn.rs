@@ -390,12 +390,24 @@ pub fn image_schema() -> Value {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-            "needed": { "type": "boolean" },
-            "prompt": { "type": "string" },
+            "needed": {
+                "type": "boolean",
+                "description": "нужен ли кадр этому отрывку. true — сцена сменила место,                     появился новый персонаж или существо, случилось что-то зримое: удар,                     находка, обряд, гроза. false — разговор на том же месте без новых лиц и                     без событий, которые стоит увидеть"
+            },
+            "prompt": {
+                "type": "string",
+                "description": "ПОДРОБНЫЙ английский промпт кадра: кто и что делает, во что                     одет, окружение и что в нём видно, источник и характер света, план и                     ракурс камеры, палитра, настроение. Живые детали вместо общих слов;                     никаких имён собственных и никакого текста в кадре",
+                "minLength": 120
+            },
             "location": { "type": "string" },
             "sameLocation": { "type": "boolean" },
             "shot": { "type": "string", "enum": ["wide", "medium", "close"] },
-            "characters": { "type": "array", "items": { "type": "string" } }
+            "characters": { "type": "array", "items": { "type": "string" } },
+            "reference": {
+                "type": "string",
+                "enum": ["scene", "characters", "none"],
+                "description": "что положить в основу кадра: scene — прошлый кадр этого же                     места, когда действие продолжается там же; characters — портреты                     названных персонажей, когда важно не потерять их внешность; none —                     новое место и новые лица, рисуем с чистого листа"
+            }
         },
         // prompt и location обязательны вместе с needed: без промпта заявка на кадр
         // бесполезна, а без ярлыка места ломается непрерывность сцены.

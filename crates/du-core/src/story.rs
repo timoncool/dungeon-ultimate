@@ -52,6 +52,13 @@ pub struct ImageRequest {
     pub location: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub same_location: Option<bool>,
+    /// Что оператор просит положить в основу кадра: `scene`, `characters` или `none`.
+    ///
+    /// Раньше это решала жёсткая эвристика по совпадению ярлыка места. Но оператор видел
+    /// отрывок целиком и знает лучше: герой вошёл в новую залу — основа не нужна, разговор
+    /// продолжается там же — нужна прошлая картинка, крупный план лица — нужен портрет.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reference: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shot: Option<ImageShot>,
 }
