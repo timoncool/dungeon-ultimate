@@ -6842,7 +6842,7 @@ const DONATE = {
   boosty: "https://boosty.to/neuro_art",
   github: "https://github.com/timoncool/dungeon-ultimate",
   telegram: "https://t.me/nerual_dreming",
-  all: "https://github.com/timoncool/dungeon-ultimate/blob/master/DONATE.md",
+  all: "https://github.com/timoncool/dungeon-ultimate/blob/main/DONATE.md",
   crypto: [
     ["BTC", "1E7dHL22RpyhJGVpcvKdbyZgksSYkYeEBC"],
     ["ETH · ERC20", "0xb5db65adf478983186d4897ba92fe2c25c594a0c"],
