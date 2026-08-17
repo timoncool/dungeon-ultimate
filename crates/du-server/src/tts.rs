@@ -5,7 +5,7 @@
 //! рядом с картинками и переигрывается оттуда — заново синтезировать одну и ту же реплику
 //! незачем, это минуты работы карты.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axum::extract::State;
 use axum::Json;
@@ -42,7 +42,7 @@ pub fn safe_name(value: &str, max: usize) -> String {
 }
 
 /// Эталонный клип голоса и его расшифровка, если она лежит рядом.
-fn voice_reference(root: &PathBuf, voice: &str) -> Option<(PathBuf, Option<String>)> {
+fn voice_reference(root: &Path, voice: &str) -> Option<(PathBuf, Option<String>)> {
     let dir = root.join("models").join("voices");
     let stem = safe_name(voice, 120);
     if stem.is_empty() {
@@ -92,7 +92,7 @@ pub fn prepared_reference(
     voice: &str,
     seconds: u32,
 ) -> Result<(std::path::PathBuf, Option<String>), String> {
-    let (reference, transcript) = voice_reference(&root.to_path_buf(), voice)
+    let (reference, transcript) = voice_reference(root, voice)
         .ok_or_else(|| format!("нет эталонного клипа для голоса «{voice}»"))?;
     Ok((ensure_wav_reference(&reference, seconds)?, transcript))
 }
@@ -234,7 +234,7 @@ pub fn synthesize_streaming(
         return Ok(url);
     }
 
-    let (reference, transcript) = voice_reference(&root.to_path_buf(), voice)
+    let (reference, transcript) = voice_reference(root, voice)
         .ok_or_else(|| format!("нет эталонного клипа для голоса «{voice}»"))?;
     // Движку нужен WAV: паки лежат в mp3, поэтому клип один раз перегоняется и дальше
     // берётся готовым.

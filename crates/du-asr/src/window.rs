@@ -192,9 +192,9 @@ fn min_cut_recursive(
     let mid = f0 + (f1 - f0) / 2;
     let mut cut = mid;
     let mut best = f32::INFINITY;
-    for f in mid..f1 {
-        if env[f] < best {
-            best = env[f];
+    for (f, level) in env.iter().enumerate().take(f1).skip(mid) {
+        if *level < best {
+            best = *level;
             cut = f;
         }
     }

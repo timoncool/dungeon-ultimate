@@ -22,6 +22,49 @@ type Block =
   | { kind: "action"; text: string; message: StoryMessage }
   | { kind: "event"; event: GameEvent; message: StoryMessage };
 
+/// Значок события: тот же пак, что и у наград. Маска красится цветом текста страницы,
+/// поэтому рисунок остаётся книжным, а не вставным.
+const EVENT_ICONS: Record<string, string> = {
+  roll: "delapouite/dice-twenty-faces-twenty.svg",
+  item: "skoll/open-treasure-chest.svg",
+  combat: "lorc/crossed-swords.svg",
+  death: "sbed/death-skull.svg",
+  effect: "lorc/magic-swirl.svg",
+  quest: "lorc/scroll-unfurled.svg",
+  level: "delapouite/upgrade.svg",
+  note: "lorc/quill-ink.svg",
+};
+
+function BookEventIcon({ event, className }: { event: GameEvent; className?: string }) {
+  const path =
+    event.kind === "hp"
+      ? /[💚✨]/u.test(event.text)
+        ? "zeromancer/heart-plus.svg"
+        : "zeromancer/heart-minus.svg"
+      : (EVENT_ICONS[event.kind] ?? "lorc/quill-ink.svg");
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("block shrink-0 bg-current", className)}
+      style={{
+        maskImage: `url(/game-icons/${path})`,
+        WebkitMaskImage: `url(/game-icons/${path})`,
+        maskRepeat: "no-repeat",
+        WebkitMaskRepeat: "no-repeat",
+        maskSize: "contain",
+        WebkitMaskSize: "contain",
+        maskPosition: "center",
+        WebkitMaskPosition: "center",
+      }}
+    />
+  );
+}
+
+/// Ведущий эмодзи убираем: его место занял рисунок.
+function withoutLeadingEmoji(text: string): string {
+  return text.replace(/^[^\p{L}\p{N}(«"]+/u, "").trim();
+}
+
 // A resolved game event as a parchment card INSIDE the book — a rolled die / check,
 // a loot drop with its portrait, a foe, damage/heal, a buff. Part of the story,
 // styled for the page (not the dark feed card).
@@ -62,9 +105,27 @@ function BookEventCard({ event }: { event: GameEvent }) {
         : "border-[#9c7b46]/70 bg-[#eee0c2]";
     return (
       <div className={cn("mb-3.5 flex items-start gap-3 rounded-lg border-2 px-3.5 py-2.5", tone)}>
-        <span className="mt-0.5 text-2xl leading-none" aria-hidden="true">
-          {award?.icon || "🏆"}
-        </span>
+        {/* Значок награды — рисунок из пака; у первых наград там эмодзи, показываем его. */}
+        {award?.icon?.endsWith(".svg") ? (
+          <span
+            aria-hidden="true"
+            className="mt-0.5 block size-7 shrink-0 bg-[#6a4f2c]"
+            style={{
+              maskImage: `url(/game-icons/${award.icon})`,
+              WebkitMaskImage: `url(/game-icons/${award.icon})`,
+              maskRepeat: "no-repeat",
+              WebkitMaskRepeat: "no-repeat",
+              maskSize: "contain",
+              WebkitMaskSize: "contain",
+              maskPosition: "center",
+              WebkitMaskPosition: "center",
+            }}
+          />
+        ) : (
+          <span className="mt-0.5 text-2xl leading-none" aria-hidden="true">
+            {award?.icon || "🏆"}
+          </span>
+        )}
         <div className="min-w-0">
           <div className="font-serif text-[11px] uppercase tracking-[0.18em] text-[#8a6a2c]">
             {legendary ? "Легендарное достижение" : rare ? "Редкое достижение" : "Достижение"}
@@ -123,12 +184,13 @@ function BookEventCard({ event }: { event: GameEvent }) {
   return (
     <div
       className={cn(
-        "mb-3.5 rounded border px-3 py-1.5 font-serif text-sm text-[#3a2a18]",
+        "mb-3.5 flex items-center gap-2 rounded border px-3 py-1.5 font-serif text-sm text-[#3a2a18]",
         tone,
         event.kind === "note" && "italic",
       )}
     >
-      {event.text}
+      <BookEventIcon event={event} className="size-4 opacity-80" />
+      <span className="min-w-0">{withoutLeadingEmoji(event.text)}</span>
     </div>
   );
 }

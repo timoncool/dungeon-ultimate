@@ -23,7 +23,11 @@ const CATALOG: &str = "https://openrouter.ai/api/v1/models";
 const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Что провайдер рассказал о модели.
+/// Разбор схемы модели целиком. Часть полей пока никто не спрашивает — они описывают
+/// договор провайдера, и заполнять их наполовину значило бы разбирать схему дважды, когда
+/// до них дойдёт дело.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct Caps {
     /// Схема нашлась — значит, ответам ниже можно верить.
     pub known: bool,
@@ -58,8 +62,11 @@ impl Caps {
     }
 }
 
-fn cache() -> &'static Mutex<Option<(Instant, HashMap<String, Caps>)>> {
-    static CACHE: OnceLock<Mutex<Option<(Instant, HashMap<String, Caps>)>>> = OnceLock::new();
+/// Каталог возможностей и время, когда его забрали: живёт недолго и обновляется целиком.
+type CapsCache = Mutex<Option<(Instant, HashMap<String, Caps>)>>;
+
+fn cache() -> &'static CapsCache {
+    static CACHE: OnceLock<CapsCache> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(None))
 }
 

@@ -2574,8 +2574,12 @@ export default function Home() {
                         : undefined;
                     return (
                       <div key={event.id} className="journal-in flex items-center gap-2">
-                        {rollResult ? <DiceRollBadge result={rollResult} /> : null}
-                        <span>{event.text}</span>
+                        {rollResult ? (
+                          <DiceRollBadge result={rollResult} />
+                        ) : (
+                          <EventIcon event={event} className="size-4 opacity-80" />
+                        )}
+                        <span>{withoutLeadingEmoji(event.text)}</span>
                       </div>
                     );
                   })}
@@ -2797,8 +2801,12 @@ export default function Home() {
                         : undefined;
                     return (
                       <div key={event.id} className="journal-in flex items-center gap-2">
-                        {rollResult ? <DiceRollBadge result={rollResult} /> : null}
-                        <span>{event.text}</span>
+                        {rollResult ? (
+                          <DiceRollBadge result={rollResult} />
+                        ) : (
+                          <EventIcon event={event} className="size-4 opacity-80" />
+                        )}
+                        <span>{withoutLeadingEmoji(event.text)}</span>
                       </div>
                     );
                   })}
@@ -5316,6 +5324,59 @@ const SLOT_ICON: Record<Item["slot"], typeof Swords> = {
 ///
 /// Файлы одноцветные и чёрные, поэтому цвет даём маской: так один и тот же рисунок
 /// подходит и золотой легенде, и тусклой рядовой награде.
+/// Значок события журнала: тот же пак game-icons, что и у наград.
+///
+/// Эмодзи в тексте события остаются для тех, кто читает журнал как текст (и для прошлых
+/// сохранёнок), но на экране их заменяет рисунок — иначе находка, эффект и уровень
+/// выглядят одинаковыми серыми строчками.
+const EVENT_ICONS: Record<string, string> = {
+  roll: "delapouite/dice-twenty-faces-twenty.svg",
+  item: "skoll/open-treasure-chest.svg",
+  combat: "lorc/crossed-swords.svg",
+  death: "sbed/death-skull.svg",
+  effect: "lorc/magic-swirl.svg",
+  quest: "lorc/scroll-unfurled.svg",
+  level: "delapouite/upgrade.svg",
+  note: "lorc/quill-ink.svg",
+};
+
+/// Что нарисовать для события. Лечение и урон различаются только текстом, поэтому смотрим
+/// на него: у движка это один вид события.
+function eventIconPath(event: GameEvent): string {
+  if (event.kind === "hp") {
+    return /[💚✨]/u.test(event.text)
+      ? "zeromancer/heart-plus.svg"
+      : "zeromancer/heart-minus.svg";
+  }
+  return EVENT_ICONS[event.kind] ?? "lorc/quill-ink.svg";
+}
+
+/// Рисунок значка, покрашенный текущим цветом текста.
+function EventIcon({ event, className }: { event: GameEvent; className?: string }) {
+  const path = eventIconPath(event);
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("block shrink-0 bg-current", className)}
+      style={{
+        maskImage: `url(/game-icons/${path})`,
+        WebkitMaskImage: `url(/game-icons/${path})`,
+        maskRepeat: "no-repeat",
+        WebkitMaskRepeat: "no-repeat",
+        maskSize: "contain",
+        WebkitMaskSize: "contain",
+        maskPosition: "center",
+        WebkitMaskPosition: "center",
+      }}
+    />
+  );
+}
+
+/// Убрать ведущий эмодзи: на экране вместо него рисунок, а два значка подряд — перебор.
+function withoutLeadingEmoji(text: string): string {
+  return text.replace(/^[^\p{L}\p{N}(«"]+/u, "").trim();
+}
+
 function AchievementIcon({
   icon,
   rarity,
@@ -5988,8 +6049,15 @@ function EventCard({ event }: { event: GameEvent }) {
             ? "border-amber-900/50 bg-amber-950/20 text-amber-100"
             : "border-stone-800 bg-stone-950/50 text-stone-400";
   return (
-    <div className={cn("rounded-xl border px-3 py-2 text-sm", tone, event.kind === "note" && "italic")}>
-      {event.text}
+    <div
+      className={cn(
+        "flex items-center gap-2.5 rounded-xl border px-3 py-2 text-sm",
+        tone,
+        event.kind === "note" && "italic",
+      )}
+    >
+      <EventIcon event={event} className="size-5 opacity-90" />
+      <span className="min-w-0">{withoutLeadingEmoji(event.text)}</span>
     </div>
   );
 }

@@ -28,6 +28,47 @@ pub fn all() -> Vec<Tool> {
             parameters: json!({ "type": "object", "additionalProperties": false, "properties": {} }),
         },
         Tool {
+            name: "draw_frame",
+            description: "Заказать кадр к этой сцене — ОДИН ключевой момент отрывка. Зови, когда \
+                          в сцене есть что показать: новое место, лицо, встреча, удар. Не зови \
+                          на разговор в уже нарисованной комнате, где ничего не изменилось. \
+                          Промпт пиши ПО-АНГЛИЙСКИ и подробно: кто в кадре и что делает, где \
+                          это, свет, камера, палитра. Имён не называй — описывай внешность.",
+            parameters: json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "prompt": { "type": "string", "description": "описание кадра по-английски" },
+                    "shot": {
+                        "type": "string",
+                        "enum": ["wide", "medium", "close"],
+                        "description": "крупность плана",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "короткая устойчивая пометка места — повторяй её дословно, \
+                                        пока сцена там же",
+                    },
+                    "sameLocation": {
+                        "type": "boolean",
+                        "description": "то же место, что и на прошлом кадре",
+                    },
+                    "reference": {
+                        "type": "string",
+                        "enum": ["scene", "characters", "none"],
+                        "description": "из чего растить картинку: продолжение сцены, знакомые лица \
+                                        или ничего",
+                    },
+                    "characters": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "имена из листа, чьи лица должны остаться узнаваемыми",
+                    }
+                },
+                "required": ["prompt"]
+            }),
+        },
+        Tool {
             name: "icons_search",
             description: "Найти значок для достижения по ключевому слову. Названия значков \
                           АНГЛИЙСКИЕ: спрашивай «shield», «wolf», «crown», «bridge», «flame» — \
@@ -124,7 +165,10 @@ pub fn all() -> Vec<Tool> {
                 "properties": {
                     "ability": { "type": "string", "enum": ["str", "dex", "con", "int", "wis", "cha"] },
                     "dc": { "type": "number" },
-                    "label": { "type": "string", "description": "что проверяется, коротко" },
+                    "label": {
+                        "type": "string",
+                        "description": "что проверяется, коротко и НА ЯЗЫКЕ ИГРЫ — эту строку                                         читает игрок в журнале",
+                    },
                     "character": { "type": "string", "description": "имя из листа; пусто — герой" }
                 },
                 "required": ["ability", "dc", "label"]
@@ -211,6 +255,7 @@ pub fn run(
         "character_add" => character_add(state, chat_id, arguments),
         "achievements_list" => achievements_list(state, chat_id),
         "icons_search" => icons_search(arguments),
+        "draw_frame" => draw_frame(state, chat_id, arguments),
         "achievement_grant" => achievement_grant(state, chat_id, arguments),
         other => json!({ "error": format!("нет такого инструмента: {other}") }),
     }
@@ -321,6 +366,48 @@ fn icon_query_in_english(query: &str) -> Vec<String> {
     );
     words.dedup();
     words
+}
+
+/// Заказ кадра. Инструмент ничего не рисует: он проверяет заявку и возвращает её ходу —
+/// рисование стоит в общей очереди к карте, и запускать его посреди разговора нельзя.
+///
+/// Имена персонажей переводим в идентификаторы прямо здесь: модель знает людей по именам,
+/// а движок картинок — по записям в листе.
+fn draw_frame(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> Value {
+    let prompt = arguments.get("prompt").and_then(Value::as_str).unwrap_or_default().trim();
+    if prompt.len() < 12 {
+        return json!({ "error": "промпт слишком короткий: опиши кадр подробно, по-английски" });
+    }
+    let characters = state.store.list_characters(chat_id).unwrap_or_default();
+    let ids: Vec<String> = arguments
+        .get("characters")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|name| {
+                    characters
+                        .iter()
+                        .find(|character| {
+                            character.id == name || character.name.eq_ignore_ascii_case(name)
+                        })
+                        .map(|character| character.id.clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    json!({
+        "ok": true,
+        "request": {
+            "needed": true,
+            "prompt": prompt,
+            "shot": arguments.get("shot"),
+            "location": arguments.get("location"),
+            "sameLocation": arguments.get("sameLocation"),
+            "reference": arguments.get("reference"),
+            "characterIds": ids,
+        }
+    })
 }
 
 /// Значки на все случаи: ими отвечаем, когда по ключу ничего не нашлось.
@@ -535,13 +622,21 @@ fn roll_check(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
 
     let dc = arguments.get("dc").and_then(Value::as_i64).unwrap_or(12) as i32;
     let label = arguments.get("label").and_then(Value::as_str).unwrap_or("проверка");
-    let ability = match arguments.get("ability").and_then(Value::as_str).unwrap_or("dex") {
-        "str" => Ability::Str,
-        "con" => Ability::Con,
-        "int" => Ability::Int,
-        "wis" => Ability::Wis,
-        "cha" => Ability::Cha,
-        _ => Ability::Dex,
+    // Своя Гемма называет характеристику как ей удобнее: «Dexterity», «ловкость», «DEX».
+    // Молча сваливать всё незнакомое в ловкость нельзя — бросок пойдёт не по той строке листа.
+    let raw_ability = arguments.get("ability").and_then(Value::as_str).unwrap_or("dex").to_lowercase();
+    let ability = if raw_ability.starts_with("str") || raw_ability.starts_with("сил") {
+        Ability::Str
+    } else if raw_ability.starts_with("con") || raw_ability.starts_with("вын") {
+        Ability::Con
+    } else if raw_ability.starts_with("int") || raw_ability.starts_with("инт") {
+        Ability::Int
+    } else if raw_ability.starts_with("wis") || raw_ability.starts_with("муд") {
+        Ability::Wis
+    } else if raw_ability.starts_with("cha") || raw_ability.starts_with("хар") {
+        Ability::Cha
+    } else {
+        Ability::Dex
     };
 
     // Модификатор берём у названного персонажа, иначе у героя: числа остаются за игрой.

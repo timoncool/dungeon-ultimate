@@ -51,7 +51,7 @@ fn exec_config() -> ExecutionConfig {
             3 => GraphOptimizationLevel::Level3,
             _ => GraphOptimizationLevel::Level1,
         };
-        let mut b = b.with_optimization_level(lvl)?;
+        let b = b.with_optimization_level(lvl)?;
         #[cfg(feature = "cuda")]
         {
             if gpu {
@@ -193,6 +193,11 @@ pub struct Asr {
     model: Option<ParakeetTDT>,
 }
 
+/// Расшифровка по окнам: у каждого окна — его сдвиг во времени и слова. Пока окно не
+/// посчитано, там `None`, поэтому итог собирается в исходном порядке, а не в порядке
+/// готовности.
+type WindowResults = std::sync::Arc<std::sync::Mutex<Vec<Option<(f64, Vec<Word>)>>>>;
+
 impl Asr {
     /// Каталог с TDT-моделью (encoder-model.onnx + .data, decoder_joint-model.onnx, vocab.txt).
     pub fn new(tdt_dir: impl AsRef<Path>) -> Self {
@@ -315,7 +320,7 @@ impl Asr {
             .collect();
         let n_slots = windows.len();
         let queue = std::sync::Arc::new(std::sync::Mutex::new(jobs));
-        let results: std::sync::Arc<std::sync::Mutex<Vec<Option<(f64, Vec<Word>)>>>> =
+        let results: WindowResults =
             std::sync::Arc::new(std::sync::Mutex::new((0..n_slots).map(|_| None).collect()));
         let failed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 

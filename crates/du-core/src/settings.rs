@@ -5,33 +5,25 @@ use serde::{Deserialize, Serialize};
 /// Пропорции кадра, которые нарратор выбирает для сцены.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum AspectPreset {
+    #[default]
     Square,
     Portrait,
     Landscape,
 }
 
-impl Default for AspectPreset {
-    fn default() -> Self {
-        Self::Square
-    }
-}
 
 /// Быстрый кадр (1024 по длинной стороне) против качественного (2048).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ImageMode {
+    #[default]
     Fast,
     Slow,
 }
 
-impl Default for ImageMode {
-    fn default() -> Self {
-        // По умолчанию быстрый кадр: 2048 на восьми шагах — это минуты ожидания на ход, а
-        // игра идёт ходами. Качественный режим остаётся переключателем.
-        Self::Fast
-    }
-}
 
 /// Крупность плана. Жёсткая смена плана считается новым кадром, поэтому сцена
 /// перерисовывается заново, а не редактируется поверх предыдущей.
@@ -47,8 +39,10 @@ pub enum ImageShot {
 /// предыдущий по референсу, `Poster` — вариант под текст в кадре.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum ImageBackend {
     /// Krea-2 Turbo — художник сцены.
+    #[default]
     Krea2Turbo,
     /// FLUX.2-klein 9B — редактор по референсу, держит консистентность.
     Klein9bEdit,
@@ -56,19 +50,16 @@ pub enum ImageBackend {
     Ideogram4,
 }
 
-impl Default for ImageBackend {
-    fn default() -> Self {
-        Self::Krea2Turbo
-    }
-}
 
 /// Размер шрифта прозы.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ProseSize {
     Tiny,
     Xsmall,
     Small,
+    #[default]
     Medium,
     Large,
     Xlarge,
@@ -77,32 +68,26 @@ pub enum ProseSize {
     Giant,
 }
 
-impl Default for ProseSize {
-    fn default() -> Self {
-        Self::Medium
-    }
-}
 
 /// Длина ответа нарратора.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ResponseLength {
     Short,
+    #[default]
     Medium,
     Long,
     Epic,
 }
 
-impl Default for ResponseLength {
-    fn default() -> Self {
-        Self::Medium
-    }
-}
 
 /// Язык игры: на нём говорят нарратор, чипсы действий, подсказки и озвучка.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Language {
+    #[default]
     Ru,
     En,
     Es,
@@ -112,11 +97,6 @@ pub enum Language {
     Ja,
 }
 
-impl Default for Language {
-    fn default() -> Self {
-        Self::Ru
-    }
-}
 
 impl Language {
     pub const ALL: [Language; 7] = [
@@ -172,18 +152,15 @@ impl Language {
 /// Откуда берётся текстовая модель.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum TextProvider {
     /// Встроенный сайдкар llama-server.
+    #[default]
     Local,
     /// Любой OpenAI-совместимый бэкенд, заданный в приложении.
     Custom,
 }
 
-impl Default for TextProvider {
-    fn default() -> Self {
-        Self::Local
-    }
-}
 
 /// Настройки истории. Хранятся как JSON на строке чата, поэтому имена полей обязаны
 /// совпадать с прежним контрактом `StorySettings` — иначе старые базы не прочитаются.

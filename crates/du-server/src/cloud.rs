@@ -458,8 +458,6 @@ fn explain(stage: &str, status: u16, raw: &str) -> String {
     }
 }
 
-/// Сколько картинок-основ отдаём за раз. Каждая — это её вес в теле запроса.
-const MAX_REFERENCES: usize = 3;
 /// Картинка тяжелее этого в основу не идёт: тело запроса раздувается втрое от base64.
 const MAX_REFERENCE_BYTES: u64 = 6 * 1024 * 1024;
 

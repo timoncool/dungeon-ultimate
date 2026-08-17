@@ -39,6 +39,9 @@ pub struct Paths {
     pub text_mmproj: Option<PathBuf>,
 }
 
+/// Сообщение о ходе рисования: шаг, всего шагов, доля готовности.
+pub type ImageProgressFn = Box<dyn Fn(i32, i32, f32) + Send + Sync>;
+
 impl Paths {
     pub fn under(root: &Path) -> Self {
         let models = root.join("models");
@@ -230,7 +233,7 @@ impl Gpu {
     pub fn generate_image(
         &self,
         params: &GenParams,
-        progress: Option<Box<dyn Fn(i32, i32, f32) + Send + Sync>>,
+        progress: Option<ImageProgressFn>,
     ) -> Result<Vec<RawImage>, GpuError> {
         if !self.paths.image_ready() {
             return Err(GpuError::Missing(format!(

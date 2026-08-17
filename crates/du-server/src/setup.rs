@@ -118,14 +118,13 @@ impl Component {
 // движок картинок обязан совпадать с `du_image::PINNED_COMMIT`, иначе загрузчик откажется
 // работать с чужой сборкой.
 
-/// Сборка stable-diffusion.cpp, под которую написан загрузчик картинок.
-const SD_RELEASE: &str = "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-820-de298c2/";
-/// Сборка llama.cpp: тот же пин, что и в Dub Studio.
-const LLAMA_RELEASE: &str = "https://github.com/ggml-org/llama.cpp/releases/download/b9966/";
-/// Веса и движок озвучки Higgs.
-const HIGGS: &str = "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/main/";
-/// Распознавание речи Parakeet в формате onnx.
-const PARAKEET: &str = "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/";
+// Откуда что берётся. Адреса стоят в списке ниже целиком, потому что срез файлов
+// статический, а `concat!` принимает только литералы — вынести их в константы нельзя.
+// Пины, на которые рассчитан код:
+//   картинки  — stable-diffusion.cpp master-820-de298c2 (совпадает с `du_image::PINNED_COMMIT`);
+//   текст     — llama.cpp b9966, тот же, что в Dub Studio;
+//   озвучка   — Higgs Audio v3 Studio;
+//   слух      — Parakeet TDT 0.6b v3 в onnx.
 /// Среда выполнения onnx: строго 1.24.2 — на других сборках распознавание встаёт намертво.
 const ORT: &str = "https://github.com/microsoft/onnxruntime/releases/download/v1.24.2/onnxruntime-win-x64-1.24.2.zip";
 
@@ -452,6 +451,11 @@ fn completed_offsets(path: &Path) -> Vec<u64> {
 }
 
 /// Скачать один диапазон с проверкой полноты и повторами.
+///
+/// Входов много, и каждый нужен: куда писать, что качать, сколько уже скачано, не отменили
+/// ли всё и куда отметить готовое. Заворачивать их в структуру ради счётчика аргументов —
+/// прятать смысл за именем.
+#[allow(clippy::too_many_arguments)]
 fn download_range(
     agent: &ureq::Agent,
     url: &str,
@@ -493,6 +497,7 @@ fn download_range(
     Err(format!("диапазон {start}-{end} не дался за {RANGE_RETRIES} попыток: {last}"))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn download_range_once(
     agent: &ureq::Agent,
     url: &str,
@@ -592,6 +597,9 @@ fn download_file(
     let file = Arc::new(
         OpenOptions::new()
             .create(true)
+            // Обрезать НЕЛЬЗЯ: файл открывается и на продолжение прерванной загрузки,
+            // а обрезание стёрло бы уже скачанные гигабайты.
+            .truncate(false)
             .write(true)
             .read(true)
             .open(&part)

@@ -16,3 +16,13 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 base64 = "0.22"
 # Нужен, чтобы находить и убирать процессы модели, оставшиеся от прошлого запуска.
 sysinfo = "0.32"
+
+# Windows-задание (job object): в нём живёт llama-server, и система убивает его вместе с
+# нами — даже если нас сняли силой и до штатного закрытия дело не дошло.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }

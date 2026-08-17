@@ -109,16 +109,13 @@ impl Modifiers {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum EffectKind {
+    #[default]
     Buff,
     Debuff,
 }
 
-impl Default for EffectKind {
-    fn default() -> Self {
-        Self::Buff
-    }
-}
 
 /// Временный эффект — благословение, проклятие, яд. Его модификаторы складываются в
 /// производные статы ровно как надетая экипировка; `turns` убывает раз в ход, на нуле
@@ -227,24 +224,23 @@ pub struct GameEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ItemSlot {
     Weapon,
     Armor,
     Shield,
     Trinket,
     Consumable,
+    #[default]
     Misc,
 }
 
-impl Default for ItemSlot {
-    fn default() -> Self {
-        Self::Misc
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ItemRarity {
+    #[default]
     Common,
     Uncommon,
     Rare,
@@ -252,11 +248,6 @@ pub enum ItemRarity {
     Legendary,
 }
 
-impl Default for ItemRarity {
-    fn default() -> Self {
-        Self::Common
-    }
-}
 
 impl ItemRarity {
     pub fn label_ru(self) -> &'static str {
@@ -276,7 +267,9 @@ impl ItemRarity {
 /// либо отказывается (`Declined`). Взятое задание висит в контексте хода, пока не закроется.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum QuestStatus {
+    #[default]
     Offered,
     Active,
     Done,
@@ -284,11 +277,6 @@ pub enum QuestStatus {
     Declined,
 }
 
-impl Default for QuestStatus {
-    fn default() -> Self {
-        Self::Offered
-    }
-}
 
 impl QuestStatus {
     /// Держим ли мы задание в контексте хода.

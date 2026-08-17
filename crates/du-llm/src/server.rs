@@ -134,6 +134,12 @@ impl LlamaServer {
         let mut child = cmd
             .spawn()
             .map_err(|e| LlmError::Spawn(format!("не запустить llama-server: {e}")))?;
+        // Привязываем модель к нашему заданию. Уборка сирот при старте — лечение по факту:
+        // между падением и следующим запуском процесс живёт и держит видеопамять, а если
+        // запусков было несколько, их набирается четыре штуки на двадцать гигабайт. С
+        // заданием такого просто не может случиться: система убивает детей вместе с нами,
+        // даже когда нас сняли силой и до штатного закрытия дело не дошло.
+        adopt_into_job(&child);
         let log_tail: LogTail = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stdout) = child.stdout.take() {
             drain_to_tail(stdout, log_tail.clone());
@@ -240,6 +246,62 @@ pub fn kill_orphans(tools_dir: &Path) {
         }
     }
 }
+
+/// Задание, в котором живут все запущенные нами модели.
+///
+/// Одно на процесс: система закрывает его дескриптор при нашей смерти — и убивает всё, что
+/// внутри. Создаётся лениво, потому что до первой модели оно не нужно.
+#[cfg(windows)]
+fn job_handle() -> isize {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::System::JobObjects::{
+        CreateJobObjectW, SetInformationJobObject, JobObjectExtendedLimitInformation,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    static JOB: OnceLock<isize> = OnceLock::new();
+    *JOB.get_or_init(|| unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job == 0 {
+            tracing::warn!("не удалось создать задание для процессов модели");
+            return 0;
+        }
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &limits as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 {
+            tracing::warn!("задание создано, но правило «умереть вместе с нами» не поставилось");
+        }
+        job
+    })
+}
+
+/// Взять запущенный процесс в наше задание.
+#[cfg(windows)]
+fn adopt_into_job(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+
+    let job = job_handle();
+    if job == 0 {
+        return;
+    }
+    // Дескриптор процесса у Command уже есть — второй раз открывать его не нужно.
+    let handle = child.as_raw_handle() as isize;
+    let ok = unsafe { AssignProcessToJobObject(job, handle) };
+    if ok == 0 {
+        tracing::warn!("модель не удалось привязать к заданию: сирота переживёт нас");
+    }
+}
+
+/// На прочих системах ничего не делаем: там процессы и так не остаются.
+#[cfg(not(windows))]
+fn adopt_into_job(_child: &Child) {}
 
 /// Найти `llama-server` в каталоге инструментов.
 pub fn resolve_llama_bin(tools_dir: &Path) -> PathBuf {

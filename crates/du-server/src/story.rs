@@ -144,12 +144,15 @@ fn hero_is_dead(state: &AppState, chat_id: &str) -> bool {
 
 /// Разложить готовую фразу на куски с голосами. Контекстом для поиска говорящего служит
 /// хвост уже прочитанного: имя часто называют фразой раньше самой реплики.
+/// Запущенный синтез одной фразы: номер по порядку, голос и то, что вышло.
+type FlyingClip = std::thread::JoinHandle<(usize, String, Result<String, String>)>;
+
 /// Забрать САМЫЙ СТАРЫЙ из запущенных запросов озвучки и отдать клип игроку.
 ///
 /// Порядок важнее скорости: фразы должны звучать так, как написаны, поэтому ждём именно
 /// первый в очереди, даже если следующий уже готов.
 fn take_ready(
-    flying: &mut Vec<std::thread::JoinHandle<(usize, String, Result<String, String>)>>,
+    flying: &mut Vec<FlyingClip>,
     sink: &crate::jobs::ProgressFn,
     first: &mut Option<String>,
 ) {
@@ -263,7 +266,14 @@ fn to_named(event: &Value) -> Option<Event> {
                 );
             }
             let stage = event.get("stage").and_then(Value::as_str)?;
-            Some(Event::default().event("stage").data(json!({ "stage": stage }).to_string()))
+            // Имя инструмента едет вместе со стадией: без него в потоке видно только пять
+            // одинаковых «инструменты» подряд, и непонятно, что модель вообще делала.
+            let tool = event.get("tool").and_then(Value::as_str);
+            Some(
+                Event::default()
+                    .event("stage")
+                    .data(json!({ "stage": stage, "tool": tool }).to_string()),
+            )
         }
         "done" => {
             let result = event.get("result").cloned().unwrap_or(Value::Null);
@@ -301,10 +311,6 @@ fn run_turn(
 ) -> Result<Value, String> {
     let settings = &chat.summary.settings;
     let stopped = || abort.load(std::sync::atomic::Ordering::Relaxed);
-    // Инструменты включаем там, где они проверены: в облаке. Своя Гемма их тоже умеет, но
-    // её вызовы приходят иначе — включим, когда проверю живьём, а не на веру.
-    let tools_client_is_local =
-        !crate::cloud::stage_enabled(&crate::runtime::load(&state.root), crate::cloud::Stage::Narrator);
 
     // Рассказчик идёт либо на своей карте, либо в облако — тогда карта вообще не нужна.
     let runtime = crate::runtime::load(&state.root);
@@ -416,7 +422,7 @@ fn run_turn(
     // голосом рассказчика. Раньше это делал браузер, получив ход целиком; теперь озвучка
     // начинается во время письма, поэтому голоса раздаёт сервер.
     let cast = if settings.multi_voice {
-        state.store.list_characters(&chat_id).map_err(|error| error.to_string())?
+        state.store.list_characters(chat_id).map_err(|error| error.to_string())?
     } else {
         Vec::new()
     };
@@ -477,7 +483,6 @@ fn run_turn(
         let root = state.root.clone();
         let generated = state.generated.clone();
         let runtime_for_tts = runtime.clone();
-        let voice = voice.clone();
         let key = format!("{chat_id}-{}", chat.messages.len());
         let sink = progress.clone();
         let gpu = state.gpu_handle();
@@ -507,8 +512,7 @@ fn run_turn(
             // серверу, и ждать, пока договорит предыдущая, незачем. На своей карте так нельзя —
             // движок там один, и очередь обязательна.
             let side_by_side = in_cloud && runtime_for_tts.tts_parallel;
-            let mut flying: Vec<std::thread::JoinHandle<(usize, String, Result<String, String>)>> =
-                Vec::new();
+            let mut flying: Vec<FlyingClip> = Vec::new();
             for (index, sentence, line_voice) in sentences_rx {
                 if side_by_side {
                     // Больше четырёх запросов разом провайдер не любит, а игрок всё равно
@@ -639,7 +643,7 @@ fn run_turn(
                     for sentence in &ready[..ready.len() - 1] {
                         for (text, line_voice) in voiced_lines(
                             sentence,
-                            &settings,
+                            settings,
                             &cast,
                             &voice_pool,
                             &spoken,
@@ -697,7 +701,7 @@ fn run_turn(
         if !tail.is_empty() {
             for sentence in crate::tts::split_sentences(&tail) {
                 for (text, line_voice) in
-                    voiced_lines(&sentence, &settings, &cast, &voice_pool, &spoken, &casting, &voice)
+                    voiced_lines(&sentence, settings, &cast, &voice_pool, &spoken, &casting, &voice)
                 {
                     let _ = sentences_tx.send((sentence_index, text, line_voice));
                     sentence_index += 1;
@@ -717,7 +721,12 @@ fn run_turn(
     // отдать игроку вместе с ходом — иначе кубик не крутится и строки в журнале появляются
     // только после перезагрузки.
     let mut tool_events: Vec<du_rpg::GameEvent> = Vec::new();
-    if settings.rpg_enabled && !stopped() && !tools_client_is_local {
+    // Кадр модель заказывает инструментом. Заявка приходит ответом инструмента, а рисование
+    // ставится в общую очередь к карте позже — посреди разговора его запускать нельзя.
+    let asked_frame: std::sync::Mutex<Option<Value>> = std::sync::Mutex::new(None);
+    // Инструменты работают и на своей Гемме: сервер поднимается с `--jinja`, поэтому вызовы
+    // приходят разобранными, а не сырыми токенами в тексте.
+    if settings.rpg_enabled && !stopped() {
         progress(json!({ "stage": "инструменты" }));
         let known: std::collections::HashSet<String> = state
             .store
@@ -726,7 +735,7 @@ fn run_turn(
             .unwrap_or_default();
         let talk = vec![
             json!({ "role": "system", "content":
-                "Ты ведёшь эту партию. Перед тем как решать, посмотри состояние инструментами:                  открытые задания, лист персонажей, журнал. Если в отрывке ВЫПОЛНЕНО условие                  взятого задания — закрой его. Если заговорил тот, кого нет в листе, — заведи                  его character_add с полом и возрастом, чтобы у него был свой голос. Ничего                  не выдумывай: числа и исходы берутся инструментами. В конце ответь одним                  коротким предложением о том, что ты сделал." }),
+                "Ты ведёшь эту партию. Перед тем как решать, посмотри состояние инструментами:                  открытые задания, лист персонажей, журнал. Если в отрывке ВЫПОЛНЕНО условие                  взятого задания — закрой его. Если заговорил тот, кого нет в листе, — заведи                  его character_add с полом и возрастом, чтобы у него был свой голос.                  Если в сцене есть что показать — новое место, лицо, встреча, удар — закажи                  кадр draw_frame с подробным английским промптом; на разговор в уже                  нарисованной комнате кадр не нужен. Если игрок отличился поступком —                  посмотри achievements_list и награди его achievement_grant, выбрав значок                  через icons_search. Ничего не выдумывай: числа и исходы берутся                  инструментами. В конце ответь одним коротким предложением о том, что ты                  сделал." }),
             json!({ "role": "user", "content": narration.clone() }),
         ];
         let sink = progress.clone();
@@ -739,7 +748,15 @@ fn run_turn(
             &with_tools,
             &turn::structured_sampling(),
             talk,
-            &|name, _| sink(json!({ "stage": "инструменты", "tool": name })),
+            &|name, answer| {
+                sink(json!({ "stage": "инструменты", "tool": name }));
+                if name == "draw_frame" {
+                    if let Some(request) = answer.get("request").cloned() {
+                        // Последний заказ важнее: модель могла уточнить кадр вторым вызовом.
+                        *asked_frame.lock().unwrap_or_else(|e| e.into_inner()) = Some(request);
+                    }
+                }
+            },
         ) {
             Ok(_) => {}
             Err(error) => tracing::warn!("проход инструментов не удался: {error}"),
@@ -869,8 +886,24 @@ fn run_turn(
     }
 
     // Кадр: оператор выбирает ОДИН ключевой момент этой сцены.
-    let mut image_request: Option<ImageRequest> = None;
-    if settings.image_generation_enabled && !stopped() {
+    //
+    // Заказ приходит инструментом `draw_frame` — модель решает это сама, пока смотрит на
+    // состояние игры. Отдельный проход остаётся запасным: он нужен там, где инструментов
+    // нет (свой рассказчик без их поддержки) или где проход инструментов не задался.
+    let mut image_request: Option<ImageRequest> = asked_frame
+        .into_inner()
+        .unwrap_or_else(|error| error.into_inner())
+        .and_then(|raw| {
+            let request: Option<ImageRequest> = serde_json::from_value(raw).ok();
+            if request.is_none() {
+                tracing::warn!("заявка кадра из инструмента не разобралась");
+            }
+            request
+        });
+    if image_request.is_some() {
+        progress(json!({ "stage": "кадр" }));
+    }
+    if settings.image_generation_enabled && image_request.is_none() && !stopped() {
         progress(json!({ "stage": "кадр" }));
         let ask = vec![
             Message::system(

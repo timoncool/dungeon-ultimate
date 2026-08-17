@@ -480,7 +480,7 @@ pub fn apply_game_update(
             &[
                 ("name", &target_name),
                 ("damage", &damage.to_string()),
-                ("notation", &notation),
+                ("notation", notation),
                 (
                     "crit",
                     if check.crit == Some(Crit::Success) { &labels.crit_doubled } else { "" },

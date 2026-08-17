@@ -545,6 +545,7 @@ dependencies = [
  "sysinfo",
  "thiserror 2.0.20",
  "tracing",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

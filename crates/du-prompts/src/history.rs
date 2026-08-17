@@ -96,7 +96,7 @@ fn recurring_motifs(passages: &[&str]) -> Vec<String> {
     }
     counts.retain(|(_, count)| *count >= 2);
     // Сортировка устойчивая, поэтому при равной частоте порядок остаётся по первому появлению.
-    counts.sort_by(|a, b| b.1.cmp(&a.1));
+    counts.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
     counts.into_iter().take(6).map(|(word, _)| word).collect()
 }
 
