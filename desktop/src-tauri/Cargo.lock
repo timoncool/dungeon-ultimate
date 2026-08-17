@@ -1193,6 +1193,7 @@ dependencies = [
  "sysinfo",
  "thiserror 2.0.19",
  "tracing",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1269,7 +1270,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dungeon-ultimate-desktop"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "du-server",
  "serde",
