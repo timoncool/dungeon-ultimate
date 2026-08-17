@@ -261,7 +261,16 @@ pub fn synthesize_streaming(
                 None => {
                     let loaded = du_tts::AudiocppEngine::load(&engine_dll).map_err(|e| e.to_string())?;
                     loaded
-                        .load_model(&model_root, "cuda", 0, 8, None)
+                        // Где считать голос — общий выбор игрока. Раньше здесь намертво
+                        // стояла карта, и на машине без неё озвучка просто падала.
+                        .load_model(
+                            &model_root,
+                            crate::backend::stage_backend(runtime, crate::backend::Stage::Tts)
+                                .engine_name(),
+                            0,
+                            8,
+                            None,
+                        )
                         .map_err(|e| e.to_string())?;
                     engine.insert(loaded)
                 }

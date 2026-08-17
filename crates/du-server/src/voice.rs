@@ -42,6 +42,11 @@ pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult
                 let text = crate::cloud::transcribe(&root, &runtime, &path, "ru")?;
                 return Ok(json!({ "text": text }));
             }
+            // Распознавание тоже слушается общего выбора: движок читает его из окружения.
+            std::env::set_var(
+                "DUB_ASR_BACKEND",
+                crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr).engine_name(),
+            );
             let mut asr = du_asr::Asr::new(&models);
             let segments = asr.transcribe(&path, "ru").map_err(|error| error.to_string())?;
             let text = segments

@@ -9,6 +9,12 @@ import { ChevronRight, Loader2 } from "lucide-react";
 // играть можно и вовсе без видеокарты, и наполовину.
 
 type Runtime = {
+  /// Общий выбор устройства для локальных стадий: auto | gpu | cpu.
+  localBackend: string;
+  narratorBackend: string;
+  imageBackend: string;
+  ttsBackend: string;
+  asrBackend: string;
   narratorCtx: number;
   narratorGpuLayers: number;
   imageSteps: number;
@@ -18,7 +24,6 @@ type Runtime = {
   ttsEnabled: boolean;
   ttsParallel: boolean;
   ttsReferenceSeconds: number;
-  asrOnGpu: boolean;
   openrouterKey: string;
   openrouterNarratorOn: boolean;
   openrouterNarratorModel: string;
@@ -40,14 +45,27 @@ type Stage = {
   kind: string;
   on: keyof Runtime;
   model: keyof Runtime;
+  /// Поле выбора устройства для локального счёта: пусто — как у всех.
+  backend: keyof Runtime;
   local: string;
 };
 
+/// Где считается стадия. Три положения вместо двух: раньше «на карте» означало и карту, и
+/// процессор — игрок не понимал, чем именно считается ход, и жаловался, что «одно на
+/// процессоре, другое на карте».
+type Where = "gpu" | "cpu" | "cloud";
+
 const STAGES: Stage[] = [
-  { key: "narrator", title: "Рассказчик", kind: "text", on: "openrouterNarratorOn", model: "openrouterNarratorModel", local: "Гемма на карте" },
-  { key: "image", title: "Кадр", kind: "image", on: "openrouterImageOn", model: "openrouterImageModel", local: "Krea на карте" },
-  { key: "tts", title: "Озвучка", kind: "tts", on: "openrouterTtsOn", model: "openrouterTtsModel", local: "Higgs на карте" },
-  { key: "asr", title: "Речь в текст", kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", local: "Parakeet на карте" },
+  { key: "narrator", title: "Рассказчик", kind: "text", on: "openrouterNarratorOn", model: "openrouterNarratorModel", backend: "narratorBackend", local: "Гемма" },
+  { key: "image", title: "Кадр", kind: "image", on: "openrouterImageOn", model: "openrouterImageModel", backend: "imageBackend", local: "Krea" },
+  { key: "tts", title: "Озвучка", kind: "tts", on: "openrouterTtsOn", model: "openrouterTtsModel", backend: "ttsBackend", local: "Higgs" },
+  { key: "asr", title: "Речь в текст", kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", backend: "asrBackend", local: "Parakeet" },
+];
+
+const WHERE_OPTIONS: Array<{ value: Where; label: string }> = [
+  { value: "gpu", label: "Карта" },
+  { value: "cpu", label: "Процессор" },
+  { value: "cloud", label: "Облако" },
 ];
 
 // Готовые раскладки. Модели не выдуманы — это те, на которых игра проверена вживую:
@@ -212,6 +230,32 @@ export default function EnginePanel() {
     [save],
   );
 
+  // Что сервер решил на самом деле. Настройки показывают выбор, а это — итог: пустой выбор
+  // стадии подменяется общим, «как есть» превращается в конкретное железо, облако отменяет
+  // и то, и другое. Игроки жаловались, что непонятно, чем считается ход, — теперь видно.
+  const [decided, setDecided] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    const read = async () => {
+      try {
+        const answer = await fetch("/api/where", { cache: "no-store" });
+        const data = (await answer.json()) as { stages?: Record<string, { where: string }> };
+        if (!alive || !data.stages) return;
+        setDecided(
+          Object.fromEntries(Object.entries(data.stages).map(([key, value]) => [key, value.where])),
+        );
+      } catch {
+        // не ответил — просто не показываем итог
+      }
+    };
+    void read();
+    const timer = window.setInterval(read, 4000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [runtime]);
+
   const cloudStages = useMemo(
     () => (runtime ? STAGES.filter((stage) => runtime[stage.on] === true).length : 0),
     [runtime],
@@ -308,29 +352,80 @@ export default function EnginePanel() {
             )}
           </div>
 
+          <div className="space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-sm text-stone-200">Считать по умолчанию</span>
+              <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
+                {[
+                  { value: "auto", label: "Как есть" },
+                  { value: "gpu", label: "Карта" },
+                  { value: "cpu", label: "Процессор" },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      // Общий выбор действует на стадии, у которых нет своего: иначе он бы
+                      // не менял ничего и выглядел сломанным.
+                      patch("localBackend", option.value);
+                      for (const stage of STAGES) {
+                        patch(stage.backend, "");
+                      }
+                    }}
+                    className={`whitespace-nowrap px-2 py-1 text-xs ${
+                      (runtime.localBackend || "auto") === option.value
+                        ? "bg-amber-200 text-stone-950"
+                        : "text-stone-400 hover:text-stone-200"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-[11px] leading-relaxed text-stone-600">
+              «Как есть» — карта, если она в системе есть, иначе процессор. Любую стадию
+              ниже можно увести отдельно.
+            </p>
+          </div>
+
           {STAGES.map((stage) => {
             const inCloud = runtime[stage.on] === true;
             const list = models[stage.kind] ?? [];
             const chosen = String(runtime[stage.model] ?? "");
+            // Что выбрано сейчас: облако важнее устройства, оно отменяет локальный счёт.
+            const chosenWhere: Where = inCloud
+              ? "cloud"
+              : (String(runtime[stage.backend] || runtime.localBackend || "auto") === "cpu"
+                  ? "cpu"
+                  : "gpu");
+            const setWhere = (where: Where) => {
+              if (where === "cloud") {
+                patch(stage.on, true);
+                return;
+              }
+              patch(stage.on, false);
+              patch(stage.backend, where);
+            };
             return (
               <div key={stage.key} className="space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-stone-200">{stage.title}</span>
-                  {/* Переключатель не переносим: в две строки он читается как две кнопки. */}
+                  {/* Три положения в одну строку: перенос читался бы как отдельные кнопки. */}
                   <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
-                    {[false, true].map((cloud) => (
+                    {WHERE_OPTIONS.map((option) => (
                       <button
-                        key={String(cloud)}
+                        key={option.value}
                         type="button"
-                        disabled={cloud && !keySet}
-                        onClick={() => patch(stage.on, cloud)}
-                        className={`whitespace-nowrap px-2.5 py-1 text-xs ${
-                          inCloud === cloud
+                        disabled={option.value === "cloud" && !keySet}
+                        onClick={() => setWhere(option.value)}
+                        className={`whitespace-nowrap px-2 py-1 text-xs ${
+                          chosenWhere === option.value
                             ? "bg-amber-200 text-stone-950"
                             : "text-stone-400 hover:text-stone-200 disabled:text-stone-700"
                         }`}
                       >
-                        {cloud ? "В облаке" : "На карте"}
+                        {option.label}
                       </button>
                     ))}
                   </div>
@@ -367,14 +462,23 @@ export default function EnginePanel() {
                     )}
                   </>
                 ) : (
-                  <p className="text-xs text-stone-600">{stage.local}</p>
+                  <p className="text-xs text-stone-600">
+                    {stage.local} · считает{" "}
+                    {decided[stage.key] === "cpu"
+                      ? "процессор"
+                      : decided[stage.key] === "gpu"
+                        ? "видеокарта"
+                        : chosenWhere === "cpu"
+                          ? "процессор"
+                          : "видеокарта"}
+                  </p>
                 )}
               </div>
             );
           })}
 
           <details className="rounded border border-stone-800 bg-stone-950 px-3 py-2">
-            <summary className="cursor-pointer text-sm text-stone-300">Тонкая настройка карты</summary>
+            <summary className="cursor-pointer text-sm text-stone-300">Железо: память и слои</summary>
             <div className="mt-3 space-y-3">
               <Row label="Контекст рассказчика" hint="Больше контекст — больше занято памяти под кэш внимания.">
                 <input
@@ -386,7 +490,7 @@ export default function EnginePanel() {
                   className={box}
                 />
               </Row>
-              <Row label="Слои на карте" hint="−1 — все слои на карте.">
+              <Row label="Слоёв рассказчика на карте" hint="−1 — все. Не действует, когда рассказчик считается процессором.">
                 <input
                   type="number"
                   value={runtime.narratorGpuLayers}
@@ -394,57 +498,19 @@ export default function EnginePanel() {
                   className={box}
                 />
               </Row>
-              <Row label="Шагов на кадр" hint="Меньше шагов — быстрее кадр, но грубее.">
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={runtime.imageSteps}
-                  onChange={(event) => patch("imageSteps", Number(event.target.value) || 1)}
-                  className={box}
-                />
-              </Row>
-              <Row label="Сила промпта (CFG)">
-                <input
-                  type="number"
-                  step={0.1}
-                  min={0}
-                  max={12}
-                  value={runtime.imageCfg}
-                  onChange={(event) => patch("imageCfg", Number(event.target.value))}
-                  className={box}
-                />
-              </Row>
               <Toggle
-                label="Выгружать веса кадра в память"
+                label="Держать веса кадра в оперативной памяти"
                 checked={runtime.imageOffloadToCpu}
                 onChange={(value) => patch("imageOffloadToCpu", value)}
               />
-              <Toggle
-                label="Озвучка включена"
-                checked={runtime.ttsEnabled}
-                onChange={(value) => patch("ttsEnabled", value)}
-              />
-              <Toggle
-                label="Озвучка параллельно с кадром"
-                checked={runtime.ttsParallel}
-                onChange={(value) => patch("ttsParallel", value)}
-              />
-              <Row label="Секунд эталона голоса" hint="Дольше эталон — точнее тембр, дольше подготовка.">
-                <input
-                  type="number"
-                  min={3}
-                  max={30}
-                  value={runtime.ttsReferenceSeconds}
-                  onChange={(event) => patch("ttsReferenceSeconds", Number(event.target.value) || 3)}
-                  className={box}
-                />
-              </Row>
-              <Toggle
-                label="Распознавание речи на карте"
-                checked={runtime.asrOnGpu}
-                onChange={(value) => patch("asrOnGpu", value)}
-              />
+              <p className="text-[11px] leading-relaxed text-stone-600">
+                Экономит память видеокарты, считает всё равно она. Где именно считать —
+                выбирается выше, у стадии «Кадр».
+              </p>
+              <p className="text-[11px] leading-relaxed text-stone-600">
+                Настройки самой озвучки — в разделе «Голос», отрисовки кадра — в «Картинках».
+                Здесь остаётся только железо.
+              </p>
             </div>
           </details>
 

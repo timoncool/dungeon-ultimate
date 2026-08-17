@@ -1,5 +1,11 @@
 name: Windows smoke
 
+# Проверка того, чем игра является сейчас: сервер на Rust плюс интерфейс на Vite.
+#
+# Прежний набор шагов остался от версии на Next.js — он звал `npm ci` в корне, где давно
+# нет ни package.json, ни линтера, ни сборки. Поэтому проверка падала на каждом коммите и
+# перестала что-либо значить.
+
 on:
   push:
     branches: [main]
@@ -8,7 +14,7 @@ on:
 jobs:
   windows-smoke:
     runs-on: windows-2025-vs2026
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       contents: read
 
@@ -21,27 +27,27 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Build the interface
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.11"
+          components: clippy
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
 
-      - name: Validate Windows launcher
-        shell: pwsh
-        run: ./scripts/setup-windows.ps1 -ValidateOnly
+      # Интерфейс собирается ПЕРЕД сервером не случайно: он вшивается в бинарь.
+      - name: Test the server
+        run: cargo test --workspace
 
-      - name: Check image routing
-        run: npm run check:image-routing
-
-      - name: Smoke image server HTTP path
-        run: npm run check:image-server-http
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
+      # Замечания линтера показываем, но сборку ими не валим: их накопилось полсотни, и
+      # честнее разгребать их отдельно, чем закрыть глаза настройкой allow.
+      - name: Lint the server
+        run: cargo clippy --workspace --all-targets

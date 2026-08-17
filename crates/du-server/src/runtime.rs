@@ -14,6 +14,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Runtime {
+    // ── Где считать ───────────────────────────────────────────────────────────
+    // Один общий выбор и по одному переопределению на стадию. Пустая строка означает
+    // «как у всех», `auto` — «решай по железу», `gpu`/`cpu` — прямое указание. Раньше это
+    // решалось тремя разными способами вразнобой, и игрок не понимал, что где считается.
+    /// Общий выбор для локальных стадий: `auto`, `gpu` или `cpu`.
+    pub local_backend: String,
+    /// Переопределение для рассказчика; пусто — как общий.
+    pub narrator_backend: String,
+    /// Переопределение для картинок.
+    pub image_backend: String,
+    /// Переопределение для озвучки.
+    pub tts_backend: String,
+    /// Переопределение для распознавания речи.
+    pub asr_backend: String,
+
     /// Контекст рассказчика в токенах. Это главный потребитель памяти под KV-кэш: в промпт
     /// уезжает около 48 тысяч символов истории, то есть примерно 13 тысяч токенов, поэтому
     /// больший контекст просто отнимает карту у картинок и озвучки.
@@ -35,8 +50,6 @@ pub struct Runtime {
     pub tts_parallel: bool,
     /// Сколько секунд эталонного клипа отдавать движку голоса.
     pub tts_reference_seconds: u32,
-    /// Распознавать речь на карте, а не на процессоре.
-    pub asr_on_gpu: bool,
 
     // ── Облако ────────────────────────────────────────────────────────────────
     // Каждая стадия уводится в облако отдельно: так можно играть и совсем без карты, и
@@ -57,6 +70,13 @@ pub struct Runtime {
 impl Default for Runtime {
     fn default() -> Self {
         Self {
+            // Пусто у стадий = «как общий», а общий «auto» = решать по железу: на машине с
+            // картой всё считает карта, без неё — процессор, и ничего настраивать не нужно.
+            local_backend: "auto".to_string(),
+            narrator_backend: String::new(),
+            image_backend: String::new(),
+            tts_backend: String::new(),
+            asr_backend: String::new(),
             narrator_ctx: 16_384,
             narrator_gpu_layers: -1,
             image_steps: 8,
@@ -66,7 +86,6 @@ impl Default for Runtime {
             tts_enabled: true,
             tts_parallel: true,
             tts_reference_seconds: 12,
-            asr_on_gpu: false,
             openrouter_key: String::new(),
             openrouter_narrator_on: false,
             openrouter_narrator_model: String::new(),

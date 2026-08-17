@@ -151,7 +151,7 @@ impl Gpu {
         let mut opts = ServerOpts::new(bin, self.paths.text_model.clone())
             .with_mmproj(self.paths.text_mmproj.clone().filter(|path| path.is_file()))
             .with_ctx(runtime.narrator_ctx);
-        opts.n_gpu_layers = runtime.narrator_gpu_layers;
+        opts.n_gpu_layers = narrator_layers(&runtime);
         let server = LlamaServer::start(&opts)?;
         let url = server.base_url().to_string();
         *self.text.lock().unwrap_or_else(|e| e.into_inner()) = Some(server);
@@ -226,9 +226,7 @@ impl Gpu {
         let engine = engine_slot.as_ref().expect("движок только что загружен");
 
         let runtime = crate::runtime::load(&self.root);
-        let mut config = self.paths.krea2();
-        config.offload_to_cpu = runtime.image_offload_to_cpu;
-        config.max_vram = Some(runtime.image_max_vram.clone());
+        let config = image_config(self.paths.krea2(), &runtime);
         let mut context = engine.new_context(&config)?;
         let images = context.generate(params, progress)?;
         drop(context); // веса уходят с карты немедленно
@@ -251,8 +249,73 @@ impl Gpu {
     }
 }
 
+
+/// Сколько слоёв рассказчика отдать карте.
+///
+/// Выбор устройства — общий, а не отдельный тумблер про слои: на процессоре слоёв на карте
+/// ноль, иначе столько, сколько попрошено (−1 — все).
+pub fn narrator_layers(runtime: &crate::runtime::Runtime) -> i32 {
+    match crate::backend::stage_backend(runtime, crate::backend::Stage::Narrator) {
+        crate::backend::Backend::Cpu => 0,
+        crate::backend::Backend::Gpu => runtime.narrator_gpu_layers,
+    }
+}
+
+/// Настройки движка картинок под выбранное устройство.
+pub fn image_config(
+    mut config: du_image::ModelConfig,
+    runtime: &crate::runtime::Runtime,
+) -> du_image::ModelConfig {
+    let where_to = crate::backend::stage_backend(runtime, crate::backend::Stage::Image);
+    config.backend = Some(where_to.engine_name().to_string());
+    // Выгрузка весов в память имеет смысл только когда считает карта: на процессоре они и
+    // так там, а поблочная подача лишь замедляет.
+    config.offload_to_cpu = !where_to.is_cpu() && runtime.image_offload_to_cpu;
+    config.max_vram = Some(runtime.image_max_vram.clone());
+    config
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_narrator_follows_the_chosen_device() {
+        use crate::runtime::Runtime;
+        let on_gpu = Runtime { local_backend: "gpu".into(), narrator_gpu_layers: -1, ..Default::default() };
+        assert_eq!(super::narrator_layers(&on_gpu), -1, "на карте — все слои");
+
+        let on_cpu = Runtime { local_backend: "cpu".into(), narrator_gpu_layers: -1, ..Default::default() };
+        assert_eq!(super::narrator_layers(&on_cpu), 0, "на процессоре карте не достаётся ничего");
+
+        // Своя настройка стадии перебивает общую.
+        let mixed = Runtime {
+            local_backend: "cpu".into(),
+            narrator_backend: "gpu".into(),
+            narrator_gpu_layers: 20,
+            ..Default::default()
+        };
+        assert_eq!(super::narrator_layers(&mixed), 20);
+    }
+
+    #[test]
+    fn the_image_engine_gets_the_chosen_device() {
+        use crate::runtime::Runtime;
+        let base = || du_image::ModelConfig::krea2("d".into(), "l".into(), "v".into());
+
+        let on_gpu = Runtime { local_backend: "gpu".into(), image_offload_to_cpu: true, ..Default::default() };
+        let config = super::image_config(base(), &on_gpu);
+        assert_eq!(config.backend.as_deref(), Some("cuda"));
+        assert!(config.offload_to_cpu, "на карте выгрузка весов в память сохраняется");
+
+        let on_cpu = Runtime { local_backend: "cpu".into(), image_offload_to_cpu: true, ..Default::default() };
+        let config = super::image_config(base(), &on_cpu);
+        assert_eq!(config.backend.as_deref(), Some("cpu"));
+        assert!(!config.offload_to_cpu, "на процессоре выгружать некуда");
+
+        // Стадия важнее общего: картинки на карте, всё остальное на процессоре.
+        let mixed = Runtime { local_backend: "cpu".into(), image_backend: "gpu".into(), ..Default::default() };
+        assert_eq!(super::image_config(base(), &mixed).backend.as_deref(), Some("cuda"));
+    }
     use super::*;
 
     #[test]

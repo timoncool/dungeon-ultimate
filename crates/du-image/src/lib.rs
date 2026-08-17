@@ -64,6 +64,11 @@ pub struct ModelConfig {
     pub max_vram: Option<String>,
     /// Потоковая подача блоков трансформера — включается только вместе с offload.
     pub stream_layers: bool,
+    /// Где СЧИТАТЬ: `cuda` (по умолчанию) или `cpu`.
+    ///
+    /// Это не то же самое, что `offload_to_cpu`: тот лишь держит веса в оперативной памяти,
+    /// а считает всё равно карта. Полностью на процессоре рисует только этот выбор.
+    pub backend: Option<String>,
     pub n_threads: i32,
 }
 
@@ -79,6 +84,7 @@ impl ModelConfig {
             offload_to_cpu: true,
             max_vram: Some("-1".to_string()),
             stream_layers: false,
+            backend: None,
             n_threads: -1,
         }
     }
@@ -273,6 +279,12 @@ impl Engine {
         };
         // `*=cpu` — тот же смысл, что у флага --offload-to-cpu в CLI движка.
         let params_backend = if config.offload_to_cpu { Some(CString::new("*=cpu").unwrap()) } else { None };
+        let backend = match config.backend.as_deref() {
+            Some(name) if !name.is_empty() => {
+                Some(CString::new(name).map_err(|_| ImageError::BadPath(name.into()))?)
+            }
+            _ => None,
+        };
 
         let mut params = unsafe {
             let mut params = std::mem::zeroed::<SdCtxParams>();
@@ -294,6 +306,9 @@ impl Engine {
         }
         if let Some(value) = params_backend.as_ref() {
             params.params_backend = value.as_ptr();
+        }
+        if let Some(value) = backend.as_ref() {
+            params.backend = value.as_ptr();
         }
 
         let ctx = unsafe { (self.symbols.new_sd_ctx)(&params) };

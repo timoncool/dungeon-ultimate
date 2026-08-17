@@ -75,6 +75,7 @@ import {
   type StorySettings,
 } from "./lib/types";
 import { promptsFor } from "./lib/prompts";
+import { useEngineRuntime } from "./lib/runtime";
 import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "./lib/rpg/dice";
 import { deriveForOwner, type DerivedRpg } from "./lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "./lib/rpg/types";
@@ -4790,6 +4791,129 @@ function VoiceControl({
           не меняется.
         </p>
       </div>
+      <VoiceEngineTuning />
+    </div>
+  );
+}
+
+/// Числовое поле настроек движка: подпись, пояснение, значение.
+function EngineNumber({
+  label,
+  hint,
+  value,
+  step = 1,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  step?: number;
+  min?: number;
+  max?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="block text-xs font-medium uppercase text-stone-500">{label}</span>
+      <input
+        type="number"
+        step={step}
+        min={min}
+        max={max}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-sm text-stone-200 outline-none focus:border-amber-700/60"
+      />
+      {hint && <span className="block text-[11px] leading-relaxed text-stone-600">{hint}</span>}
+    </label>
+  );
+}
+
+/// Переключатель настроек движка.
+function EngineToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="flex items-center justify-between gap-3 rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300">
+        {label}
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          className="size-4 accent-amber-200"
+        />
+      </label>
+      {hint && <p className="text-[11px] leading-relaxed text-stone-600">{hint}</p>}
+    </div>
+  );
+}
+
+/// Настройки САМОЙ отрисовки — здесь, а не в «Движках»: это про кадр, а не про железо.
+function ImageEngineTuning() {
+  const { runtime, patch } = useEngineRuntime();
+  if (!runtime) return null;
+  return (
+    <div className="space-y-3 rounded border border-stone-800 bg-stone-950 px-3 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-amber-300/70">Отрисовка</p>
+      <EngineNumber
+        label="Шагов на кадр"
+        hint="Меньше шагов — быстрее кадр, но грубее. Krea-2 Turbo дистиллирована под восемь."
+        value={runtime.imageSteps}
+        min={1}
+        max={50}
+        onChange={(value) => patch("imageSteps", Math.max(1, value))}
+      />
+      <EngineNumber
+        label="Сила промпта"
+        hint="У дистиллированной модели должна оставаться единицей."
+        value={runtime.imageCfg}
+        step={0.1}
+        min={0}
+        max={12}
+        onChange={(value) => patch("imageCfg", value)}
+      />
+    </div>
+  );
+}
+
+/// Настройки самой озвучки — здесь, рядом с голосом и громкостью.
+function VoiceEngineTuning() {
+  const { runtime, patch } = useEngineRuntime();
+  if (!runtime) return null;
+  return (
+    <div className="space-y-3 rounded border border-stone-800 bg-stone-950 px-3 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-amber-300/70">Синтез</p>
+      <EngineToggle
+        label="Озвучка включена"
+        hint="Выключенная озвучка не тратит ни карту, ни облако."
+        checked={runtime.ttsEnabled}
+        onChange={(value) => patch("ttsEnabled", value)}
+      />
+      <EngineToggle
+        label="Озвучивать параллельно с ходом"
+        hint="Быстрее, но на карте это лишние гигабайты памяти — на слабой лучше выключить."
+        checked={runtime.ttsParallel}
+        onChange={(value) => patch("ttsParallel", value)}
+      />
+      <EngineNumber
+        label="Секунд эталона голоса"
+        hint="Сколько секунд образца отдавать движку клонирования."
+        value={runtime.ttsReferenceSeconds}
+        min={3}
+        max={30}
+        onChange={(value) => patch("ttsReferenceSeconds", Math.max(3, value))}
+      />
     </div>
   );
 }
@@ -6275,6 +6399,7 @@ function ImageSettingsPanel({
           Приписывается к каждому кадру — так все картинки истории держат одну манеру.
         </span>
       </label>
+      <ImageEngineTuning />
       <label className="block">
         <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
           Промпт изображений

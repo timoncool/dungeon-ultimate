@@ -74,6 +74,36 @@ pub async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// Где НА САМОМ ДЕЛЕ считается каждая стадия — облако, видеокарта или процессор.
+///
+/// Настройки показывают выбор игрока, а этот ответ — итог: пустой выбор стадии подменяется
+/// общим, «как есть» превращается в конкретное железо, а включённое облако отменяет и то, и
+/// другое. Раньше это можно было только угадывать, и игроки жаловались, что непонятно, чем
+/// считается ход.
+pub async fn where_it_runs(State(state): State<AppState>) -> Json<Value> {
+    use crate::backend::{stage_backend, Backend, Stage};
+    let runtime = crate::runtime::load(&state.root);
+    let decide = |stage: Stage, cloud: crate::cloud::Stage, model: &str| {
+        if crate::cloud::stage_enabled(&runtime, cloud) {
+            return json!({ "where": "cloud", "detail": model });
+        }
+        let device = match stage_backend(&runtime, stage) {
+            Backend::Gpu => "gpu",
+            Backend::Cpu => "cpu",
+        };
+        json!({ "where": device, "detail": "" })
+    };
+    Json(json!({
+        "gpuPresent": crate::backend::gpu_present(),
+        "stages": {
+            "narrator": decide(Stage::Narrator, crate::cloud::Stage::Narrator, &runtime.openrouter_narrator_model),
+            "image": decide(Stage::Image, crate::cloud::Stage::Image, &runtime.openrouter_image_model),
+            "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, &runtime.openrouter_tts_model),
+            "asr": decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model),
+        }
+    }))
+}
+
 /// Есть ли новая версия. В сеть ходит не чаще раза в полдня, отказ сети не считается ошибкой.
 pub async fn release_check() -> Json<Value> {
     let release = tokio::task::spawn_blocking(crate::release::check)

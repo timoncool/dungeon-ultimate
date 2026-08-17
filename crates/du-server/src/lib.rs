@@ -5,6 +5,7 @@
 //! совпадения хватало, чтобы карта встала.
 
 pub mod assist;
+pub mod backend;
 pub mod bytes;
 mod casting;
 mod characters;
@@ -73,6 +74,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/upload", post(characters::upload))
         .route("/api/local-data", get(characters::local_data).delete(characters::wipe))
         .route("/api/settings/defaults", get(characters::default_settings))
+        .route("/api/where", get(routes::where_it_runs))
         .route("/api/runtime", get(routes::runtime_get).put(routes::runtime_put))
         .route("/api/hw", get(routes::hardware))
         .route("/api/setup/status", get(routes::setup_status))

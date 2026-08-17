@@ -77,6 +77,8 @@ pub fn strip(text: &str) -> String {
 /// Голоса из пометок в порядке появления и текст без них.
 ///
 /// Пометка всегда стоит перед своей репликой, поэтому k-я пометка относится к k-й реплике.
+/// Ход режет фразу через `runs`, а это — короткий путь для случаев, где куски не нужны.
+#[cfg(test)]
 pub fn take(text: &str) -> (Vec<String>, String) {
     let mut voices = Vec::new();
     let mut out = String::with_capacity(text.len());
