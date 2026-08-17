@@ -51,6 +51,17 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 - **Random events** — blessings and curses can strike between turns, with real stat modifiers on a timer.
 - Game mode is per-chat and **on by default**.
 
+### The narrator has tools
+- The model does not guess the state of the game — it **asks**: open quests, the character sheet, the inventory, the journal, the memory of places already visited.
+- And it acts through the same layer: it rolls a check and learns the outcome **mid-sentence**, closes a quest that was just fulfilled, registers a new speaker so they get their own voice, orders the frame for the scene, hands out an achievement.
+- The rule is unchanged: **the model proposes, the engine decides**. A tool validates the intent — only a taken quest can be closed, only the engine rolls the die — and answers in words when the model misses, so it can correct itself in the same turn.
+- Works both in the cloud and on the local Gemma.
+
+### Quests and achievements
+- **Quests** are a rare, notable event: a living person asks for help, and you decide whether to take it. Taken quests hang in the left column until they are done or fall through, and the narrator closes them when the condition is actually met.
+- **XP and levels** — completing a quest pays experience; the hero levels up.
+- **Achievements** are the reward for a deed: outlasting a stronger foe, sparing the defeated, clearing a scene without a blow. They live in **your profile**, not inside a story — delete the story and the award stays, remembering where it was earned. Each has an icon from the [game-icons.net](https://github.com/game-icons/icons) pack, a rarity and the reason it was given.
+
 ### Uncensored on-device image generation
 - Scenes are illustrated **locally** by **Krea-2 Turbo** (GGUF Q4_K_M) running on [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) — one universal model that both generates and edits.
 - The text encoder is an **abliterated Qwen3-VL-4B**, so there is no content guard between you and the art.
@@ -63,6 +74,8 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 - **Streaming speech** — sentences are synthesized as the narrator writes them, so audio starts within seconds instead of after the whole turn.
 - **Per-character voices** — quoted dialogue is spoken in the voice of the character who said it.
 - **Voice input** — speak your action; **NVIDIA Parakeet-TDT-0.6B-v3** transcribes it on-device.
+- **Two ears to choose from** — **NVIDIA Parakeet-TDT-0.6B-v3** or **Whisper**; the second is downloaded only if you pick it.
+- **In the cloud, sentences are synthesized side by side** — up to four at once, played strictly in order, so audio keeps up with the prose instead of trailing it.
 
 ### Cloud mode (optional)
 - Each stage — narrator, frame, narration audio, speech input — flips between "on my GPU" and "in the cloud" independently, through [OpenRouter](https://openrouter.ai).
@@ -76,13 +89,13 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 - **Resource monitor** — a floating widget shows GPU load, VRAM, power and RAM while a turn runs.
 - **Editable prompts & per-chat settings** — narrator prompt, image prompt, world, style, characters, response length, voices, KV-cache size, sampling steps and more.
 - **7 play languages** — narration, action chips, suggestions, the adventure journal and speech all follow your chosen language (Russian, English, Spanish, French, German, Chinese, Japanese). Image prompts stay English, because that is what the image model reads.
-- **Windows launchers** — `install.bat` / `run.bat` / `update.bat`; everything lives inside the app folder.
+- **One installer, one window** — an `.exe` installer and a desktop app; no scripts, no console, no browser tab. New versions are signed and delivered by the built-in updater.
 
 ## Requirements
 
 - **OS:** Windows 10/11.
 - **GPU:** NVIDIA with 12+ GB VRAM for the full local experience (24 GB lets narration audio and the frame run in parallel). **No GPU is fine** if you play in cloud mode.
-- **Build tools, once:** [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) — `install.bat` checks for both and tells you what is missing.
+- **Build tools:** none. The installer carries everything; Rust and Node are needed only if you build from source.
 - **Disk:** ~17.4 GB for the required models, ~23 GB with narration audio and speech input.
 - **Model weights are downloaded by the app itself.** Nothing to fetch by hand, no tokens, no gated repos: the first launch opens the **"What to download"** panel with every component, its size and what it is for. Downloads resume where they stopped.
 
@@ -90,28 +103,15 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 
 ## Quick start
 
-1. **Clone**
-   ```bash
-   git clone https://github.com/timoncool/dungeon-ultimate.git
-   cd dungeon-ultimate
-   ```
+1. **Download the installer** — [`DungeonUltimate-x64-setup.exe`](https://github.com/timoncool/dungeon-ultimate/releases/latest) from the latest release. One file, ~16 MB. Nothing to build, no toolchain to install.
 
-2. **Install** — builds the UI and the binary.
-   ```
-   install.bat
-   ```
+2. **Run it.** The app installs into your user folder and opens its own window — no browser, no console, no scripts.
 
-3. **Run**
-   ```
-   run.bat
-   ```
-   Your browser opens at `http://127.0.0.1:8770`. On the first launch, open **"What to download"** and let it fetch the models.
+3. **On the first launch** open **"What to download"** and let it fetch the models. Every component shows its size and what it is for; downloads resume where they stopped.
 
-4. **Update later**
-   ```
-   update.bat
-   ```
-   Pulls the new version and rebuilds it. Models, saves and settings are untouched. The app also checks GitHub for new releases and tells you when one is out.
+4. **Updates arrive on their own.** The app checks for a new release, tells you when one is out and installs it on your say-so. Saves, models and settings stay where they are.
+
+> Building from source is still supported and documented in [`docs/RUST-PORT-PLAN.md`](docs/RUST-PORT-PLAN.md) — you need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org), then `cargo tauri build` in `desktop/`.
 
 ## How to play
 

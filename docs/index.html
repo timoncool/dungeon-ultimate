@@ -176,9 +176,11 @@
     <div class="card"><h3><span class="ico">⚔️</span><span data-i18n="f2_h">Real D&amp;D rules</span></h3><p data-i18n="f2_p">Six ability scores, armour class, hit points, initiative, crits that double the dice, conditions, timed effects and loot with stat modifiers. A deterministic engine decides outcomes, not the narrator.</p></div>
     <div class="card"><h3><span class="ico">🖼️</span><span data-i18n="f3_h">Art with no filter</span></h3><p data-i18n="f3_p">Scenes are drawn locally by Krea-2 Turbo with an abliterated text encoder. A location keeps its anchor frame, so the same room stays the same room across the whole adventure.</p></div>
     <div class="card"><h3><span class="ico">🗣️</span><span data-i18n="f4_h">It reads to you</span></h3><p data-i18n="f4_p">Sentences are voiced while the narrator is still writing, so audio starts in seconds. Character lines are spoken in that character's own voice. A voice pack ships with the game.</p></div>
-    <div class="card"><h3><span class="ico">🎙️</span><span data-i18n="f5_h">Speak your move</span></h3><p data-i18n="f5_p">Press the mic and say what you do. Speech is transcribed on your machine — nothing is uploaded.</p></div>
+    <div class="card"><h3><span class="ico">🎙️</span><span data-i18n="f5_h">Speak your move</span></h3><p data-i18n="f5_p">Press the mic and say what you do. Speech is transcribed on your machine — nothing is uploaded. Two engines to choose from: Parakeet or Whisper.</p></div>
     <div class="card"><h3><span class="ico">☁️</span><span data-i18n="f6_h">No GPU? Still plays</span></h3><p data-i18n="f6_p">Narration, art, voice and speech input each switch to the cloud independently. Flip them all and a thin laptop runs the same game.</p></div>
     <div class="card"><h3><span class="ico">📖</span><span data-i18n="f7_h">Book mode</span></h3><p data-i18n="f7_p">Read your adventure as paginated spreads with the illustrations in place — or have the whole spread read aloud.</p></div>
+    <div class="card"><h3><span class="ico">🛠️</span><span data-i18n="f9_h">The narrator has tools</span></h3><p data-i18n="f9_p">The model does not guess the state of the game — it asks. Open quests, the character sheet, the inventory, the journal. It rolls a check and learns the outcome mid-sentence, closes a quest that was fulfilled, orders the frame. The model proposes, the engine decides.</p></div>
+    <div class="card"><h3><span class="ico">🏆</span><span data-i18n="f10_h">Quests and achievements</span></h3><p data-i18n="f10_p">A living person asks for help — taking the quest is your call. Achievements are the reward for a deed and live in your profile, not inside a story: delete the story and the award stays, remembering where it was earned.</p></div>
     <div class="card"><h3><span class="ico">🌍</span><span data-i18n="f8_h">Seven languages</span></h3><p data-i18n="f8_p">Narration, action chips, suggestions, the adventure journal and the voice all follow your language: Russian, English, Spanish, French, German, Chinese, Japanese.</p></div>
   </div>
 </section>
@@ -214,10 +216,10 @@
   <h2 data-i18n="i_title">Install</h2>
   <p class="sec-lede" data-i18n="i_lede">Nothing is installed into the system. Everything — models, saves, generated frames — lives inside the app folder. Delete the folder and the game is gone.</p>
   <ol class="steps">
-    <li><b data-i18n="i1_h">Get the code</b><span><code>git clone https://github.com/timoncool/dungeon-ultimate</code></span></li>
-    <li><b data-i18n="i2_h">Build it</b><span><code>install.bat</code> — <span data-i18n="i2_p">checks Rust and Node, builds the UI and the binary.</span></span></li>
-    <li><b data-i18n="i3_h">Play</b><span><code>run.bat</code> — <span data-i18n="i3_p">opens the browser and lets the game download its models.</span></span></li>
-    <li><b data-i18n="i4_h">Update later</b><span><code>update.bat</code> — <span data-i18n="i4_p">pulls the new version. Models and saves are untouched.</span></span></li>
+    <li><b data-i18n="i1_h">Download the installer</b><span><a href="https://github.com/timoncool/dungeon-ultimate/releases/latest">DungeonUltimate-x64-setup.exe</a> — <span data-i18n="i1_p">one file, about 16 MB.</span></span></li>
+    <li><b data-i18n="i2_h">Run it</b><span><span data-i18n="i2_p">The app opens its own window. No console, no browser tab, no scripts.</span></span></li>
+    <li><b data-i18n="i3_h">Get the models</b><span><span data-i18n="i3_p">On the first launch open «What to download» and let it fetch what you need.</span></span></li>
+    <li><b data-i18n="i4_h">Updates arrive on their own</b><span><span data-i18n="i4_p">The app tells you about a new version and installs it on your say-so. Saves and models stay put.</span></span></li>
   </ol>
   <p class="sec-lede" style="margin-top:26px" data-i18n="i_note">The game downloads its own weights: about 17 GB for the required parts, 23 GB with narration and speech input. Interrupted downloads resume where they stopped.</p>
 </section>
@@ -289,10 +291,12 @@ const I18N = {
     f2_h:"Настоящие правила D&amp;D", f2_p:"Шесть характеристик, класс защиты, здоровье, инициатива, криты с удвоением костей, состояния, эффекты на срок и добыча с модификаторами. Исход решает движок, а не рассказчик.",
     f3_h:"Картинки без фильтра", f3_p:"Сцены рисует Krea-2 Turbo с абляционным энкодером. У места есть опорный кадр, поэтому комната остаётся той же комнатой на всё приключение.",
     f4_h:"Читает вслух", f4_p:"Фразы озвучиваются, пока рассказчик ещё пишет, — звук начинается через секунды. Реплики персонажей читаются их голосами. Пак голосов идёт в комплекте.",
-    f5_h:"Действие можно сказать", f5_p:"Нажми микрофон и скажи, что делаешь. Речь распознаётся на твоей машине, наружу не уходит.",
+    f5_h:"Действие можно сказать", f5_p:"Нажми микрофон и скажи, что делаешь. Речь распознаётся на твоей машине, наружу не уходит. Движок на выбор: Parakeet или Whisper.",
     f6_h:"Нет карты? Играй", f6_p:"Проза, картинки, озвучка и распознавание переключаются в облако по отдельности. Переключи всё — и та же игра пойдёт на тонком ноутбуке.",
     f7_h:"Режим книги", f7_p:"Читай приключение разворотами с картинками на своих местах — или дай прочитать разворот вслух.",
     f8_h:"Семь языков", f8_p:"Рассказ, чипсы действий, подсказки, журнал и голос идут на твоём языке: русский, английский, испанский, французский, немецкий, китайский, японский.",
+    f9_h:"Инструменты у рассказчика", f9_p:"Модель не гадает о состоянии игры — она спрашивает: открытые задания, лист персонажа, инвентарь, журнал. Бросает проверку и узнаёт исход посреди фразы, закрывает выполненное задание, заказывает кадр. Модель предлагает, движок решает.",
+    f10_h:"Задания и награды", f10_p:"Живой человек просит о помощи — брать задание или нет, решаешь ты. Достижения дают за поступок и живут в профиле игрока, а не внутри истории: удалишь историю — награда останется и будет помнить, где заслужена.",
     h_title:"Ход целиком", h_lede:"Одна карта, несколько задач — очередь следит, чтобы каждой досталась вся.",
     h1_h:"Ты действуешь", h1_p:"Напиши или скажи, что делаешь.",
     h2_h:"Рассказчик пишет", h2_p:"Проза приходит в чат по словам.",
@@ -302,9 +306,10 @@ const I18N = {
     s_title:"Как выглядит",
         s2:"Чистое повествование — проза приходит по словам, как в книге.",
     i_title:"Установка", i_lede:"В систему не ставится ничего. Модели, сохранения и кадры лежат в папке игры. Удалил папку — удалил игру.",
-    i1_h:"Забрать код", i2_h:"Собрать", i2_p:"проверит Rust и Node, соберёт интерфейс и бинарь.",
-    i3_h:"Играть", i3_p:"откроет браузер и даст игре скачать модели.",
-    i4_h:"Обновиться", i4_p:"заберёт свежую версию. Модели и сохранения не трогаются.",
+    i1_h:"Скачать установщик", i1_p:"один файл, около 16 МБ.",
+    i2_h:"Запустить", i2_p:"Приложение открывает своё окно. Ни консоли, ни вкладки браузера, ни скриптов.",
+    i3_h:"Скачать модели", i3_p:"На первом запуске открой «Что скачать» и забери нужное.",
+    i4_h:"Обновления приходят сами", i4_p:"Игра сообщит о новой версии и поставит её с твоего согласия. Сохранения и модели остаются на месте.",
     i_note:"Веса игра качает сама: около 17 ГБ обязательного, 23 ГБ вместе с озвучкой и распознаванием. Прерванная загрузка продолжается с места обрыва.",
     t_title:"Как устроено", t_lede:"Один бинарь на Rust. Ни Python, ни Node при запуске, в реестре пусто.",
     t_col1:"Часть", t_col2:"На чём работает",
@@ -335,10 +340,12 @@ const I18N = {
     f2_h:"Reglas reales de D&amp;D", f2_p:"Seis características, clase de armadura, puntos de vida, iniciativa, críticos que duplican los dados, estados, efectos temporales y botín con modificadores. Decide el motor, no el narrador.",
     f3_h:"Arte sin filtro", f3_p:"Las escenas las dibuja Krea-2 Turbo con un codificador liberado. Cada lugar guarda su fotograma ancla, así la misma sala sigue siendo la misma sala.",
     f4_h:"Te lo lee", f4_p:"Las frases se locutan mientras el narrador aún escribe, así el audio empieza en segundos. Los diálogos suenan con la voz de cada personaje. Incluye un pack de voces.",
-    f5_h:"Di tu acción", f5_p:"Pulsa el micro y di lo que haces. La voz se transcribe en tu equipo; nada se sube.",
+    f5_h:"Di tu acción", f5_p:"Pulsa el micro y di lo que haces. La voz se transcribe en tu equipo; nada se sube. Dos motores a elegir: Parakeet o Whisper.",
     f6_h:"¿Sin GPU? Igual juega", f6_p:"Narración, arte, voz y dictado pasan a la nube por separado. Cámbialos todos y un portátil ligero corre el mismo juego.",
     f7_h:"Modo libro", f7_p:"Lee tu aventura en dobles páginas con las ilustraciones en su sitio, o deja que te lean la página entera.",
     f8_h:"Siete idiomas", f8_p:"Narración, acciones sugeridas, diario y voz siguen tu idioma: ruso, inglés, español, francés, alemán, chino y japonés.",
+    f9_h:"El narrador tiene herramientas", f9_p:"El modelo no adivina el estado del juego: lo pregunta. Misiones abiertas, hoja de personaje, inventario, diario. Tira una prueba y conoce el resultado a media frase, cierra una misión cumplida, encarga el fotograma. El modelo propone, el motor decide.",
+    f10_h:"Misiones y logros", f10_p:"Una persona viva pide ayuda; aceptar la misión es cosa tuya. Los logros premian una hazaña y viven en tu perfil, no dentro de una partida: borra la historia y el premio se queda, recordando dónde se ganó.",
     h_title:"Un turno, de principio a fin", h_lede:"Una tarjeta, varias tareas — repartidas para que cada una tenga la GPU entera.",
     h1_h:"Actúas", h1_p:"Escribe o di lo que haces.",
     h2_h:"El narrador escribe", h2_p:"La prosa llega al chat palabra por palabra.",
@@ -348,9 +355,10 @@ const I18N = {
     s_title:"Míralo",
         s2:"Narrativa pura: la prosa llega palabra por palabra, como en un libro.",
     i_title:"Instalación", i_lede:"No se instala nada en el sistema. Modelos, partidas y fotogramas viven en la carpeta del juego. Borras la carpeta, borras el juego.",
-    i1_h:"Coge el código", i2_h:"Compílalo", i2_p:"comprueba Rust y Node, construye la interfaz y el binario.",
-    i3_h:"Juega", i3_p:"abre el navegador y deja que el juego descargue sus modelos.",
-    i4_h:"Actualiza después", i4_p:"trae la versión nueva. Modelos y partidas no se tocan.",
+    i1_h:"Descarga el instalador", i1_p:"un archivo, unos 16 MB.",
+    i2_h:"Ejecútalo", i2_p:"La app abre su propia ventana. Sin consola, sin navegador, sin scripts.",
+    i3_h:"Descarga los modelos", i3_p:"En el primer arranque abre «Qué descargar» y coge lo que necesites.",
+    i4_h:"Las actualizaciones llegan solas", i4_p:"La app avisa de una versión nueva y la instala con tu permiso. Partidas y modelos se quedan.",
     i_note:"El juego descarga sus propios pesos: unos 17 GB de lo imprescindible, 23 GB con voz y dictado. Las descargas cortadas se reanudan donde quedaron.",
     t_title:"Por dentro", t_lede:"Un binario en Rust. Ni Python ni Node al ejecutar, nada en el registro.",
     t_col1:"Parte", t_col2:"Qué lo mueve",
@@ -381,10 +389,12 @@ const I18N = {
     f2_h:"De vraies règles D&amp;D", f2_p:"Six caractéristiques, classe d'armure, points de vie, initiative, critiques qui doublent les dés, états, effets temporaires et butin à modificateurs. C'est le moteur qui tranche, pas le narrateur.",
     f3_h:"Des images sans filtre", f3_p:"Les scènes sont dessinées par Krea-2 Turbo avec un encodeur libéré. Chaque lieu garde son image d'ancrage : la même salle reste la même salle.",
     f4_h:"Il vous lit l'histoire", f4_p:"Les phrases sont dites pendant que le narrateur écrit encore : le son démarre en quelques secondes. Les répliques prennent la voix de leur personnage. Un pack de voix est fourni.",
-    f5_h:"Dites votre action", f5_p:"Appuyez sur le micro et dites ce que vous faites. La parole est transcrite chez vous, rien n'est envoyé.",
+    f5_h:"Dites votre action", f5_p:"Appuyez sur le micro et dites ce que vous faites. La parole est transcrite chez vous, rien n'est envoyé. Deux moteurs au choix : Parakeet ou Whisper.",
     f6_h:"Pas de GPU ? Ça tourne", f6_p:"Récit, images, voix et dictée basculent vers le cloud séparément. Basculez tout et un portable léger fait tourner le même jeu.",
     f7_h:"Mode livre", f7_p:"Lisez l'aventure en double page avec les illustrations à leur place — ou faites lire la double page à voix haute.",
     f8_h:"Sept langues", f8_p:"Récit, actions proposées, journal et voix suivent votre langue : russe, anglais, espagnol, français, allemand, chinois, japonais.",
+    f9_h:"Le narrateur a des outils", f9_p:"Le modèle ne devine pas l’état du jeu : il demande. Quêtes en cours, feuille de personnage, inventaire, journal. Il lance un test et connaît l’issue en pleine phrase, clôt une quête accomplie, commande l’image. Le modèle propose, le moteur décide.",
+    f10_h:"Quêtes et récompenses", f10_p:"Une personne vivante demande de l’aide — accepter la quête, c’est ton choix. Les récompenses saluent un exploit et vivent dans ton profil, pas dans une partie : supprime l’histoire, la récompense reste et se souvient d’où elle vient.",
     h_title:"Un tour de bout en bout", h_lede:"Une carte, plusieurs tâches — arbitrées pour que chacune ait tout le GPU.",
     h1_h:"Vous agissez", h1_p:"Écrivez ou dites ce que vous faites.",
     h2_h:"Le narrateur écrit", h2_p:"La prose arrive mot à mot.",
@@ -394,9 +404,10 @@ const I18N = {
     s_title:"En images",
         s2:"Récit pur : la prose arrive mot à mot, comme dans un livre.",
     i_title:"Installation", i_lede:"Rien n'est installé dans le système. Modèles, sauvegardes et images vivent dans le dossier du jeu. Supprimez le dossier, le jeu disparaît.",
-    i1_h:"Récupérer le code", i2_h:"Compiler", i2_p:"vérifie Rust et Node, construit l'interface et le binaire.",
-    i3_h:"Jouer", i3_p:"ouvre le navigateur et laisse le jeu télécharger ses modèles.",
-    i4_h:"Mettre à jour", i4_p:"récupère la nouvelle version. Modèles et sauvegardes intacts.",
+    i1_h:"Télécharge l\u2019installeur", i1_p:"un fichier, environ 16 Mo.",
+    i2_h:"Lance-le", i2_p:"L\u2019app ouvre sa propre fenêtre. Pas de console, pas de navigateur, pas de scripts.",
+    i3_h:"Télécharge les modèles", i3_p:"Au premier lancement, ouvre « Que télécharger » et prends ce qu\u2019il te faut.",
+    i4_h:"Les mises à jour arrivent seules", i4_p:"L\u2019app annonce la nouvelle version et l\u2019installe avec ton accord. Sauvegardes et modèles restent.",
     i_note:"Le jeu télécharge ses poids : environ 17 Go pour l'essentiel, 23 Go avec la voix et la dictée. Un téléchargement interrompu reprend où il s'était arrêté.",
     t_title:"Sous le capot", t_lede:"Un binaire Rust. Ni Python ni Node à l'exécution, rien dans le registre.",
     t_col1:"Élément", t_col2:"Ce qui le fait tourner",
@@ -427,10 +438,12 @@ const I18N = {
     f2_h:"Echte D&amp;D-Regeln", f2_p:"Sechs Attribute, Rüstungsklasse, Trefferpunkte, Initiative, Krits mit doppelten Würfeln, Zustände, befristete Effekte und Beute mit Modifikatoren. Die Engine entscheidet, nicht der Erzähler.",
     f3_h:"Bilder ohne Filter", f3_p:"Szenen zeichnet Krea-2 Turbo mit befreitem Encoder. Jeder Ort behält sein Ankerbild — derselbe Raum bleibt derselbe Raum.",
     f4_h:"Es liest dir vor", f4_p:"Sätze werden vertont, während der Erzähler noch schreibt — Ton startet in Sekunden. Figurenreden klingen in der Stimme der Figur. Ein Stimmenpaket liegt bei.",
-    f5_h:"Sag deinen Zug", f5_p:"Mikro drücken und sagen, was du tust. Die Sprache wird lokal erkannt, nichts wird hochgeladen.",
+    f5_h:"Sag deinen Zug", f5_p:"Mikro drücken und sagen, was du tust. Die Sprache wird lokal erkannt, nichts wird hochgeladen. Zwei Engines zur Wahl: Parakeet oder Whisper.",
     f6_h:"Keine GPU? Läuft trotzdem", f6_p:"Erzählung, Bilder, Stimme und Diktat wechseln einzeln in die Cloud. Alles umgestellt — und ein dünnes Notebook spielt dasselbe Spiel.",
     f7_h:"Buchmodus", f7_p:"Lies dein Abenteuer als Doppelseiten mit Bildern an Ort und Stelle — oder lass die Seite vorlesen.",
     f8_h:"Sieben Sprachen", f8_p:"Erzählung, Aktionsvorschläge, Journal und Stimme folgen deiner Sprache: Russisch, Englisch, Spanisch, Französisch, Deutsch, Chinesisch, Japanisch.",
+    f9_h:"Der Erzähler hat Werkzeuge", f9_p:"Das Modell rät den Spielstand nicht — es fragt: offene Aufträge, Charakterbogen, Inventar, Journal. Es würfelt eine Probe und kennt den Ausgang mitten im Satz, schließt einen erfüllten Auftrag, bestellt das Bild. Das Modell schlägt vor, die Engine entscheidet.",
+    f10_h:"Aufträge und Auszeichnungen", f10_p:"Ein lebender Mensch bittet um Hilfe — ob du den Auftrag annimmst, entscheidest du. Auszeichnungen gelten einer Tat und leben in deinem Profil, nicht in einer Geschichte: Lösche die Geschichte, und die Auszeichnung bleibt.",
     h_title:"Ein Zug von Anfang bis Ende", h_lede:"Eine Karte, mehrere Aufgaben — so verteilt, dass jede die ganze GPU bekommt.",
     h1_h:"Du handelst", h1_p:"Schreib oder sag, was du tust.",
     h2_h:"Der Erzähler schreibt", h2_p:"Die Prosa kommt Wort für Wort.",
@@ -440,9 +453,10 @@ const I18N = {
     s_title:"Ansehen",
         s2:"Reines Erzählen — die Prosa kommt Wort für Wort, wie in einem Buch.",
     i_title:"Installation", i_lede:"Ins System wird nichts installiert. Modelle, Spielstände und Bilder liegen im Spielordner. Ordner löschen heißt Spiel löschen.",
-    i1_h:"Code holen", i2_h:"Bauen", i2_p:"prüft Rust und Node, baut Oberfläche und Binärdatei.",
-    i3_h:"Spielen", i3_p:"öffnet den Browser und lässt das Spiel seine Modelle laden.",
-    i4_h:"Später aktualisieren", i4_p:"holt die neue Version. Modelle und Spielstände bleiben unberührt.",
+    i1_h:"Installer herunterladen", i1_p:"eine Datei, etwa 16 MB.",
+    i2_h:"Starten", i2_p:"Die App öffnet ihr eigenes Fenster. Keine Konsole, kein Browser, keine Skripte.",
+    i3_h:"Modelle holen", i3_p:"Beim ersten Start «Was herunterladen» öffnen und das Nötige holen.",
+    i4_h:"Updates kommen von selbst", i4_p:"Die App meldet eine neue Version und installiert sie auf dein Wort. Spielstände und Modelle bleiben.",
     i_note:"Das Spiel lädt seine Gewichte selbst: rund 17 GB für das Nötige, 23 GB mit Stimme und Diktat. Abgebrochene Downloads laufen an der Abbruchstelle weiter.",
     t_title:"Unter der Haube", t_lede:"Eine Rust-Binärdatei. Kein Python, kein Node zur Laufzeit, nichts in der Registry.",
     t_col1:"Teil", t_col2:"Was es antreibt",
@@ -473,10 +487,12 @@ const I18N = {
     f2_h:"真正的 D&amp;D 规则", f2_p:"六项属性、护甲等级、生命值、先攻、暴击翻倍骰数、状态、限时效果，以及带属性加成的战利品。裁决由引擎做出，而不是旁白。",
     f3_h:"没有滤镜的插画", f3_p:"场景由 Krea-2 Turbo 配合解除限制的文本编码器绘制。每个地点保留锚定画面，同一个房间始终是同一个房间。",
     f4_h:"它读给你听", f4_p:"旁白还在写，句子就已经在配音，几秒钟内就有声音。角色台词用该角色自己的声音朗读。内置语音包。",
-    f5_h:"用嘴下指令", f5_p:"按下麦克风说出你的行动。语音在本机转写，不会上传。",
+    f5_h:"用嘴下指令", f5_p:"按下麦克风说出你的行动。语音在本机转写，不会上传。可选两种引擎：Parakeet 或 Whisper。",
     f6_h:"没有显卡也能玩", f6_p:"叙述、插画、配音和语音输入可分别切到云端。全部切换后，轻薄本也能跑同一个游戏。",
     f7_h:"书本模式", f7_p:"以对开页阅读你的冒险，插图各就各位——也可以让它朗读整个跨页。",
     f8_h:"七种语言", f8_p:"叙述、行动提示、冒险日志和语音都跟随你的语言：俄语、英语、西班牙语、法语、德语、中文、日语。",
+    f9_h:"叙述者有工具", f9_p:"模型不去猜测游戏状态——它直接询问：进行中的任务、角色卡、物品、日志。它掷出检定并在句中就知道结果，关闭已完成的任务，下单绘制画面。模型提议，引擎裁决。",
+    f10_h:"任务与成就", f10_p:"一个活生生的人开口求助——接不接任务由你决定。成就是对壮举的嘉奖，存放在你的档案里，而不是某个故事里：删掉故事，奖励仍在，并记得它是在哪里赢得的。",
     h_title:"一个完整回合", h_lede:"一张显卡，多项任务——统一调度，让每项任务都能独占显卡。",
     h1_h:"你行动", h1_p:"打字或说出你要做的事。",
     h2_h:"旁白书写", h2_p:"文字逐词流入对话。",
@@ -486,9 +502,10 @@ const I18N = {
     s_title:"看看效果",
         s2:"纯粹的叙事——文字逐词到来，像在读书。",
     i_title:"安装", i_lede:"不向系统安装任何东西。模型、存档和画面都在游戏文件夹里。删掉文件夹，游戏就没了。",
-    i1_h:"获取代码", i2_h:"构建", i2_p:"检查 Rust 和 Node，构建界面与程序。",
-    i3_h:"开玩", i3_p:"打开浏览器，让游戏下载所需模型。",
-    i4_h:"之后更新", i4_p:"拉取新版本。模型与存档不受影响。",
+    i1_h:"下载安装程序", i1_p:"一个文件，约 16 MB。",
+    i2_h:"运行它", i2_p:"应用会打开自己的窗口。没有控制台，没有浏览器标签，没有脚本。",
+    i3_h:"获取模型", i3_p:"首次启动时打开「下载什么」，取走需要的部分。",
+    i4_h:"更新会自动到来", i4_p:"有新版本时应用会告知，并在你同意后安装。存档与模型原地保留。",
     i_note:"游戏自行下载权重：必需部分约 17 GB，含配音与语音输入约 23 GB。中断的下载会从断点继续。",
     t_title:"技术细节", t_lede:"一个 Rust 程序。运行时不需要 Python 和 Node，注册表里什么都不写。",
     t_col1:"部分", t_col2:"由什么驱动",
@@ -519,10 +536,12 @@ const I18N = {
     f2_h:"本物のD&amp;Dルール", f2_p:"6能力値、AC、HP、イニシアチブ、ダイスが倍になるクリティカル、状態異常、期限つき効果、能力補正つきの戦利品。判定するのはナレーターではなくエンジンです。",
     f3_h:"フィルターのない絵", f3_p:"場面はKrea-2 Turboと制限解除エンコーダーが描きます。場所ごとに基準となる一枚を保つので、同じ部屋は同じ部屋のままです。",
     f4_h:"読み上げてくれる", f4_p:"ナレーターが書いている最中から文が音声になるので、数秒で声が始まります。台詞はその人物自身の声で読まれます。音声パック同梱。",
-    f5_h:"声で行動を伝える", f5_p:"マイクを押して行動を話すだけ。音声は手元で文字になり、外には送られません。",
+    f5_h:"声で行動を伝える", f5_p:"マイクを押して行動を話すだけ。音声は手元で文字になり、外には送られません。 認識の道具は選べる——Parakeet か Whisper。",
     f6_h:"GPUがなくても動く", f6_p:"叙述・挿絵・音声・音声入力は個別にクラウドへ切り替えられます。すべて切り替えれば薄型ノートでも同じ遊びができます。",
     f7_h:"本モード", f7_p:"見開きで冒険を読めます。挿絵もその位置に。見開きごと読み上げることもできます。",
     f8_h:"7つの言語", f8_p:"叙述、行動候補、冒険日誌、音声すべてが選んだ言語に従います：ロシア語、英語、スペイン語、フランス語、ドイツ語、中国語、日本語。",
+    f9_h:"語り手には道具がある", f9_p:"モデルは盤面を想像で埋めない——尋ねる。進行中の依頼、能力値、持ち物、日誌。判定を振って文の途中で結果を知り、果たされた依頼を閉じ、場面の絵を注文する。モデルは提案し、エンジンが裁く。",
+    f10_h:"依頼と褒賞", f10_p:"生きた人物が助けを求める——受けるかどうかは君が決める。褒賞は行いに対して与えられ、物語の中ではなく君の記録に残る。物語を消しても褒賞は残り、どこで得たかを覚えている。",
     h_title:"1ターンの最初から最後まで", h_lede:"1枚のGPUを複数の処理で共有し、必要なときは丸ごと使えるよう調停します。",
     h1_h:"あなたが動く", h1_p:"行動を打つか、話す。",
     h2_h:"ナレーターが書く", h2_p:"文章が一語ずつ流れてきます。",
@@ -532,9 +551,10 @@ const I18N = {
     s_title:"画面",
         s2:"純粋な叙述——本のように、文章が一語ずつ届きます。",
     i_title:"インストール", i_lede:"システムには何も入りません。モデルもセーブも生成画像もゲームのフォルダの中。フォルダを消せばゲームも消えます。",
-    i1_h:"コードを取得", i2_h:"ビルド", i2_p:"RustとNodeを確認し、画面と実行ファイルを作ります。",
-    i3_h:"遊ぶ", i3_p:"ブラウザが開き、必要なモデルをゲーム自身がダウンロードします。",
-    i4_h:"あとで更新", i4_p:"新しい版を取得します。モデルとセーブはそのままです。",
+    i1_h:"インストーラーを入手", i1_p:"ファイル一つ、約 16 MB。",
+    i2_h:"起動する", i2_p:"アプリは自分の窓を開く。コンソールもブラウザのタブもスクリプトも要らない。",
+    i3_h:"モデルを取得", i3_p:"初回起動で「何を落とすか」を開き、必要なものを取る。",
+    i4_h:"更新は自分から届く", i4_p:"新しい版が出れば知らせ、承諾のうえで入れる。セーブとモデルはそのまま。",
     i_note:"重みはゲームが自分で取得します。必須分で約17GB、音声と音声入力を含めて約23GB。中断してもその位置から再開します。",
     t_title:"内部構成", t_lede:"Rust製の単一実行ファイル。実行時にPythonもNodeも不要、レジストリにも何も書きません。",
     t_col1:"部分", t_col2:"動かしているもの",
