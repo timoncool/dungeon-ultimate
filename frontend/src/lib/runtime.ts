@@ -14,6 +14,8 @@ export type EngineRuntime = {
   imageBackend: string;
   ttsBackend: string;
   asrBackend: string;
+  /// Каким движком распознавать речь: parakeet | whisper.
+  asrEngine: string;
   narratorCtx: number;
   narratorGpuLayers: number;
   imageSteps: number;

@@ -28,6 +28,9 @@ pub struct Runtime {
     pub tts_backend: String,
     /// Переопределение для распознавания речи.
     pub asr_backend: String,
+    /// Каким движком распознавать речь: `parakeet` (в процессе, быстрый) или `whisper`
+    /// (отдельная программа, точнее на шумной записи и на смеси языков).
+    pub asr_engine: String,
 
     /// Контекст рассказчика в токенах. Это главный потребитель памяти под KV-кэш: в промпт
     /// уезжает около 48 тысяч символов истории, то есть примерно 13 тысяч токенов, поэтому
@@ -77,6 +80,7 @@ impl Default for Runtime {
             image_backend: String::new(),
             tts_backend: String::new(),
             asr_backend: String::new(),
+            asr_engine: "parakeet".to_string(),
             narrator_ctx: 16_384,
             narrator_gpu_layers: -1,
             image_steps: 8,

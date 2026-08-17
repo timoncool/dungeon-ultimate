@@ -194,7 +194,7 @@ static COMPONENTS: &[Component] = &[
             id: "image-edit",
             title: "Правка кадра по референсу",
             note: "держит облик героя и места одинаковым от кадра к кадру",
-            requirement: Requirement::Optional,
+            requirement: Requirement::Recommended,
             files: &[FileSpec::plain(
                 "models/image/krea2-identity-edit-r128.safetensors",
                 "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_identity_edit_v1_2_r128.safetensors",
@@ -288,6 +288,52 @@ static COMPONENTS: &[Component] = &[
                 FileSpec::plain("models/asr/config.json", concat!("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/", "config.json"), 1_400),
             ],
         },
+        Component {
+            id: "whisper-engine",
+            title: "Whisper: движок",
+            note: "второй движок распознавания речи, точнее на шумной записи и на смеси языков",
+            requirement: Requirement::Optional,
+            files: &[FileSpec::zip(
+                "downloads/whisper.zip",
+                "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip",
+                87_654_143,
+                "tools/whisper",
+                "tools/whisper/faster-whisper-xxl.exe",
+            )],
+        },
+        Component {
+            id: "whisper-model",
+            title: "Whisper large-v3",
+            note: "самая точная модель Whisper; нужна только если выбран этот движок",
+            requirement: Requirement::Optional,
+            files: &[
+                FileSpec::plain(
+                    "models/whisper/faster-whisper-large-v3/model.bin",
+                    "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/model.bin",
+                    3_087_284_237,
+                ),
+                FileSpec::plain(
+                    "models/whisper/faster-whisper-large-v3/config.json",
+                    "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/config.json",
+                    2_394,
+                ),
+                FileSpec::plain(
+                    "models/whisper/faster-whisper-large-v3/preprocessor_config.json",
+                    "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/preprocessor_config.json",
+                    340,
+                ),
+                FileSpec::plain(
+                    "models/whisper/faster-whisper-large-v3/tokenizer.json",
+                    "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/tokenizer.json",
+                    2_480_617,
+                ),
+                FileSpec::plain(
+                    "models/whisper/faster-whisper-large-v3/vocabulary.json",
+                    "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/vocabulary.json",
+                    1_068_114,
+                ),
+            ],
+        },
     ];
 
 pub fn manifest() -> Vec<Component> {
@@ -321,8 +367,16 @@ fn file_present(root: &Path, file: &FileSpec) -> bool {
     if !meta.is_file() {
         return false;
     }
-    // Размер ноль в манифесте — источник без точного размера; тогда верим наличию.
-    file.bytes == 0 || meta.len() == file.bytes
+    // Незавершённая закачка оставляет рядом свой хвост — вот это и есть надёжный признак
+    // недокачки, а не размер.
+    if part_path(&target).exists() {
+        return false;
+    }
+    // Размер в манифесте — ОЦЕНКА для полосы прогресса, а не отпечаток файла: там круглые
+    // числа, а на диске точные, и расхождение в мегабайт — норма. Требовать совпадения
+    // байт-в-байт нельзя: так целые файлы объявлялись недокачанными и качались заново.
+    // Обрубок же короче в разы, поэтому порога в девять десятых достаточно.
+    file.bytes == 0 || meta.len() * 10 >= file.bytes * 9
 }
 
 /// Сколько байт этого файла уже лежит на диске: готовый файл или незавершённая докачка.
@@ -722,13 +776,17 @@ mod tests {
             marker: "",
         };
 
-        // Оборванная закачка: файл есть, но короче обещанного.
+        // Оборванная закачка: файл есть, но короче обещанного в разы.
         std::fs::write(dir.join("модель.gguf"), b"12345").unwrap();
         assert!(!file_present(&dir, &spec), "обрубок не считается установленным");
 
         // Дописали до нужного размера — теперь на месте.
         std::fs::write(dir.join("модель.gguf"), b"1234567890").unwrap();
         assert!(file_present(&dir, &spec));
+
+        // Размер в манифесте округлён, на диске точный — это НОРМА, а не недокачка.
+        std::fs::write(dir.join("модель.gguf"), b"12345678901").unwrap();
+        assert!(file_present(&dir, &spec), "лишние байты сверх оценки — не повод качать заново");
 
         // Источник без точного размера: верим наличию, иначе файл не установить никогда.
         let rolling = FileSpec { bytes: 0, ..spec };

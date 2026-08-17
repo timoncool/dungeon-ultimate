@@ -15,6 +15,7 @@ type Runtime = {
   imageBackend: string;
   ttsBackend: string;
   asrBackend: string;
+  asrEngine: string;
   narratorCtx: number;
   narratorGpuLayers: number;
   imageSteps: number;
@@ -463,6 +464,18 @@ export default function EnginePanel() {
                   </>
                 ) : (
                   <p className="text-xs text-stone-600">
+                    {stage.key === "asr" && (
+                      <span className="mb-1 block">
+                        <select
+                          value={runtime.asrEngine || "parakeet"}
+                          onChange={(event) => patch("asrEngine", event.target.value)}
+                          className={box}
+                        >
+                          <option value="parakeet">Parakeet — быстрый, работает сразу</option>
+                          <option value="whisper">Whisper large-v3 — точнее, нужна докачка</option>
+                        </select>
+                      </span>
+                    )}
                     {stage.local} · считает{" "}
                     {decided[stage.key] === "cpu"
                       ? "процессор"

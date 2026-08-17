@@ -13,6 +13,17 @@ use crate::state::AppState;
 
 type ApiResult<T> = Result<T, ApiError>;
 
+/// Где лежит программа Whisper. Раскладка та же, что у Dub Studio: распакованный пак
+/// кладёт `faster-whisper-xxl.exe` либо прямо в `tools/whisper`, либо в подкаталог.
+fn whisper_bin(root: &std::path::Path) -> std::path::PathBuf {
+    let dir = root.join("tools").join("whisper");
+    let nested = dir.join("Faster-Whisper-XXL").join("faster-whisper-xxl.exe");
+    if nested.is_file() {
+        return nested;
+    }
+    dir.join("faster-whisper-xxl.exe")
+}
+
 /// Браузер пишет 16 кГц моно WAV — ровно то, что ждёт распознавание.
 pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
     if body.is_empty() {
@@ -43,12 +54,30 @@ pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult
                 return Ok(json!({ "text": text }));
             }
             // Распознавание тоже слушается общего выбора: движок читает его из окружения.
-            std::env::set_var(
-                "DUB_ASR_BACKEND",
-                crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr).engine_name(),
-            );
-            let mut asr = du_asr::Asr::new(&models);
-            let segments = asr.transcribe(&path, "ru").map_err(|error| error.to_string())?;
+            let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
+            std::env::set_var("DUB_ASR_BACKEND", device.engine_name());
+
+            // Движков два, и выбирает игрок. Whisper — отдельная программа, поэтому берём
+            // его только когда он и правда установлен: иначе распознавание молча падало бы
+            // на машине, где его не скачали.
+            use du_asr::AsrEngine as _;
+            let whisper_bin = whisper_bin(&root);
+            let by_whisper =
+                runtime.asr_engine.trim().eq_ignore_ascii_case("whisper") && whisper_bin.is_file();
+            let segments = if by_whisper {
+                du_asr::WhisperAsr::new(
+                    whisper_bin,
+                    root.join("models").join("whisper"),
+                    "large-v3",
+                    // На процессоре половинная точность не поддерживается — там int8.
+                    if device.is_cpu() { "int8" } else { "float16" },
+                    device.engine_name(),
+                )
+                .transcribe(&path, "ru")
+            } else {
+                du_asr::Asr::new(&models).transcribe(&path, "ru")
+            }
+            .map_err(|error| error.to_string())?;
             let text = segments
                 .iter()
                 .map(|segment| segment.text.trim())
