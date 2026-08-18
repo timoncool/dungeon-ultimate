@@ -92,8 +92,9 @@ const BookReader = lazy(() => import("./components/BookReader"));
 import ResourceMonitor from "./components/ResourceMonitor";
 import EnginePanel from "./components/EnginePanel";
 import SetupPanel from "./components/SetupPanel";
-import { UiTextProvider, useUi } from "./lib/ui-text-context";
+import { UiTextProvider, useUi, useUiLanguage } from "./lib/ui-text-context";
 import { uiText, type UiText } from "./lib/ui-text";
+import { settingsText, type SettingsText } from "./lib/ui-text-settings";
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
@@ -112,20 +113,26 @@ const SIDEBAR_ICONS = {
 } as const;
 
 /// Как назвать игроку то, что сервер сейчас делает.
-const STAGE_WORDS: Record<string, string> = {
-  // Загрузка весов на карту — это минута с лишним, и молчать о ней нельзя: игрок видел
-  // «формируется отрывок» и думал, что игра зависла.
-  "загрузка модели": "Модель едет на карту, это разово…",
-  "проза": "Рассказчик пишет…",
-  "инструменты": "Сверяюсь с состоянием игры…",
-  // Раньше здесь стояло «Движок разрешает бросок»: обещание броска на КАЖДОМ ходу, даже
-  // когда бросать нечего. Броски теперь кидает инструмент во время письма и сразу
-  // показывает кубик, а этот проход сводит последствия — так и говорим.
-  "механика": "Свожу последствия хода…",
-  "кадр": "Оператор выбирает кадр…",
-  "озвучка": "Читаю вслух…",
-  "действия": "Подбираю варианты действий…",
-};
+/// Как назвать игроку то, что сервер сейчас делает.
+///
+/// Ключи — служебные слова сервера и остаются русскими: это протокол, а не текст на экране.
+/// Переводится только то, что игрок читает.
+function stageWords(ui: UiText): Record<string, string> {
+  return {
+    // Загрузка весов на карту — это минута с лишним, и молчать о ней нельзя: игрок видел
+    // «формируется отрывок» и думал, что игра зависла.
+    "загрузка модели": ui.stageLoadingModel,
+    "проза": ui.stageProse,
+    "инструменты": ui.stageTools,
+    // Раньше здесь стояло «Движок разрешает бросок»: обещание броска на КАЖДОМ ходу, даже
+    // когда бросать нечего. Броски теперь кидает инструмент во время письма и сразу
+    // показывает кубик, а этот проход сводит последствия — так и говорим.
+    "механика": ui.stageMechanics,
+    "кадр": ui.stageFrame,
+    "озвучка": ui.stageVoice,
+    "действия": ui.stageActions,
+  };
+}
 
 type InputMode = "do" | "say" | "story";
 
@@ -150,12 +157,14 @@ const PROSE_SIZE_OPTIONS: Array<{ value: ProseSize; label: string; className: st
   { value: "giant", label: "32px", className: "text-[2rem] leading-[3rem]" },
 ];
 
-const RESPONSE_LENGTH_OPTIONS: Array<{ value: ResponseLength; label: string }> = [
-  { value: "short", label: "Кратко" },
-  { value: "medium", label: "Средне" },
-  { value: "long", label: "Длинно" },
-  { value: "epic", label: "Эпик" },
-];
+function responseLengthOptions(settings_: SettingsText): Array<{ value: ResponseLength; label: string }> {
+  return [
+  { value: "short", label: settings_.lengthShort },
+  { value: "medium", label: settings_.lengthMedium },
+  { value: "long", label: settings_.lengthLong },
+  { value: "epic", label: settings_.lengthEpic },
+  ];
+}
 
 function formatPlayerInput(mode: InputMode, text: string): string {
   const trimmed = text.trim();
@@ -169,52 +178,54 @@ function formatPlayerInput(mode: InputMode, text: string): string {
   return trimmed;
 }
 
-const STORY_PRESETS = [
+function storyPresets(settings_: SettingsText) {
+  return [
   {
     id: "fantasy",
-    label: "Фэнтези",
-    flavor: "Рыцари, магия, старые дороги",
-    seed: "Высокое фэнтези: враждующие королевства, древняя магия и дороги, что перестают быть безопасными после заката.",
-    rolePlaceholder: "странствующий наёмник",
+    label: settings_.genreFantasy,
+    flavor: settings_.genreFantasyNote,
+    seed: settings_.genreFantasyWorld,
+    rolePlaceholder: settings_.genreFantasyRole,
   },
   {
     id: "mystery",
-    label: "Детектив",
-    flavor: "Дождь, секреты, незакрытые нити",
-    seed: "Залитый дождём город, полный секретов, где каждое дело — дверь, которую кто-то хочет держать закрытой.",
-    rolePlaceholder: "частный детектив",
+    label: settings_.genreDetective,
+    flavor: settings_.genreDetectiveNote,
+    seed: settings_.genreDetectiveWorld,
+    rolePlaceholder: settings_.genreDetectiveRole,
   },
   {
     id: "cyberpunk",
-    label: "Киберпанк",
-    flavor: "Неон, хром, дурные долги",
-    seed: "Залитый неоном мегаполис под властью корпораций, где память — валюта, и каждый кому-то должен.",
-    rolePlaceholder: "выгоревший нетраннер",
+    label: settings_.genreCyberpunk,
+    flavor: settings_.genreCyberpunkNote,
+    seed: settings_.genreCyberpunkWorld,
+    rolePlaceholder: settings_.genreCyberpunkRole,
   },
   {
     id: "apocalyptic",
-    label: "Постапокалипсис",
-    flavor: "После конца всего",
-    seed: "Спустя годы после краха разрозненные выжившие шарят по руинам, меняются и травят байки о том, как было раньше.",
-    rolePlaceholder: "сборщик хлама с картой",
+    label: settings_.genrePostapoc,
+    flavor: settings_.genrePostapocNote,
+    seed: settings_.genrePostapocWorld,
+    rolePlaceholder: settings_.genrePostapocRole,
   },
   {
     id: "horror",
-    label: "Хоррор",
-    flavor: "Здесь что-то не так",
-    seed: "Глухой городок, где ночи тянутся долго, а местные не говорят о том, что в них творится.",
-    rolePlaceholder: "приезжий",
+    label: settings_.genreHorror,
+    flavor: settings_.genreHorrorNote,
+    seed: settings_.genreHorrorWorld,
+    rolePlaceholder: settings_.genreHorrorRole,
   },
   {
     id: "romance",
-    label: "Романтика",
-    flavor: "Искры в неожиданных местах",
-    seed: "Тесный приморский городок на исходе лета, где случайные встречи имеют свойство перерастать в нечто большее.",
-    rolePlaceholder: "новичок с прошлым",
+    label: settings_.genreRomance,
+    flavor: settings_.genreRomanceNote,
+    seed: settings_.genreRomanceWorld,
+    rolePlaceholder: settings_.genreRomanceRole,
   },
-] as const;
+  ] as const;
+}
 
-type StoryPresetId = (typeof STORY_PRESETS)[number]["id"] | "custom";
+type StoryPresetId = (typeof storyPresets extends (s: SettingsText) => infer R ? R : never)[number]["id"] | "custom";
 
 type ImageStatus = Record<string, "loading" | "error">;
 type ChatResponse = {
@@ -464,6 +475,7 @@ export default function Home() {
   const [settings, setSettings] = useState<StorySettings>(DEFAULT_STORY_SETTINGS);
   // Подписи интерфейса. В самом Home контекст ещё не создан — берём словарь напрямую.
   const ui = uiText(settings.language);
+  const settings_ = settingsText(settings.language);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -502,10 +514,10 @@ export default function Home() {
         const local: string[] = [];
         (
           [
-            ["рассказчик", "openrouterNarratorOn"],
-            ["кадр", "openrouterImageOn"],
-            ["голос", "openrouterTtsOn"],
-            ["речь", "openrouterAsrOn"],
+            [settings_.stageNarrator, "openrouterNarratorOn"],
+            [settings_.stageFrameWord, "openrouterImageOn"],
+            [settings_.stageVoiceWord, "openrouterTtsOn"],
+            [settings_.stageSpeechWord, "openrouterAsrOn"],
           ] as const
         ).forEach(([label, flag]) => (runtime[flag] ? cloud : local).push(label));
         if (!alive) return;
@@ -528,7 +540,7 @@ export default function Home() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [ui]);
   const [heroRpg, setHeroRpg] = useState<CharacterRpg | null>(null);
   const [heroId, setHeroId] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -573,7 +585,7 @@ export default function Home() {
     (window as unknown as { __odRollDie?: (d: number, o?: string, c?: string) => void }).__odRollDie = (
       d,
       o = "success",
-      c = "Ловкость · d20 = проверка",
+      c = settings_.demoCheck,
     ) => {
       setSettings((cur) => (cur.rpgEnabled ? cur : { ...cur, rpgEnabled: true }));
       setDiceQueue((q) => [
@@ -678,7 +690,7 @@ export default function Home() {
       // applyChat подставляет настройки чата — стиль среди них, поэтому поле в панели
       // картинок сразу показывает придуманную манеру, и её можно поправить.
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить чат.");
+        setError(loadError instanceof Error ? loadError.message : settings_.errorChat);
       } finally {
         setLoadingChat(false);
       }
@@ -733,7 +745,7 @@ export default function Home() {
         setItems((current) => current.map((it) => (it.id === itemId ? payload.item : it)));
       } catch (equipError) {
         setItems(snapshot);
-        setError(equipError instanceof Error ? equipError.message : "Не удалось обновить предмет.");
+        setError(equipError instanceof Error ? equipError.message : settings_.errorItem);
       }
     },
     [items, selectedChatId],
@@ -798,7 +810,7 @@ export default function Home() {
         await readApi<{ quest: Quest }>(response);
       } catch (questError) {
         setQuests(snapshot);
-        setError(questError instanceof Error ? questError.message : "Не удалось изменить задание.");
+        setError(questError instanceof Error ? questError.message : settings_.errorQuest);
       }
     },
     [quests, selectedChatId],
@@ -857,7 +869,7 @@ export default function Home() {
       setItems([
         {
           id: makeId(),
-          name: "Клинок ярости",
+          name: settings_.demoBlade,
           slot: "weapon",
           rarity: "rare",
           damage: "1d8+2",
@@ -868,7 +880,7 @@ export default function Home() {
         },
         {
           id: makeId(),
-          name: "Кольцо стража",
+          name: settings_.demoRing,
           slot: "trinket",
           rarity: "epic",
           modifiers: { maxHp: 6, con: 1 },
@@ -878,7 +890,7 @@ export default function Home() {
         },
         {
           id: makeId(),
-          name: "Зелье лечения",
+          name: settings_.demoPotion,
           slot: "consumable",
           rarity: "common",
           modifiers: {},
@@ -910,7 +922,7 @@ export default function Home() {
 
         clearSelectedChat();
       } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить.");
+        setError(deleteError instanceof Error ? deleteError.message : settings_.errorDelete);
       }
     },
     [clearSelectedChat, loadChat, refreshChats, selectedChatId],
@@ -927,7 +939,7 @@ export default function Home() {
       setChats([]);
       clearSelectedChat();
     } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : "Не удалось очистить локальные данные.");
+      setError(clearError instanceof Error ? clearError.message : settings_.errorWipe);
     } finally {
       setClearingLocalData(false);
     }
@@ -969,7 +981,7 @@ export default function Home() {
         }
       } catch (bootError) {
         if (!cancelled) {
-          setError(bootError instanceof Error ? bootError.message : "Не удалось загрузить библиотеку историй.");
+          setError(bootError instanceof Error ? bootError.message : settings_.errorLibrary);
         }
       } finally {
         if (!cancelled) {
@@ -1039,7 +1051,7 @@ export default function Home() {
         );
       } catch (saveError) {
         if (!controller.signal.aborted) {
-          setError(saveError instanceof Error ? saveError.message : "Не удалось сохранить настройки.");
+          setError(saveError instanceof Error ? saveError.message : settings_.errorSettings);
         }
       }
     }, 500);
@@ -1057,11 +1069,11 @@ export default function Home() {
   /// Поэтому реальное состояние рисовалки важнее последней присланной стадии.
   const drawing = Object.values(imageStatus).some((status) => status === "loading");
   const statusText = drawing
-    ? "Рисуется кадр сцены…"
+    ? settings_.drawingFrame
     : stageLabel
-      ? STAGE_WORDS[stageLabel] ?? stageLabel
+      ? (stageWords(ui)[stageLabel] ?? stageLabel)
       : busy
-        ? "Формируется следующий отрывок…"
+        ? settings_.formingPassage
         : "";
 
   useEffect(() => {
@@ -1115,14 +1127,14 @@ export default function Home() {
         body: JSON.stringify({ action: "start" }),
       });
       const payload = await readApi<ImageWorkerActionResponse>(response);
-      setImageWorkerMessage(payload.message || "Запрошен запуск сервера изображений.");
+      setImageWorkerMessage(payload.message || settings_.imageServerRequested);
       if (payload.health) {
         setImageWorkerStatus(payload.health);
       }
       await refreshRuntimeHealth();
     } catch (workerError) {
       const message =
-        workerError instanceof Error ? workerError.message : "Не удалось запустить сервер изображений.";
+        workerError instanceof Error ? workerError.message : settings_.imageServerFailed;
       setImageWorkerMessage(message);
       setError(message);
     } finally {
@@ -1143,11 +1155,11 @@ export default function Home() {
       });
       const payload = await readApi<ImageWorkerActionResponse>(response);
       setImageWorkerMessage(
-        payload.path ? `Папка модели открыта: ${payload.path}` : "Папка модели открыта.",
+        payload.path ? `Папка модели открыта: ${payload.path}` : settings_.modelFolderOpened,
       );
     } catch (workerError) {
       const message =
-        workerError instanceof Error ? workerError.message : "Не удалось открыть папку модели.";
+        workerError instanceof Error ? workerError.message : settings_.modelFolderFailed;
       setImageWorkerMessage(message);
       setError(message);
     } finally {
@@ -1170,7 +1182,7 @@ export default function Home() {
       }
       setAttachments((current) => [...current, ...uploaded].slice(0, MAX_IMAGE_REFERENCES));
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить изображение.");
+      setError(uploadError instanceof Error ? uploadError.message : settings_.errorImage);
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -1231,7 +1243,7 @@ export default function Home() {
       setCharacterDraft(emptyCharacterDraft());
       void refreshChats();
     } catch (characterError) {
-      setError(characterError instanceof Error ? characterError.message : "Не удалось сохранить персонажа.");
+      setError(characterError instanceof Error ? characterError.message : settings_.errorCharacterSave);
     } finally {
       setCharacterSaving(false);
     }
@@ -1269,7 +1281,7 @@ export default function Home() {
       );
       void refreshChats();
     } catch (characterError) {
-      setError(characterError instanceof Error ? characterError.message : "Не удалось обновить персонажа.");
+      setError(characterError instanceof Error ? characterError.message : settings_.errorCharacterUpdate);
     }
   }
 
@@ -1288,7 +1300,7 @@ export default function Home() {
 
       await updateCharacterById(characterId, { portrait });
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить портрет персонажа.");
+      setError(uploadError instanceof Error ? uploadError.message : settings_.errorCharacterPortrait);
     } finally {
       setCharacterUploadingId("");
     }
@@ -1309,7 +1321,7 @@ export default function Home() {
       setCharacters((current) => current.filter((character) => character.id !== characterId));
       void refreshChats();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить персонажа.");
+      setError(deleteError instanceof Error ? deleteError.message : settings_.errorCharacterDelete);
     }
   }
 
@@ -1356,7 +1368,7 @@ export default function Home() {
       });
       void refreshChats();
     } catch (imageError) {
-      setError(imageError instanceof Error ? imageError.message : "Не удалось сгенерировать изображение.");
+      setError(imageError instanceof Error ? imageError.message : settings_.errorGenerate);
       setImageStatus((current) => ({ ...current, [messageId]: "error" }));
     }
   }
@@ -1418,7 +1430,7 @@ export default function Home() {
         const blocked = reason instanceof DOMException && reason.name === "NotAllowedError";
         setError(
           blocked
-            ? "Звук заблокирован окном: щёлкните по странице — озвучка пойдёт дальше."
+            ? settings_.audioBlocked
             : `Клип не проигрался: ${reason instanceof Error ? reason.message : String(reason)}`,
         );
         finish();
@@ -1667,7 +1679,7 @@ export default function Home() {
               void enqueueClip(data.url);
             }
           } else if (eventName === "error") {
-            streamErrorMessage = data.error || "Поток истории прервался.";
+            streamErrorMessage = data.error || settings_.errorStoryStream;
             done = true;
             // The assistant message is persisted only on the success path (the `done`
             // event reconciles it). Any error means it was NOT saved, so drop the
@@ -1833,7 +1845,7 @@ export default function Home() {
           ? "Рассказчик слишком долго отвечал. Модель ещё может работать в фоне; подожди немного, затем повтори или перезапусти локальную модель, если система под нагрузкой."
           : storyError instanceof Error
             ? storyError.message
-            : "Не удалось выполнить запрос истории.",
+            : settings_.errorStoryRequest,
       );
       void refreshChats();
     } finally {
@@ -1991,7 +2003,7 @@ export default function Home() {
         });
         void refreshChats();
       } catch (editError) {
-        setError(editError instanceof Error ? editError.message : "Не удалось сохранить изменения.");
+        setError(editError instanceof Error ? editError.message : settings_.errorSaveChanges);
       }
     }
   }
@@ -2162,7 +2174,7 @@ export default function Home() {
       // show until a reload.
       if (seedSettings.rpgEnabled) await refreshRpg(payload.chat.id, true);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Не удалось создать историю.");
+      setError(createError instanceof Error ? createError.message : settings_.errorStoryCreate);
     }
   }
 
@@ -2440,7 +2452,7 @@ export default function Home() {
                 рядом с панелями, которые они скрывают (см. ниже). */}
             <button
               type="button"
-              aria-label="Открыть инструменты истории"
+              aria-label={settings_.openStoryTools}
               onClick={() => setMobileToolsOpen(true)}
               className="inline-flex size-10 items-center justify-center rounded border border-stone-700 text-stone-300 hover:bg-stone-900 lg:hidden"
             >
@@ -2542,7 +2554,7 @@ export default function Home() {
               <CharacterSheet
                 hero={heroRpg}
                 derived={heroDerived!}
-                name={heroChar?.name || "Герой"}
+                name={heroChar?.name || settings_.hero}
                 portrait={heroChar?.portrait}
                 items={heroItems}
                 onToggle={equipItem}
@@ -2598,8 +2610,8 @@ export default function Home() {
             {settings.rpgEnabled && heroRpg && (
               <button
                 type="button"
-                aria-label={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
-                title={leftOpen ? "Скрыть персонажа" : "Показать персонажа"}
+                aria-label={leftOpen ? settings_.hideCharacter : settings_.showCharacter}
+                title={leftOpen ? settings_.hideCharacter : settings_.showCharacter}
                 onClick={() => setLeftOpen((value) => !value)}
                 className={cn(
                   "absolute left-0 top-1/2 z-20 hidden h-20 w-6 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 shadow-xl transition lg:flex",
@@ -2618,8 +2630,8 @@ export default function Home() {
             {/* Правый язычок — на границе с панелью меню: скрывает/показывает её. */}
             <button
               type="button"
-              aria-label={rightOpen ? "Скрыть меню" : "Показать меню"}
-              title={rightOpen ? "Скрыть меню" : "Показать меню"}
+              aria-label={rightOpen ? settings_.hideMenu : settings_.showMenu}
+              title={rightOpen ? settings_.hideMenu : settings_.showMenu}
               onClick={() => setRightOpen((value) => !value)}
               className={cn(
                 "absolute right-0 top-1/2 z-20 hidden h-20 w-6 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 shadow-xl transition lg:flex",
@@ -2674,9 +2686,7 @@ export default function Home() {
                       <BookOpen className="size-5 text-amber-200" aria-hidden="true" />
                     </div>
                     <div className="max-w-sm">
-                      <p className="text-balance font-serif text-2xl text-stone-200">
-                        Каждая история начинается с одной строки.
-                      </p>
+                      <p className="text-balance font-serif text-2xl text-stone-200">{settings_.everyStoryStartsWithALine}</p>
                       <p className="mt-2 text-pretty text-sm text-stone-500">
                         Начни историю и опиши, что ты делаешь — дальше рассказчик
                         подхватит, со сценами и всем остальным.
@@ -2687,9 +2697,7 @@ export default function Home() {
                       onClick={() => setNewStoryOpen(true)}
                       className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-200 px-4 text-sm font-medium text-stone-950 hover:bg-amber-100"
                     >
-                      <Plus className="size-4" aria-hidden="true" />
-                      Начать новую историю
-                    </button>
+                      <Plus className="size-4" aria-hidden="true" />{settings_.startNewStory}</button>
                   </div>
                 ) : (
                   messages.map((message) => (
@@ -2784,7 +2792,7 @@ export default function Home() {
                     <HudBar
                       hero={heroRpg}
                       derived={heroDerived}
-                      name={heroChar?.name || "Герой"}
+                      name={heroChar?.name || settings_.hero}
                     />
                   )}
                   {heroItems.length > 0 && (
@@ -2866,21 +2874,21 @@ export default function Home() {
                     <StoryActionButton
                       icon={ChevronRight}
                       label={ui.continueTurn}
-                      title="Пусть рассказчик продолжит без тебя"
+                      title={settings_.continueWithoutMe}
                       disabled={busy || !selectedChatId || heroDead}
                       onClick={() => void continueStory()}
                     />
                     <StoryActionButton
                       icon={RotateCcw}
                       label={ui.retryTurn}
-                      title="Перегенерировать последний отрывок"
+                      title={settings_.regenerateLastPassage}
                       disabled={busy || !selectedChatId || heroDead}
                       onClick={() => void retryLastTurn()}
                     />
                     <StoryActionButton
                       icon={Eraser}
                       label={ui.eraseTurn}
-                      title="Убрать последний обмен"
+                      title={settings_.removeLastExchange}
                       disabled={busy || !selectedChatId}
                       onClick={() => void eraseLastTurn()}
                     />
@@ -2911,7 +2919,7 @@ export default function Home() {
                     rows={2}
                     placeholder={
                       heroDead
-                        ? "Герой погиб — писать больше некому"
+                        ? settings_.heroDeadNoOne
                         : inputModes(ui).find((m) => m.value === inputMode)?.placeholder ??
                           "Что ты делаешь?"
                     }
@@ -3075,6 +3083,7 @@ function NewStoryDialog({
   }) => void;
   llm: { customBaseUrl: string; customModel: string; customApiKey: string; language: string };
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const [presetId, setPresetId] = useState<StoryPresetId>("fantasy");
   const [name, setName] = useState("");
@@ -3114,17 +3123,17 @@ function NewStoryDialog({
           setOpeningHint(data.hint);
         }
       } else {
-        setAutofillError("Не получилось придумать — попробуй ещё раз.");
+        setAutofillError(settings_.couldNotInvent);
       }
     } catch {
-      setAutofillError("Не получилось придумать — попробуй ещё раз.");
+      setAutofillError(settings_.couldNotInvent);
     } finally {
       setAutofilling(false);
     }
   }
 
   const isCustom = presetId === "custom";
-  const preset = STORY_PRESETS.find((item) => item.id === presetId) ?? STORY_PRESETS[0];
+  const preset = storyPresets(settings_).find((item) => item.id === presetId) ?? storyPresets(settings_)[0];
   const settingReady = !isCustom || customWorld.trim().length > 0;
   const openingReady = openingMode === "narrator" || openingText.trim().length > 0;
   const canBegin = settingReady && openingReady;
@@ -3144,7 +3153,7 @@ function NewStoryDialog({
         // character, so the details note isn't written and this is the only signal.
         world: `${bare}${genderClause}`,
         title: titleFromInput(bare),
-        hero: { name: name.trim() || "Герой", persona: role.trim(), gender },
+        hero: { name: name.trim() || settings_.hero, persona: role.trim(), gender },
         opening,
       });
       return;
@@ -3157,7 +3166,7 @@ function NewStoryDialog({
       title: titleFromInput(
         name.trim() ? `${name.trim()} · ${preset.label}` : `${preset.label} · ${persona}`,
       ),
-      hero: { name: name.trim() || "Герой", persona, gender },
+      hero: { name: name.trim() || settings_.hero, persona, gender },
       opening,
     });
   }
@@ -3173,14 +3182,12 @@ function NewStoryDialog({
           <div className="flex items-start justify-between gap-3">
             <div>
               <Dialog.Title className="text-balance text-base font-semibold text-stone-100">{ui.newStory}</Dialog.Title>
-              <Dialog.Description className="mt-1 text-pretty text-sm text-stone-500">
-                Выбери сеттинг, скажи кто ты, и выбери как начнётся история.
-              </Dialog.Description>
+              <Dialog.Description className="mt-1 text-pretty text-sm text-stone-500">{settings_.pickSetting}</Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <button
                 type="button"
-                aria-label="Закрыть"
+                aria-label={settings_.close}
                 className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-stone-800 text-stone-400 hover:bg-stone-900 hover:text-stone-100"
               >
                 <X className="size-4" aria-hidden="true" />
@@ -3190,8 +3197,8 @@ function NewStoryDialog({
 
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[
-              ...STORY_PRESETS,
-              { id: "custom" as const, label: "Свой мир", flavor: "Опиши своё начало" },
+              ...storyPresets(settings_),
+              { id: "custom" as const, label: settings_.ownWorld, flavor: settings_.describeYourStart },
             ].map((item) => {
               const selected = item.id === presetId;
               return (
@@ -3225,15 +3232,13 @@ function NewStoryDialog({
             ) : (
               <span aria-hidden="true">✨</span>
             )}
-            {autofilling ? "Придумываю…" : "Заполнить за меня"}
+            {autofilling ? settings_.thinkingUp : settings_.fillForMe}
           </button>
           {autofillError && <p className="mt-2 text-xs text-red-400">{autofillError}</p>}
 
           {isCustom ? (
             <label className="mt-4 block">
-              <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                О чём эта история?
-              </span>
+              <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.whatIsThisStory}</span>
               <textarea
                 id="new-story-custom"
                 name="new-story-custom"
@@ -3247,9 +3252,7 @@ function NewStoryDialog({
           ) : (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                  Кто ты?
-                </span>
+                <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.whoAreYou}</span>
                 <input
                   id="new-story-role"
                   name="new-story-role"
@@ -3260,8 +3263,7 @@ function NewStoryDialog({
                 />
               </label>
               <label className="block">
-                <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-                  Имя <span className="normal-case text-stone-600">(необязательно)</span>
+                <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.name}<span className="normal-case text-stone-600">{settings_.optional}</span>
                 </span>
                 <input
                   id="new-story-name"
@@ -3276,15 +3278,13 @@ function NewStoryDialog({
           )}
 
           <div className="mt-4">
-            <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-              Пол персонажа
-            </span>
+            <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.characterGender}</span>
             <div className="grid grid-cols-3 gap-2">
               {(
                 [
-                  { value: "male", label: "Мужской" },
-                  { value: "female", label: "Женский" },
-                  { value: "unspecified", label: "Не указан" },
+                  { value: "male", label: settings_.genderMale },
+                  { value: "female", label: settings_.genderFemale },
+                  { value: "unspecified", label: settings_.genderUnset },
                 ] as const
               ).map((option) => {
                 const selected = option.value === gender;
@@ -3309,14 +3309,12 @@ function NewStoryDialog({
           </div>
 
           <div className="mt-5 border-t border-stone-800 pt-4">
-            <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-              Начало
-            </span>
+            <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.beginning}</span>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  { value: "narrator", label: "Рассказчик задаёт сцену" },
-                  { value: "self", label: "Написать начало самому" },
+                  { value: "narrator", label: settings_.narratorSetsTheScene },
+                  { value: "self", label: settings_.writeTheOpeningYourself },
                 ] as const
               ).map((option) => {
                 const selected = option.value === openingMode;
@@ -3341,8 +3339,7 @@ function NewStoryDialog({
 
             {openingMode === "narrator" ? (
               <label className="mt-3 block">
-                <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">
-                  Подсказка начала <span className="normal-case text-stone-600">(необязательно)</span>
+                <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">{settings_.openingHint}<span className="normal-case text-stone-600">{settings_.optional}</span>
                 </span>
                 <textarea
                   id="new-story-opening-hint"
@@ -3350,15 +3347,13 @@ function NewStoryDialog({
                   value={openingHint}
                   onChange={(event) => setOpeningHint(event.target.value)}
                   rows={2}
-                  placeholder="напр. начни с моего пробуждения в камере без памяти о прошлой ночи"
+                  placeholder={settings_.openingHintPlaceholder}
                   className="w-full resize-none rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
                 />
               </label>
             ) : (
               <label className="mt-3 block">
-                <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">
-                  Твой вводный отрывок
-                </span>
+                <span className="mb-1.5 block text-xs font-medium uppercase text-stone-500">{settings_.yourOpeningPassage}</span>
                 <textarea
                   id="new-story-opening-text"
                   name="new-story-opening-text"
@@ -3381,9 +3376,7 @@ function NewStoryDialog({
               <button
                 type="button"
                 className="rounded-lg border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
-              >
-                Отмена
-              </button>
+              >{settings_.cancel}</button>
             </Dialog.Close>
             <button
               type="button"
@@ -3391,9 +3384,7 @@ function NewStoryDialog({
               onClick={begin}
               className="inline-flex items-center gap-2 rounded-lg bg-amber-200 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
             >
-              <Sparkles className="size-4" aria-hidden="true" />
-              Начать историю
-            </button>
+              <Sparkles className="size-4" aria-hidden="true" />{settings_.beginStory}</button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -3465,14 +3456,15 @@ function MobileToolsSheet({
   clearingLocalData: boolean;
   onClearLocalData: () => void;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   if (!open) {
     return null;
   }
 
   const tools: Array<{ value: MobileTool; label: string }> = [
     { value: "characters", label: "Chars" },
-    { value: "story", label: "История" },
-    { value: "images", label: "Изображения" },
+    { value: "story", label: settings_.storyWord },
+    { value: "images", label: settings_.images },
     { value: "data", label: "Data" },
   ];
 
@@ -3480,21 +3472,21 @@ function MobileToolsSheet({
     <div className="fixed inset-0 z-30 lg:hidden">
       <button
         type="button"
-        aria-label="Закрыть инструменты истории"
+        aria-label={settings_.closeStoryTools}
         onClick={onClose}
         className="absolute inset-0 bg-stone-950/70"
       />
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Инструменты истории"
+        aria-label={settings_.storyTools}
         className="absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col rounded-t-2xl border border-stone-700 bg-[#130d09] shadow-2xl"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800 px-4 py-3">
-          <PanelTitle icon={Settings2} title="Инструменты" />
+          <PanelTitle icon={Settings2} title={settings_.tools} />
           <button
             type="button"
-            aria-label="Закрыть инструменты истории"
+            aria-label={settings_.closeStoryTools}
             onClick={onClose}
             className="flex size-9 items-center justify-center rounded border border-stone-800 text-stone-400 hover:bg-stone-900 hover:text-stone-100"
           >
@@ -3650,6 +3642,7 @@ function ChatLibrary({
   onDelete: (chatId: string) => void;
   fillAvailable?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const chatListClassName = cn(
     "space-y-2 overflow-y-auto pr-1",
@@ -3732,9 +3725,7 @@ function ChatLibrary({
               type="button"
               onClick={onCreate}
               className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-4 text-left text-sm text-stone-400 hover:bg-stone-900"
-            >
-              Начать историю
-            </button>
+            >{settings_.beginStory}</button>
           )}
         </div>
       )}
@@ -3785,6 +3776,7 @@ function CharacterPanel({
   voices: string[];
   compact?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   // Ask the text model to invent a fresh protagonist for the blank draft form.
   const [autofilling, setAutofilling] = useState(false);
@@ -3807,7 +3799,7 @@ function CharacterPanel({
       });
       if (!response.ok) {
         const info = (await response.json().catch(() => null)) as { error?: string } | null;
-        setAutofillError(info?.error || "Не удалось сгенерировать персонажа.");
+        setAutofillError(info?.error || settings_.errorCharacterGenerate);
         return;
       }
       const data = (await response.json()) as {
@@ -3823,7 +3815,7 @@ function CharacterPanel({
         spells: c.spells ?? current.spells,
       }));
     } catch {
-      setAutofillError("Не удалось — запущен ли текстовый сервер?");
+      setAutofillError(settings_.errorTextServer);
     } finally {
       setAutofilling(false);
     }
@@ -3840,9 +3832,7 @@ function CharacterPanel({
       divided={divided}
     >
       <label className="block">
-        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-          Промпт рассказчика
-        </span>
+        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.narratorPrompt}</span>
         <textarea
           id={`${compact ? "mobile" : "desktop"}-narrator-prompt`}
           name={`${compact ? "mobile" : "desktop"}-narrator-prompt`}
@@ -3854,19 +3844,15 @@ function CharacterPanel({
           spellCheck={false}
           className="w-full resize-y rounded border border-stone-800 bg-stone-950 px-3 py-2 font-mono text-xs leading-relaxed text-stone-200 outline-none focus:border-amber-300"
         />
-        <span className="mt-1 block text-[11px] text-stone-600">
-          Системный промпт рассказчика. Пусто — встроенный по умолчанию.
-        </span>
+        <span className="mt-1 block text-[11px] text-stone-600">{settings_.narratorPromptNote}</span>
       </label>
       <div className="space-y-3 rounded border border-stone-800 bg-stone-950/70 p-3">
         <label className="block">
-          <span className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase text-stone-500">
-            Имя
-            <button
+          <span className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase text-stone-500">{settings_.name}<button
               type="button"
               onClick={() => void autofillDraft()}
               disabled={autofilling}
-              title="Заполнить персонажа за меня"
+              title={settings_.fillCharacterForMe}
               className="inline-flex items-center gap-1 rounded border border-stone-700 px-1.5 py-0.5 text-[10px] font-normal normal-case text-stone-400 transition hover:border-amber-300 hover:text-amber-300 disabled:opacity-50"
             >
               {autofilling ? (
@@ -3893,7 +3879,7 @@ function CharacterPanel({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">Детали</span>
+          <span className="mb-1 block text-xs font-medium uppercase text-stone-500">{settings_.details}</span>
           <textarea
             id="new-character-details"
             name="new-character-details"
@@ -3903,7 +3889,7 @@ function CharacterPanel({
             }
             rows={3}
             className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-            placeholder="Короткие чёрные волосы, пацанка, сухой юмор..."
+            placeholder={settings_.detailsPlaceholder}
           />
         </label>
 
@@ -3920,15 +3906,13 @@ function CharacterPanel({
               }
               rows={2}
               className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-              placeholder="Железный кинжал, фонарь, 12 серебра..."
+              placeholder={settings_.inventoryPlaceholder}
             />
           </label>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-                <Sparkles className="size-3.5" aria-hidden="true" />
-                Навыки
-              </span>
+                <Sparkles className="size-3.5" aria-hidden="true" />{settings_.skills}</span>
               <textarea
                 id="new-character-skills"
                 name="new-character-skills"
@@ -3938,14 +3922,12 @@ function CharacterPanel({
                 }
                 rows={2}
                 className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-                placeholder="Взлом замков, травничество..."
+                placeholder={settings_.skillsPlaceholder}
               />
             </label>
             <label className="block">
               <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-                <WandSparkles className="size-3.5" aria-hidden="true" />
-                Заклинания
-              </span>
+                <WandSparkles className="size-3.5" aria-hidden="true" />{settings_.spells}</span>
               <textarea
                 id="new-character-spells"
                 name="new-character-spells"
@@ -3955,7 +3937,7 @@ function CharacterPanel({
                 }
                 rows={2}
                 className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-                placeholder="Починка, рука мага..."
+                placeholder={settings_.spellsPlaceholder}
               />
             </label>
           </div>
@@ -3970,7 +3952,7 @@ function CharacterPanel({
             </span>
             <button
               type="button"
-              aria-label="Убрать черновой портрет"
+              aria-label={settings_.removeDraftPortrait}
               onClick={() => onDraftChange((current) => ({ ...current, portrait: undefined }))}
               className="flex size-7 items-center justify-center rounded text-stone-500 hover:bg-stone-900 hover:text-stone-100"
             >
@@ -4062,7 +4044,7 @@ function CharacterPanel({
                     onBlur={() => onSave(character)}
                     rows={3}
                     className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                    placeholder="Детали, которые рассказчик должен сохранить..."
+                    placeholder={settings_.detailsKeepPlaceholder}
                   />
                 </div>
 
@@ -4089,15 +4071,13 @@ function CharacterPanel({
                     onBlur={() => onSave(character)}
                     rows={2}
                     className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                    placeholder="Предметы, снаряжение, деньги, квестовые объекты..."
+                    placeholder={settings_.inventoryFullPlaceholder}
                   />
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-                      <Sparkles className="size-3.5" aria-hidden="true" />
-                      Навыки
-                    </span>
+                      <Sparkles className="size-3.5" aria-hidden="true" />{settings_.skills}</span>
                     <textarea
                       value={character.skills || ""}
                       onChange={(event) =>
@@ -4106,14 +4086,12 @@ function CharacterPanel({
                       onBlur={() => onSave(character)}
                       rows={2}
                       className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                      placeholder="Таланты, умения, классовые особенности..."
+                      placeholder={settings_.skillsFullPlaceholder}
                     />
                   </label>
                   <label className="block">
                     <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-                      <WandSparkles className="size-3.5" aria-hidden="true" />
-                      Заклинания
-                    </span>
+                      <WandSparkles className="size-3.5" aria-hidden="true" />{settings_.spells}</span>
                     <textarea
                       value={character.spells || ""}
                       onChange={(event) =>
@@ -4122,7 +4100,7 @@ function CharacterPanel({
                       onBlur={() => onSave(character)}
                       rows={2}
                       className="w-full resize-none rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-300 outline-none focus:border-amber-300"
-                      placeholder="Подготовленные заклинания, способности, заметки о перезарядке..."
+                      placeholder={settings_.spellsFullPlaceholder}
                     />
                   </label>
                 </div>
@@ -4154,8 +4132,8 @@ function CharacterPanel({
                 </select>
                 <span className="mt-1 block text-[11px] text-stone-600">
                   {settings.multiVoice
-                    ? "Авто — стабильный отдельный голос по персонажу. Действует при «Разные голоса персонажей»."
-                    : "Включи «Разные голоса персонажей», чтобы реплики читались этим голосом."}
+                    ? settings_.voiceAutoNote
+                    : settings_.enableMultiVoiceNote}
                 </span>
               </label>
 
@@ -4190,9 +4168,7 @@ function CharacterPanel({
                     type="button"
                     onClick={() => onClearPortrait(character.id)}
                     className="h-8 rounded border border-stone-800 px-2 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200"
-                  >
-                    Очистить
-                  </button>
+                  >{settings_.clear}</button>
                 )}
               </div>
             </div>
@@ -4200,9 +4176,7 @@ function CharacterPanel({
         })}
 
         {!characters.length && (
-          <p className="rounded border border-dashed border-stone-800 px-3 py-4 text-sm text-stone-500">
-            Сохранённые персонажи появятся здесь.
-          </p>
+          <p className="rounded border border-dashed border-stone-800 px-3 py-4 text-sm text-stone-500">{settings_.savedCharactersAppearHere}</p>
         )}
       </div>
     </PanelSection>
@@ -4218,35 +4192,30 @@ function DeleteCharacterDialog({
   onConfirm: () => void;
   children: ReactNode;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   return (
     <AlertDialog.Root>
       <AlertDialog.Trigger asChild>{children}</AlertDialog.Trigger>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-stone-950/80" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-stone-700 bg-[#130d09] p-5 shadow-xl">
-          <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">
-            Удалить этого персонажа?
-          </AlertDialog.Title>
+          <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">{settings_.deleteThisCharacter}</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            {characterName || "Этот персонаж"} будет удалён из этой истории.
+            {characterName || settings_.thisCharacter} будет удалён из этой истории.
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
               <button
                 type="button"
                 className="rounded border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
-              >
-                Отмена
-              </button>
+              >{settings_.cancel}</button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
               <button
                 type="button"
                 onClick={onConfirm}
                 className="rounded bg-red-300 px-3 py-2 text-sm font-medium text-red-950 hover:bg-red-200"
-              >
-                Удалить
-              </button>
+              >{settings_.delete}</button>
             </AlertDialog.Action>
           </div>
         </AlertDialog.Content>
@@ -4256,12 +4225,14 @@ function DeleteCharacterDialog({
 }
 
 // One-tap URL fills for the most common OpenAI-compatible servers.
-const SERVER_PRESETS: Array<{ label: string; url: string }> = [
-  { label: "Этот компьютер", url: "http://127.0.0.1:8080/v1" },
+function serverPresets(settings_: SettingsText): Array<{ label: string; url: string }> {
+  return [
+  { label: settings_.thisComputer, url: "http://127.0.0.1:8080/v1" },
   { label: "LM Studio", url: "http://localhost:1234/v1" },
   { label: "Ollama", url: "http://127.0.0.1:11434/v1" },
   { label: "OpenRouter", url: "https://openrouter.ai/api/v1" },
-];
+  ];
+}
 
 function TextModelPanel({
   settings,
@@ -4277,6 +4248,7 @@ function TextModelPanel({
   localTextStatus: LocalTextStatus | null;
   compact?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const idPrefix = compact ? "mobile" : "desktop";
   const selectedMissing =
@@ -4360,11 +4332,11 @@ function TextModelPanel({
       divided={divided}
     >
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Провайдер</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">{settings_.provider}</span>
         <Segmented<TextProvider>
           value={settings.textProvider}
           options={[
-            { value: "custom", label: "Локальный сервер" },
+            { value: "custom", label: settings_.localServer },
             { value: "local", label: "Ollama" },
           ]}
           onChange={(textProvider) =>
@@ -4422,7 +4394,7 @@ function TextModelPanel({
               Быстрое заполнение
             </span>
             <div className="flex flex-wrap gap-1.5">
-              {SERVER_PRESETS.map((preset) => (
+              {serverPresets(settings_).map((preset) => (
                 <button
                   key={preset.label}
                   type="button"
@@ -4483,7 +4455,7 @@ function TextModelPanel({
                   <option value="">
                     {settings.customModel
                       ? `${settings.customModel} (вручную)`
-                      : "— выбери модель —"}
+                      : settings_.pickModel}
                   </option>
                 )}
                 {activeCustomModels.map((model) => (
@@ -4502,7 +4474,7 @@ function TextModelPanel({
               autoCapitalize="off"
               spellCheck={false}
               placeholder={
-                activeCustomModels.length > 0 ? "или впиши id вручную" : "e.g. llama-3.3-70b-instruct"
+                activeCustomModels.length > 0 ? settings_.orTypeIdByHand : "e.g. llama-3.3-70b-instruct"
               }
               value={settings.customModel}
               onChange={(event) =>
@@ -4521,7 +4493,7 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-api-key`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              API-ключ <span className="normal-case text-stone-600">(необязательно)</span>
+              API-ключ <span className="normal-case text-stone-600">{settings_.optional}</span>
             </label>
             <input
               id={`${idPrefix}-custom-api-key`}
@@ -4531,7 +4503,7 @@ function TextModelPanel({
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              placeholder="только если сервер этого требует"
+              placeholder={settings_.onlyIfServerNeeds}
               value={settings.customApiKey}
               onChange={(event) =>
                 setSettings((current) => ({ ...current, customApiKey: event.target.value }))
@@ -4570,6 +4542,7 @@ function FontSizeSlider({
   idPrefix: string;
   className?: string;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const proseSizeValue = proseSizeSliderValue(settings.proseSize);
   const proseSizeLabel = PROSE_SIZE_OPTIONS[proseSizeValue]?.label ?? "18px";
 
@@ -4582,9 +4555,7 @@ function FontSizeSlider({
     >
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-          <Type className="size-3.5" aria-hidden="true" />
-          Размер шрифта
-        </span>
+          <Type className="size-3.5" aria-hidden="true" />{settings_.fontSize}</span>
         <span className="text-xs font-medium text-amber-100">{proseSizeLabel}</span>
       </div>
       <input
@@ -4595,7 +4566,7 @@ function FontSizeSlider({
         max={PROSE_SIZE_OPTIONS.length - 1}
         step={1}
         value={proseSizeValue}
-        aria-label="Размер шрифта"
+        aria-label={settings_.fontSize}
         onChange={(event) => {
           const option =
             PROSE_SIZE_OPTIONS[Number(event.target.value)] ?? PROSE_SIZE_OPTIONS[3];
@@ -4623,11 +4594,12 @@ function ResponseLengthControl({
   idPrefix: string;
   className?: string;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const value = Math.max(
     0,
-    RESPONSE_LENGTH_OPTIONS.findIndex((option) => option.value === settings.responseLength),
+    responseLengthOptions(settings_).findIndex((option) => option.value === settings.responseLength),
   );
-  const label = RESPONSE_LENGTH_OPTIONS[value]?.label ?? "Средне";
+  const label = responseLengthOptions(settings_)[value]?.label ?? settings_.lengthMedium;
 
   return (
     <div
@@ -4637,7 +4609,7 @@ function ResponseLengthControl({
       )}
     >
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium uppercase text-stone-500">Длина ответа</span>
+        <span className="text-xs font-medium uppercase text-stone-500">{settings_.responseLength}</span>
         <span className="text-xs font-medium text-amber-100">{label}</span>
       </div>
       <input
@@ -4645,19 +4617,19 @@ function ResponseLengthControl({
         name={`${idPrefix}-response-length`}
         type="range"
         min={0}
-        max={RESPONSE_LENGTH_OPTIONS.length - 1}
+        max={responseLengthOptions(settings_).length - 1}
         step={1}
         value={value}
-        aria-label="Длина ответа"
+        aria-label={settings_.responseLength}
         onChange={(event) => {
           const option =
-            RESPONSE_LENGTH_OPTIONS[Number(event.target.value)] ?? RESPONSE_LENGTH_OPTIONS[1];
+            responseLengthOptions(settings_)[Number(event.target.value)] ?? responseLengthOptions(settings_)[1];
           setSettings((current) => ({ ...current, responseLength: option.value }));
         }}
         className="w-full accent-amber-200"
       />
       <div className="flex justify-between text-[0.65rem] font-medium uppercase text-stone-600">
-        {RESPONSE_LENGTH_OPTIONS.map((option) => (
+        {responseLengthOptions(settings_).map((option) => (
           <span key={option.value}>{option.label}</span>
         ))}
       </div>
@@ -4678,6 +4650,7 @@ function LanguageControl({
   idPrefix: string;
   className?: string;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   return (
     <div
       className={cn(
@@ -4689,9 +4662,7 @@ function LanguageControl({
         htmlFor={`${idPrefix}-language`}
         className="flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500"
       >
-        <Globe className="size-3.5" aria-hidden="true" />
-        Язык
-      </label>
+        <Globe className="size-3.5" aria-hidden="true" />{settings_.language}</label>
       <select
         id={`${idPrefix}-language`}
         name={`${idPrefix}-language`}
@@ -4720,6 +4691,7 @@ function VoiceControl({
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   className?: string;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const [voices, setVoices] = useState<string[]>([]);
   const [uploaded, setUploaded] = useState<string[]>([]);
   const [uploadingVoice, setUploadingVoice] = useState(false);
@@ -4752,14 +4724,14 @@ function VoiceControl({
         error?: string;
       };
       if (!response.ok || !data.voice) {
-        setVoiceError(data.error || "Не удалось загрузить голос.");
+        setVoiceError(data.error || settings_.errorVoiceLoad);
         return;
       }
       const id = data.voice;
       setUploaded((current) => (current.includes(id) ? current : [...current, id]));
       setSettings((current) => ({ ...current, voice: id }));
     } catch {
-      setVoiceError("Сервер озвучки не запущен (порт 8081).");
+      setVoiceError(settings_.errorTtsServer);
     } finally {
       setUploadingVoice(false);
     }
@@ -4775,9 +4747,7 @@ function VoiceControl({
         className,
       )}
     >
-      <label className="flex items-center justify-between text-sm text-stone-300">
-        Автоозвучка
-        <input
+      <label className="flex items-center justify-between text-sm text-stone-300">{settings_.autoNarration}<input
           type="checkbox"
           checked={settings.autoplay}
           onChange={(event) =>
@@ -4787,9 +4757,7 @@ function VoiceControl({
         />
       </label>
       <div>
-        <span className="mb-1 block text-xs font-medium uppercase text-stone-500">
-          Голос озвучки
-        </span>
+        <span className="mb-1 block text-xs font-medium uppercase text-stone-500">{settings_.narrationVoice}</span>
         <select
           value={settings.voice}
           onChange={(event) =>
@@ -4822,13 +4790,13 @@ function VoiceControl({
           onClick={() => voiceFileRef.current?.click()}
           className="mt-2 w-full rounded border border-stone-800 bg-stone-900 px-2 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 disabled:opacity-50"
         >
-          {uploadingVoice ? "Загрузка…" : "Загрузить свой голос (.mp3)"}
+          {uploadingVoice ? settings_.loading : settings_.uploadOwnVoice}
         </button>
         {voiceError && <p className="mt-1 text-xs text-red-400">{voiceError}</p>}
       </div>
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-medium uppercase text-stone-500">Громкость</span>
+          <span className="text-xs font-medium uppercase text-stone-500">{settings_.volume}</span>
           <span className="text-xs font-medium text-amber-100">{Math.round(settings.ttsVolume * 100)}%</span>
         </div>
         <input
@@ -4837,7 +4805,7 @@ function VoiceControl({
           max={1}
           step={0.05}
           value={settings.ttsVolume}
-          aria-label="Громкость"
+          aria-label={settings_.volume}
           onChange={(event) =>
             setSettings((current) => ({ ...current, ttsVolume: Number(event.target.value) }))
           }
@@ -4846,7 +4814,7 @@ function VoiceControl({
       </div>
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-medium uppercase text-stone-500">Скорость речи</span>
+          <span className="text-xs font-medium uppercase text-stone-500">{settings_.speechRate}</span>
           <span className="text-xs font-medium text-amber-100">{settings.ttsSpeed.toFixed(2)}×</span>
         </div>
         <input
@@ -4855,7 +4823,7 @@ function VoiceControl({
           max={2}
           step={0.05}
           value={settings.ttsSpeed}
-          aria-label="Скорость речи"
+          aria-label={settings_.speechRate}
           onChange={(event) =>
             setSettings((current) => ({ ...current, ttsSpeed: Number(event.target.value) }))
           }
@@ -4936,22 +4904,23 @@ function EngineToggle({
 
 /// Настройки САМОЙ отрисовки — здесь, а не в «Движках»: это про кадр, а не про железо.
 function ImageEngineTuning() {
+  const settings_ = settingsText(useUiLanguage());
   const { runtime, patch } = useEngineRuntime();
   if (!runtime) return null;
   return (
     <div className="space-y-3 rounded border border-stone-800 bg-stone-950 px-3 py-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-amber-300/70">Отрисовка</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-amber-300/70">{settings_.rendering}</p>
       <EngineNumber
-        label="Шагов на кадр"
-        hint="Меньше шагов — быстрее кадр, но грубее. Krea-2 Turbo дистиллирована под восемь."
+        label={settings_.stepsPerFrame}
+        hint={settings_.stepsNote}
         value={runtime.imageSteps}
         min={1}
         max={50}
         onChange={(value) => patch("imageSteps", Math.max(1, value))}
       />
       <EngineNumber
-        label="Сила промпта"
-        hint="У дистиллированной модели должна оставаться единицей."
+        label={settings_.promptStrength}
+        hint={settings_.promptStrengthNote}
         value={runtime.imageCfg}
         step={0.1}
         min={0}
@@ -4964,26 +4933,27 @@ function ImageEngineTuning() {
 
 /// Настройки самой озвучки — здесь, рядом с голосом и громкостью.
 function VoiceEngineTuning() {
+  const settings_ = settingsText(useUiLanguage());
   const { runtime, patch } = useEngineRuntime();
   if (!runtime) return null;
   return (
     <div className="space-y-3 rounded border border-stone-800 bg-stone-950 px-3 py-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-amber-300/70">Синтез</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-amber-300/70">{settings_.synthesis}</p>
       <EngineToggle
-        label="Озвучка включена"
-        hint="Выключенная озвучка не тратит ни карту, ни облако."
+        label={settings_.narrationOn}
+        hint={settings_.narrationOnNote}
         checked={runtime.ttsEnabled}
         onChange={(value) => patch("ttsEnabled", value)}
       />
       <EngineToggle
-        label="Озвучивать параллельно с ходом"
-        hint="Быстрее, но на карте это лишние гигабайты памяти — на слабой лучше выключить."
+        label={settings_.narrationParallel}
+        hint={settings_.narrationParallelNote}
         checked={runtime.ttsParallel}
         onChange={(value) => patch("ttsParallel", value)}
       />
       <EngineNumber
-        label="Секунд эталона голоса"
-        hint="Сколько секунд образца отдавать движку клонирования."
+        label={settings_.referenceSeconds}
+        hint={settings_.referenceSecondsNote}
         value={runtime.ttsReferenceSeconds}
         min={3}
         max={30}
@@ -5005,6 +4975,7 @@ function VoicePanel({
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   compact?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   return (
     <PanelSection
@@ -5021,7 +4992,7 @@ function VoicePanel({
       {/* Многоголосие жило в разделе про повествование, хотя решает, каким голосом читать
           реплики персонажей. */}
       <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-stone-800 bg-stone-950 px-3 py-2">
-        <span className="text-xs text-stone-300">Реплики персонажей — своими голосами</span>
+        <span className="text-xs text-stone-300">{settings_.perCharacterVoices}</span>
         <input
           type="checkbox"
           checked={settings.multiVoice}
@@ -5102,6 +5073,7 @@ function MicButton({
   onTranscript: (text: string) => void;
   disabled?: boolean;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -5180,7 +5152,7 @@ function MicButton({
       type="button"
       onClick={() => void (recording ? stop() : start())}
       disabled={disabled || busy}
-      title={recording ? "Остановить запись" : "Голосовой ввод"}
+      title={recording ? settings_.stopRecording : "Голосовой ввод"}
       className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
     >
       {busy ? (
@@ -5213,6 +5185,7 @@ function HudBar({
   derived: DerivedRpg;
   name: string;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   // Derived (base + equipped) view the resolver uses — computed once by the parent
   // (hero's OWN items only) so the HUD can't show buffs from a companion's gear.
@@ -5230,9 +5203,7 @@ function HudBar({
           <span className="truncate font-serif text-sm text-stone-100">{name}</span>
           <span className="text-[10px] uppercase tracking-wide text-amber-300/70">Ур. {hero.level}</span>
           {hero.dead && (
-            <span className="rounded border border-red-500/60 px-1.5 text-[10px] font-medium uppercase text-red-300">
-              ☠️ погиб
-            </span>
+            <span className="rounded border border-red-500/60 px-1.5 text-[10px] font-medium uppercase text-red-300">{settings_.dead}</span>
           )}
         </div>
         <span className="inline-flex items-center gap-1 text-xs text-stone-300">
@@ -5301,14 +5272,17 @@ const RARITY_TONE: Record<Item["rarity"], string> = {
   epic: "text-fuchsia-300",
   legendary: "text-amber-300",
 };
-const SLOT_RU: Record<Item["slot"], string> = {
-  weapon: "оружие",
-  armor: "броня",
-  shield: "щит",
-  trinket: "украшение",
-  consumable: "расходник",
-  misc: "прочее",
-};
+/// Названия слотов на языке игры: список строится при отрисовке.
+function slotNames(settings_: SettingsText): Record<Item["slot"], string> {
+  return {
+  weapon: settings_.slotWeapon,
+  armor: settings_.slotArmor,
+  shield: settings_.slotShield,
+  trinket: settings_.slotTrinket,
+  consumable: settings_.slotConsumable,
+    misc: settings_.slotMisc,
+  };
+}
 const SLOT_ICON: Record<Item["slot"], typeof Swords> = {
   weapon: Swords,
   armor: ShieldHalf,
@@ -5541,6 +5515,7 @@ function QuestsPanel({
   onDecide: (questId: string, status: QuestStatus) => void;
   disabled?: boolean;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const open = quests.filter((quest) => quest.status === "offered" || quest.status === "active");
   const closed = quests.filter((quest) => quest.status === "done" || quest.status === "failed");
@@ -5601,17 +5576,13 @@ function QuestsPanel({
                   disabled={disabled}
                   onClick={() => onDecide(quest.id, "active")}
                   className="rounded border border-amber-600/70 bg-amber-900/40 px-2 py-0.5 text-[11px] text-amber-100 transition hover:border-amber-400 disabled:opacity-50"
-                >
-                  Взять
-                </button>
+                >{settings_.takeQuest}</button>
                 <button
                   type="button"
                   disabled={disabled}
                   onClick={() => onDecide(quest.id, "declined")}
                   className="rounded border border-stone-700 px-2 py-0.5 text-[11px] text-stone-300 transition hover:border-stone-500 disabled:opacity-50"
-                >
-                  Отказаться
-                </button>
+                >{settings_.declineQuest}</button>
               </>
             ) : (
               <button
@@ -5619,9 +5590,7 @@ function QuestsPanel({
                 disabled={disabled}
                 onClick={() => onDecide(quest.id, "failed")}
                 className="rounded border border-stone-700 px-2 py-0.5 text-[11px] text-stone-400 transition hover:border-red-600/70 hover:text-red-300 disabled:opacity-50"
-              >
-                Бросить
-              </button>
+              >{settings_.abandonQuest}</button>
             )}
           </div>
         </div>
@@ -5651,6 +5620,7 @@ function InventoryPanel({
   onToggle: (itemId: string, equipped: boolean) => void;
   disabled?: boolean;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   return (
     <div className="max-h-44 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
@@ -5689,7 +5659,7 @@ function InventoryPanel({
                 )}
               </div>
               <div className="truncate text-[10px] text-stone-500">
-                {SLOT_RU[item.slot]}
+                {slotNames(settings_)[item.slot]}
                 {item.damage ? ` · ${item.damage}` : ""}
               </div>
             </div>
@@ -5705,7 +5675,7 @@ function InventoryPanel({
                     : "border-stone-700 text-stone-400 hover:border-amber-300/60 hover:text-amber-200",
                 )}
               >
-                {item.equipped ? "Снять" : "Надеть"}
+                {item.equipped ? settings_.unequip : settings_.equip}
               </button>
             )}
           </div>
@@ -5738,6 +5708,7 @@ function CharacterSheet({
   onRegeneratePortrait?: () => void;
   portraitBusy?: boolean;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   // One inventory: worn gear sorted to the front (and amber-highlighted in the
   // grid) instead of a separate "equipped" list that duplicated the same items.
@@ -5778,7 +5749,7 @@ function CharacterSheet({
               type="button"
               onClick={onRegeneratePortrait}
               disabled={busy || portraitBusy}
-              title="Перегенерировать аватар"
+              title={settings_.regenerateAvatar}
               className="absolute right-1.5 top-1.5 inline-flex size-7 items-center justify-center rounded-full border border-amber-300/40 bg-stone-950/70 text-amber-200 backdrop-blur transition hover:bg-stone-900 disabled:opacity-60"
             >
               {portraitBusy ? (
@@ -5796,9 +5767,7 @@ function CharacterSheet({
             </div>
           )}
           {hero.dead && (
-            <div className="absolute inset-0 flex items-center justify-center bg-red-950/55 text-sm font-semibold uppercase tracking-wider text-red-200">
-              ☠️ погиб
-            </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-red-950/55 text-sm font-semibold uppercase tracking-wider text-red-200">{settings_.dead}</div>
           )}
         </div>
       </div>
@@ -5892,7 +5861,7 @@ function CharacterSheet({
               const Icon = SLOT_ICON[item.slot];
               const equippable = item.slot !== "consumable" && item.slot !== "misc";
               const label = `${item.name}${item.damage ? ` · ${item.damage}` : ""}${
-                equippable ? (item.equipped ? " · надето (нажмите чтобы снять)" : " · надеть") : ""
+                equippable ? (item.equipped ? settings_.equippedHint : settings_.equipHint) : ""
               }`;
               return (
                 <button
@@ -5977,6 +5946,7 @@ const RARITY_RING: Record<string, string> = {
 // debuff. The engine already wrote the player-facing text + emoji; the card frames
 // it like a real game UI instead of a flat journal line.
 function EventCard({ event }: { event: GameEvent }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   if (event.kind === "item") {
     const item = (event.data as { item?: Item } | undefined)?.item;
@@ -5997,7 +5967,7 @@ function EventCard({ event }: { event: GameEvent }) {
         <div className="min-w-0">
           <div className="truncate font-medium text-stone-100">{item?.name ?? "Предмет"}</div>
           <div className="truncate text-xs text-stone-400">
-            {event.text.replace(/^📦\s*Получен предмет:\s*/, "Добыча — ")}
+            {event.text.replace(/^📦\s*Получен предмет:\s*/, settings_.loot)}
           </div>
         </div>
       </div>
@@ -6370,6 +6340,7 @@ function DiceButton({
   onValue: (value: string) => void;
   context?: string;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const [loading, setLoading] = useState(false);
   const roll = async () => {
     setLoading(true);
@@ -6395,11 +6366,11 @@ function DiceButton({
       type="button"
       onClick={roll}
       disabled={loading}
-      title="Придумать за меня"
+      title={settings_.inventItem}
       className="inline-flex items-center gap-1 rounded border border-stone-700 px-1.5 py-0.5 text-[10px] font-normal normal-case text-stone-400 transition hover:border-amber-300 hover:text-amber-300 disabled:opacity-50"
     >
       <Dices size={13} className={loading ? "animate-spin" : ""} />
-      {loading ? "…" : "Идея"}
+      {loading ? "…" : settings_.idea}
     </button>
   );
 }
@@ -6416,6 +6387,7 @@ function StorySettingsPanel({
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   compact?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const idPrefix = compact ? "mobile" : "desktop";
 
@@ -6439,7 +6411,7 @@ function StorySettingsPanel({
         </>
       )}
       <label className="mb-1 flex cursor-pointer items-center justify-between gap-3 rounded border border-stone-800 bg-stone-950 px-3 py-2">
-        <span className="text-xs font-medium uppercase text-stone-400">⚔️ Режим D&D (статы, кубик, журнал)</span>
+        <span className="text-xs font-medium uppercase text-stone-400">{settings_.dndMode}</span>
         <input
           type="checkbox"
           checked={settings.rpgEnabled}
@@ -6452,7 +6424,7 @@ function StorySettingsPanel({
       {settings.rpgEnabled && (
         <div className="mb-1 space-y-2 rounded border border-stone-800 bg-stone-950/60 px-3 py-2">
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-xs text-stone-300">✨ Случайные события (баффы/проклятья)</span>
+            <span className="text-xs text-stone-300">{settings_.randomEvents}</span>
             <input
               type="checkbox"
               checked={settings.randomEvents}
@@ -6462,9 +6434,9 @@ function StorySettingsPanel({
               className="size-4 accent-amber-300"
             />
           </label>
-          <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">🎲 Кубики</div>
+          <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">{settings_.dice}</div>
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-xs text-stone-300">3D-бросок</span>
+            <span className="text-xs text-stone-300">{settings_.dice3d}</span>
             <input
               type="checkbox"
               checked={settings.diceEnabled}
@@ -6475,9 +6447,7 @@ function StorySettingsPanel({
             />
           </label>
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className={cn("text-xs", settings.diceEnabled ? "text-stone-300" : "text-stone-600")}>
-              Звук броска
-            </span>
+            <span className={cn("text-xs", settings.diceEnabled ? "text-stone-300" : "text-stone-600")}>{settings_.diceSound}</span>
             <input
               type="checkbox"
               checked={settings.diceSound}
@@ -6490,9 +6460,7 @@ function StorySettingsPanel({
           </label>
           <label className="block">
             <span className="mb-1 flex items-center justify-between text-xs">
-              <span className={settings.diceEnabled && settings.diceSound ? "text-stone-300" : "text-stone-600"}>
-                Громкость
-              </span>
+              <span className={settings.diceEnabled && settings.diceSound ? "text-stone-300" : "text-stone-600"}>{settings_.volume}</span>
               <span className="tabular-nums text-stone-500">{settings.diceVolume}%</span>
             </span>
             <input
@@ -6511,11 +6479,9 @@ function StorySettingsPanel({
         </div>
       )}
       <div className="mb-1 space-y-2 rounded border border-stone-800 bg-stone-950/60 px-3 py-2">
-        <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">
-          ✨ Как ведётся рассказ
-        </div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-stone-500">{settings_.howTheStoryGoes}</div>
         <label className="flex cursor-pointer items-center justify-between gap-3">
-          <span className="text-xs text-stone-300">Избегать повторов сцен</span>
+          <span className="text-xs text-stone-300">{settings_.avoidRepeats}</span>
           <input
             type="checkbox"
             checked={settings.antiRepetition}
@@ -6526,7 +6492,7 @@ function StorySettingsPanel({
           />
         </label>
         <label className="flex cursor-pointer items-center justify-between gap-3">
-          <span className="text-xs text-stone-300">Осмысленная концовка</span>
+          <span className="text-xs text-stone-300">{settings_.meaningfulEnding}</span>
           <input
             type="checkbox"
             checked={settings.causeAwareEnding}
@@ -6537,7 +6503,7 @@ function StorySettingsPanel({
           />
         </label>
         <label className="flex cursor-pointer items-center justify-between gap-3">
-          <span className="text-xs text-stone-300">Спутник-комментатор</span>
+          <span className="text-xs text-stone-300">{settings_.companion}</span>
           <input
             type="checkbox"
             checked={settings.companion}
@@ -6549,9 +6515,7 @@ function StorySettingsPanel({
         </label>
       </div>
       <label className="block">
-        <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
-          Мир
-          <DiceButton
+        <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">{settings_.world}<DiceButton
             field="world"
             settings={settings}
             context={settings.style}
@@ -6570,9 +6534,7 @@ function StorySettingsPanel({
         />
       </label>
       <label className="block">
-        <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">
-          Стиль
-          <DiceButton
+        <span className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-stone-500">{settings_.style}<DiceButton
             field="style"
             settings={settings}
             context={settings.world}
@@ -6618,18 +6580,19 @@ function ImageSettingsPanel({
   onOpenImageModelFolder: () => void;
   compact?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const idPrefix = compact ? "mobile" : "desktop";
   const imageControlsDisabled = !settings.imageGenerationEnabled;
   // Отдельного сервера картинок больше нет: движок живёт внутри приложения и берёт карту
   // на время кадра. Поэтому здесь не «запустить», а показать, готовы ли веса.
   const engineReady = Boolean(imageWorkerStatus?.ok);
-  const workerStatusLabel = engineReady ? "Движок кадров готов" : "Весов кадра нет";
+  const workerStatusLabel = engineReady ? settings_.frameEngineReady : settings_.frameWeightsMissing;
   const workerDetail = engineReady
     ? imageWorkerStatus?.defaultBackend
       ? `Считает: ${imageWorkerStatus.defaultBackend}`
-      : "Кадр рисуется на карте, память освобождается сразу после."
-    : "Скачайте веса — или переключите кадр в облако в разделе «Движки и облако».";
+      : settings_.frameEngineNote
+    : settings_.frameWeightsHint;
 
   return (
     <PanelSection
@@ -6642,9 +6605,7 @@ function ImageSettingsPanel({
       onOpenChange={onOpenChange}
       divided={divided}
     >
-      <label className="flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300">
-        Генерация изображений
-        <input
+      <label className="flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300">{settings_.imageGeneration}<input
           id={`${idPrefix}-image-generation-enabled`}
           name={`${idPrefix}-image-generation-enabled`}
           type="checkbox"
@@ -6678,16 +6639,14 @@ function ImageSettingsPanel({
             onClick={onOpenImageModelFolder}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/50 px-2 text-sm text-stone-200 hover:border-amber-700/60 hover:bg-stone-900 disabled:cursor-not-allowed disabled:border-stone-800 disabled:text-stone-600"
           >
-            <FolderOpen className="size-4" aria-hidden="true" />
-            Модели
-          </button>
+            <FolderOpen className="size-4" aria-hidden="true" />{settings_.models}</button>
         </div>
         {imageWorkerMessage && (
           <p className="text-xs leading-relaxed text-stone-500">{imageWorkerMessage}</p>
         )}
       </div>
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Размер</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">{settings_.size}</span>
         <Segmented<ImageMode>
           value={settings.imageMode}
           options={[
@@ -6699,13 +6658,13 @@ function ImageSettingsPanel({
         />
       </div>
       <div className="space-y-2">
-        <span className="block text-xs font-medium uppercase text-stone-500">Соотношение</span>
+        <span className="block text-xs font-medium uppercase text-stone-500">{settings_.ratio}</span>
         <Segmented<AspectPreset>
           value={settings.aspect}
           options={[
-            { value: "square", label: "Квадрат" },
-            { value: "portrait", label: "Портрет" },
-            { value: "landscape", label: "Пейзаж" },
+            { value: "square", label: settings_.square },
+            { value: "portrait", label: settings_.portrait },
+            { value: "landscape", label: settings_.landscape },
           ]}
           disabled={imageControlsDisabled}
           onChange={(aspect) => setSettings((current) => ({ ...current, aspect }))}
@@ -6716,9 +6675,7 @@ function ImageSettingsPanel({
           "flex items-center justify-between rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-300",
           imageControlsDisabled && "text-stone-600",
         )}
-      >
-        Авто-картинки
-        <input
+      >{settings_.autoImages}<input
           id={`${idPrefix}-auto-images`}
           name={`${idPrefix}-auto-images`}
           type="checkbox"
@@ -6731,7 +6688,7 @@ function ImageSettingsPanel({
         />
       </label>
       <label className="block">
-        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">Стиль кадра</span>
+        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.frameStyle}</span>
         <input
           type="text"
           value={settings.imageStylePrefix}
@@ -6739,18 +6696,14 @@ function ImageSettingsPanel({
             setSettings((current) => ({ ...current, imageStylePrefix: event.target.value }))
           }
           disabled={imageControlsDisabled}
-          placeholder="напр. dark fantasy, масло, приглушённая палитра"
+          placeholder={settings_.frameStylePlaceholder}
           className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
         />
-        <span className="mt-1 block text-[11px] leading-relaxed text-stone-600">
-          Приписывается к каждому кадру — так все картинки истории держат одну манеру.
-        </span>
+        <span className="mt-1 block text-[11px] leading-relaxed text-stone-600">{settings_.frameStyleNote}</span>
       </label>
       <ImageEngineTuning />
       <label className="block">
-        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">
-          Промпт изображений
-        </span>
+        <span className="mb-2 block text-xs font-medium uppercase text-stone-500">{settings_.imagePrompt}</span>
         <textarea
           id={`${idPrefix}-image-prompt`}
           name={`${idPrefix}-image-prompt`}
@@ -6763,9 +6716,7 @@ function ImageSettingsPanel({
           spellCheck={false}
           className="w-full resize-y rounded border border-stone-800 bg-stone-950 px-3 py-2 font-mono text-xs leading-relaxed text-stone-200 outline-none focus:border-amber-300 disabled:cursor-not-allowed disabled:text-stone-600"
         />
-        <span className="mt-1 block text-[11px] text-stone-600">
-          Инструкция модели по генерации изображений (FLUX-промпт остаётся на английском). Пусто — встроенный по умолчанию.
-        </span>
+        <span className="mt-1 block text-[11px] text-stone-600">{settings_.imagePromptNote}</span>
       </label>
     </PanelSection>
   );
@@ -6889,11 +6840,12 @@ const DONATE = {
 
 /// Строка с адресом кошелька: щелчок копирует, потому что вручную такое не набирают.
 function CryptoRow({ coin, address }: { coin: string; address: string }) {
+  const settings_ = settingsText(useUiLanguage());
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      title="Скопировать адрес"
+      title={settings_.copyAddress}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(address);
@@ -6917,6 +6869,7 @@ function CryptoRow({ coin, address }: { coin: string; address: string }) {
 }
 
 function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   return (
     <PanelSection
@@ -6938,9 +6891,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex items-center justify-center gap-2 rounded border border-stone-700 bg-stone-900/40 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-700/60 hover:bg-stone-900"
-        >
-          💳 Картой
-        </a>
+        >{settings_.byCard}</a>
         <a
           href={DONATE.boosty}
           target="_blank"
@@ -6981,7 +6932,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
             ["Нейро-Софт", "https://t.me/neuroport"],
             ["GitHub", DONATE.github],
             ["Telegram", DONATE.telegram],
-            ["Все способы", DONATE.all],
+            [settings_.allWays, DONATE.all],
           ].map(([label, href]) => (
             <a
               key={label}
@@ -7006,15 +6957,14 @@ function ClearLocalDataDialog({
   onConfirm: () => void;
   children: ReactNode;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   return (
     <AlertDialog.Root>
       <AlertDialog.Trigger asChild>{children}</AlertDialog.Trigger>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-stone-950/80" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),440px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-red-900/80 bg-[#130d09] p-5 shadow-xl">
-          <AlertDialog.Title className="text-balance text-base font-semibold text-red-100">
-            Полностью очистить приложение?
-          </AlertDialog.Title>
+          <AlertDialog.Title className="text-balance text-base font-semibold text-red-100">{settings_.wipeEverything}</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
             Удалит все локальные истории, сообщения, персонажей, загруженные фото, сгенерированные
             картинки и временные файлы-референсы с этого компьютера.
@@ -7024,18 +6974,14 @@ function ClearLocalDataDialog({
               <button
                 type="button"
                 className="rounded border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
-              >
-                Отмена
-              </button>
+              >{settings_.cancel}</button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
               <button
                 type="button"
                 onClick={onConfirm}
                 className="rounded bg-red-300 px-3 py-2 text-sm font-medium text-red-950 hover:bg-red-200"
-              >
-                Удалить всё
-              </button>
+              >{settings_.deleteAll}</button>
             </AlertDialog.Action>
           </div>
         </AlertDialog.Content>
@@ -7053,15 +6999,14 @@ function DeleteChatDialog({
   onConfirm: () => void;
   children: ReactNode;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   return (
     <AlertDialog.Root>
       <AlertDialog.Trigger asChild>{children}</AlertDialog.Trigger>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-stone-950/80" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-stone-700 bg-[#130d09] p-5 shadow-xl">
-          <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">
-            Удалить эту историю?
-          </AlertDialog.Title>
+          <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">{settings_.deleteThisStory}</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
             {chat.title} и его сохранённые сообщения будут удалены из локальной базы.
           </AlertDialog.Description>
@@ -7070,18 +7015,14 @@ function DeleteChatDialog({
               <button
                 type="button"
                 className="rounded border border-stone-700 px-3 py-2 text-sm text-stone-300 hover:bg-stone-900"
-              >
-                Отмена
-              </button>
+              >{settings_.cancel}</button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
               <button
                 type="button"
                 onClick={onConfirm}
                 className="rounded bg-red-300 px-3 py-2 text-sm font-medium text-red-950 hover:bg-red-200"
-              >
-                Удалить
-              </button>
+              >{settings_.delete}</button>
             </AlertDialog.Action>
           </div>
         </AlertDialog.Content>
@@ -7180,6 +7121,7 @@ function MessageEditor({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   return (
     <div className={cn("flex flex-col gap-2", message.role === "user" && "items-end")}>
       <textarea
@@ -7202,17 +7144,13 @@ function MessageEditor({
           type="button"
           onClick={onCancel}
           className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-300 hover:bg-stone-900"
-        >
-          Отмена
-        </button>
+        >{settings_.cancel}</button>
         <button
           type="button"
           onClick={onSave}
           className="inline-flex items-center gap-1.5 rounded-lg bg-amber-200 px-3 py-1.5 text-xs font-medium text-stone-950 hover:bg-amber-100"
         >
-          <Check className="size-3.5" aria-hidden="true" />
-          Сохранить
-        </button>
+          <Check className="size-3.5" aria-hidden="true" />{settings_.save}</button>
       </div>
     </div>
   );
@@ -7279,6 +7217,7 @@ function ImageBeat({
   // so the user can't queue an image render that fights the LLM for the GPU.
   busy?: boolean;
 }) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const isLoading = status === "loading";
   const isError = status === "error";
@@ -7340,9 +7279,9 @@ function ImageBeat({
         )}
         <span>
           {isError
-            ? "Ошибка инструмента изображений."
+            ? settings_.errorImageTool
             : isLoading
-              ? "Генерирую сцену..."
+              ? settings_.generatingScene
               : ui.frameRequested}
         </span>
         {!isLoading && (

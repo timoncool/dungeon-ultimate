@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import HTMLFlipBook from "react-pageflip";
 import { cn } from "@/lib/cn";
 import { panelText } from "@/lib/ui-text-panels";
-import { useUiLanguage } from "@/lib/ui-text-context";
+import { useUi, useUiLanguage } from "@/lib/ui-text-context";
 import { splitSentences } from "@/lib/text";
 import type { CheckResult } from "@/lib/rpg/dice";
 import type { GameEvent, Item } from "@/lib/rpg/types";
@@ -72,6 +72,7 @@ function withoutLeadingEmoji(text: string): string {
 // styled for the page (not the dark feed card).
 function BookEventCard({ event }: { event: GameEvent }) {
   const panel = panelText(useUiLanguage());
+  const ui = useUi();
   if (event.kind === "item") {
     const item = (event.data as { item?: Item } | undefined)?.item;
     return (
@@ -131,7 +132,7 @@ function BookEventCard({ event }: { event: GameEvent }) {
         )}
         <div className="min-w-0">
           <div className="font-serif text-[11px] uppercase tracking-[0.18em] text-[#8a6a2c]">
-            {legendary ? "Легендарное достижение" : rare ? "Редкое достижение" : "Достижение"}
+            {legendary ? ui.rarityLegendary : rare ? ui.rarityRare : ui.rarityCommon}
           </div>
           <div className="font-serif text-base font-bold text-[#3a2a18]">
             {award?.title ?? event.text}
