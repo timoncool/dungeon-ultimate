@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { Move, PictureInPicture2, Minimize2 } from "lucide-react";
 import { api, type HwSnapshot } from "../lib/api";
 import { useFloatable, dockSlot } from "../lib/useFloatable";
+import { panelText } from "@/lib/ui-text-panels";
+import { useUiLanguage } from "@/lib/ui-text-context";
 
 const gb = (n: number) => n / 1024 ** 3;
 const fmtGb = (n: number) => `${gb(n).toFixed(1)} ГБ`;
@@ -37,6 +39,7 @@ function Bar({ label, pct, right }: { label: string; pct: number; right: string 
 }
 
 export default function ResourceMonitor() {
+  const panel = panelText(useUiLanguage());
   const [hw, setHw] = useState<HwSnapshot | null>(null);
   const [ok, setOk] = useState(true);
   const [, force] = useState(0);
@@ -68,7 +71,7 @@ export default function ResourceMonitor() {
     const slot = dockSlot();
     if (!slot) return null;
     return createPortal(
-      <button onClick={fl.pop} title="Оторвать монитор ресурсов"
+      <button onClick={fl.pop} title={panel.monitorDetach}
         className="inline-flex shrink-0 whitespace-nowrap items-center gap-2 px-2.5 h-8 rounded-md bg-[var(--color-surface-2)] border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors">
         <Dot pct={lead} />
         {hasGpu && <span className="mono text-[11px] tabular-nums">{Math.round(hw.gpuUtilization)}%</span>}
@@ -89,7 +92,7 @@ export default function ResourceMonitor() {
           <Dot pct={lead} />
           <span className="text-[12px] font-semibold truncate flex-1">{hasGpu ? hw.gpuName.replace(/NVIDIA GeForce /i, "") : "Ресурсы"}</span>
           {hasGpu && <span className="mono text-[11px] text-[var(--color-muted)]">{Math.round(hw.temperature)}°</span>}
-          <button onClick={fl.dock} title="Вернуть в шапку" className="text-[var(--color-muted)] hover:text-[var(--color-text)]"><Minimize2 size={13} /></button>
+          <button onClick={fl.dock} title={panel.monitorAttach} className="text-[var(--color-muted)] hover:text-[var(--color-text)]"><Minimize2 size={13} /></button>
         </div>
         <div className="px-3 pb-3 pt-2 space-y-2.5">
           {hasGpu && (
@@ -97,7 +100,7 @@ export default function ResourceMonitor() {
               <Bar label="GPU" pct={hw.gpuUtilization} right={`${Math.round(hw.gpuUtilization)}%`} />
               <Bar label="VRAM" pct={vramPct} right={`${fmtGb(hw.usedVram)} / ${fmtGb(hw.totalVram)}`} />
               <div className="flex items-center justify-between text-[11px]">
-                <span className="text-[var(--color-muted)]">Питание</span>
+                <span className="text-[var(--color-muted)]">{panel.power}</span>
                 <span className="mono tabular-nums">{Math.round(hw.powerDraw)} / {Math.round(hw.powerLimit)} Вт</span>
               </div>
               <div className="h-1 rounded-full bg-white/8 overflow-hidden">
@@ -107,7 +110,7 @@ export default function ResourceMonitor() {
           )}
           <Bar label="RAM" pct={ramPct} right={`${fmtGb(hw.usedRam)} / ${fmtGb(hw.totalRam)}`} />
           <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
-            <span>Процесс</span><span className="mono tabular-nums">{fmtGb(hw.processRam)}</span>
+            <span>{panel.process}</span><span className="mono tabular-nums">{fmtGb(hw.processRam)}</span>
           </div>
         </div>
       </div>

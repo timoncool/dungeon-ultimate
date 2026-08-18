@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
-import { useUi } from "@/lib/ui-text-context";
+import { useUi, useUiLanguage } from "@/lib/ui-text-context";
+import { panelText, type PanelText } from "@/lib/ui-text-panels";
 
 // Настройки движков и облака.
 //
@@ -60,27 +61,32 @@ type Stage = {
 /// процессоре, другое на карте».
 type Where = "gpu" | "cpu" | "cloud";
 
-const STAGES: Stage[] = [
-  { key: "narrator", cpu: true, title: "Рассказчик", kind: "text", on: "openrouterNarratorOn", model: "openrouterNarratorModel", backend: "narratorBackend", local: "Гемма" },
-  { key: "image", cpu: false, title: "Кадр", kind: "image", on: "openrouterImageOn", model: "openrouterImageModel", backend: "imageBackend", local: "Krea" },
-  { key: "tts", cpu: false, title: "Озвучка", kind: "tts", on: "openrouterTtsOn", model: "openrouterTtsModel", backend: "ttsBackend", local: "Higgs" },
-  { key: "asr", cpu: true, title: "Речь в текст", kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", backend: "asrBackend", local: "Parakeet" },
-];
+function stages(panel: PanelText): Stage[] {
+  return [
+  { key: "narrator", cpu: true, title: panel.narrator, kind: "text", on: "openrouterNarratorOn", model: "openrouterNarratorModel", backend: "narratorBackend", local: panel.narratorModel },
+  { key: "image", cpu: false, title: panel.frame, kind: "image", on: "openrouterImageOn", model: "openrouterImageModel", backend: "imageBackend", local: "Krea" },
+  { key: "tts", cpu: false, title: panel.narration, kind: "tts", on: "openrouterTtsOn", model: "openrouterTtsModel", backend: "ttsBackend", local: "Higgs" },
+  { key: "asr", cpu: true, title: panel.speechToText, kind: "asr", on: "openrouterAsrOn", model: "openrouterAsrModel", backend: "asrBackend", local: "Parakeet" },
+  ];
+}
 
-const WHERE_OPTIONS: Array<{ value: Where; label: string }> = [
-  { value: "gpu", label: "Карта" },
-  { value: "cpu", label: "Процессор" },
-  { value: "cloud", label: "Облако" },
-];
+function whereOptions(panel: PanelText): Array<{ value: Where; label: string }> {
+  return [
+  { value: "gpu", label: panel.onCard },
+  { value: "cpu", label: panel.onCpu },
+  { value: "cloud", label: panel.inCloud },
+  ];
+}
 
 // Готовые раскладки. Модели не выдуманы — это те, на которых игра проверена вживую:
 // картинку Gemini рисует за десяток секунд, речь Google озвучивает за пять, DeepSeek
 // уверенно держит структурные проходы, Whisper — привычный выбор для расшифровки.
-const PRESETS: Array<{ id: string; title: string; note: string; patch: Partial<Runtime> }> = [
+function presets(panel: PanelText): Array<{ id: string; title: string; note: string; patch: Partial<Runtime> }> {
+  return [
   {
     id: "local",
-    title: "Мощная карта — всё локально",
-    note: "от 12 ГБ памяти: ничего не уходит наружу",
+    title: panel.presetStrongCard,
+    note: panel.presetStrongCardNote,
     patch: {
       openrouterNarratorOn: false,
       openrouterImageOn: false,
@@ -90,8 +96,8 @@ const PRESETS: Array<{ id: string; title: string; note: string; patch: Partial<R
   },
   {
     id: "cloud",
-    title: "Без видеокарты — всё в облаке",
-    note: "пойдёт на любом ноутбуке, нужен ключ",
+    title: panel.presetNoCard,
+    note: panel.presetNoCardNote,
     patch: {
       openrouterNarratorOn: true,
       openrouterNarratorModel: "deepseek/deepseek-v4-pro",
@@ -106,8 +112,8 @@ const PRESETS: Array<{ id: string; title: string; note: string; patch: Partial<R
   },
   {
     id: "images-cloud",
-    title: "Средняя карта — картинки в облаке",
-    note: "самое тяжёлое наружу, остальное считает карта",
+    title: panel.presetMidCard,
+    note: panel.presetMidCardNote,
     patch: {
       openrouterNarratorOn: false,
       openrouterImageOn: true,
@@ -116,7 +122,8 @@ const PRESETS: Array<{ id: string; title: string; note: string; patch: Partial<R
       openrouterAsrOn: false,
     },
   },
-];
+  ];
+}
 
 const box =
   "w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-sm text-stone-200 outline-none focus:border-amber-700/60";
@@ -147,6 +154,8 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 
 export default function EnginePanel() {
   const ui = useUi();
+  // Подписи панели зависят от языка истории — берём их рядом с общими.
+  const panel = panelText(useUiLanguage());
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [keySet, setKeySet] = useState(false);
   const [open, setOpen] = useState(false);
@@ -163,7 +172,7 @@ export default function EnginePanel() {
         setRuntime(data.runtime);
         setKeySet(Boolean(data.openrouterKeySet));
       } catch {
-        setNote("Настройки движков не читаются.");
+        setNote(panel.settingsUnreadable);
       }
     })();
   }, []);
@@ -171,7 +180,7 @@ export default function EnginePanel() {
   // Списки моделей тянем только когда панель открыта: это сетевой запрос к провайдеру.
   useEffect(() => {
     if (!open || !keySet) return;
-    for (const stage of STAGES) {
+    for (const stage of stages(panel)) {
       if (models[stage.kind]) continue;
       void (async () => {
         try {
@@ -212,7 +221,7 @@ export default function EnginePanel() {
       setRuntime(data.runtime);
       setKeySet(Boolean(data.openrouterKeySet));
       // Перезапуск не нужен: сервер перечитывает настройки на каждом запуске модели.
-      setNote("Сохранено — действует со следующего хода.");
+      setNote(panel.saved);
     } catch (error) {
       setNote(`Не сохранилось: ${error instanceof Error ? error.message : String(error)}`);
       // Переключатель мы двигаем сразу, не дожидаясь ответа. Раз ответа нет — возвращаем
@@ -263,7 +272,7 @@ export default function EnginePanel() {
   }, [runtime]);
 
   const cloudStages = useMemo(
-    () => (runtime ? STAGES.filter((stage) => runtime[stage.on] === true).length : 0),
+    () => (runtime ? stages(panel).filter((stage) => runtime[stage.on] === true).length : 0),
     [runtime],
   );
 
@@ -287,8 +296,8 @@ export default function EnginePanel() {
           <span className="block truncate text-sm font-medium text-stone-300">{ui.enginesAndCloud}</span>
           <span className="block truncate text-xs text-stone-500">
             {cloudStages === 0
-              ? "Всё считает своя карта"
-              : ui.cloudStagesOf.replace("{n}", String(cloudStages)).replace("{total}", String(STAGES.length))}
+              ? panel.allOnOwnCard
+              : ui.cloudStagesOf.replace("{n}", String(cloudStages)).replace("{total}", String(stages(panel).length))}
           </span>
         </span>
         {saving ? (
@@ -307,14 +316,13 @@ export default function EnginePanel() {
         <div className="space-y-4">
           <div className="space-y-2">
             <p className="text-xs leading-relaxed text-stone-500">
-              Ключ OpenRouter {keySet ? "задан" : "не задан"}. Без него облачные стадии не включаются
-              и всё считает своя карта.
+              {panel.keyHint.replace("{state}", keySet ? panel.keySet : panel.keyMissing)}
             </p>
             <div className="flex gap-2">
               <input
                 type="password"
                 value={keyDraft}
-                placeholder={keySet ? "Заменить ключ" : "sk-or-…"}
+                placeholder={keySet ? panel.replaceKey : "sk-or-…"}
                 onChange={(event) => setKeyDraft(event.target.value)}
                 className={box}
               />
@@ -326,16 +334,14 @@ export default function EnginePanel() {
                   setKeyDraft("");
                 }}
                 className="shrink-0 rounded border border-stone-700 px-3 text-sm text-stone-200 hover:border-amber-700/60 disabled:cursor-not-allowed disabled:text-stone-600"
-              >
-                Сохранить
-              </button>
+              >{panel.save}</button>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <span className="block text-xs font-medium uppercase text-stone-500">Готовые раскладки</span>
+            <span className="block text-xs font-medium uppercase text-stone-500">{panel.presets}</span>
             <div className="grid gap-1.5">
-              {PRESETS.map((preset) => (
+              {presets(panel).map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
@@ -352,20 +358,18 @@ export default function EnginePanel() {
               ))}
             </div>
             {!keySet && (
-              <p className="text-[11px] leading-relaxed text-stone-600">
-                Для облачных раскладок нужен ключ OpenRouter — вставь его выше.
-              </p>
+              <p className="text-[11px] leading-relaxed text-stone-600">{panel.presetsNeedKey}</p>
             )}
           </div>
 
           <div className="space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm text-stone-200">Считать по умолчанию</span>
+              <span className="truncate text-sm text-stone-200">{panel.computeByDefault}</span>
               <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
                 {[
-                  { value: "auto", label: "Как есть" },
-                  { value: "gpu", label: "Карта" },
-                  { value: "cpu", label: "Процессор" },
+                  { value: "auto", label: panel.asIs },
+                  { value: "gpu", label: panel.onCard },
+                  { value: "cpu", label: panel.onCpu },
                 ].map((option) => (
                   <button
                     key={option.value}
@@ -374,7 +378,7 @@ export default function EnginePanel() {
                       // Общий выбор действует на стадии, у которых нет своего: иначе он бы
                       // не менял ничего и выглядел сломанным.
                       patch("localBackend", option.value);
-                      for (const stage of STAGES) {
+                      for (const stage of stages(panel)) {
                         patch(stage.backend, "");
                       }
                     }}
@@ -390,13 +394,11 @@ export default function EnginePanel() {
               </div>
             </div>
             <p className="text-[11px] leading-relaxed text-stone-600">
-              «Как есть» — карта, если она в системе есть, иначе процессор. Любую стадию
-              ниже можно увести отдельно. Кадр и озвучка считаются только картой: на
-              процессоре кадр рисуется десятки минут, а голос не поспевает за чтением.
+              {panel.asIsHint}
             </p>
           </div>
 
-          {STAGES.map((stage) => {
+          {stages(panel).map((stage) => {
             const inCloud = runtime[stage.on] === true;
             const list = models[stage.kind] ?? [];
             const chosen = String(runtime[stage.model] ?? "");
@@ -420,7 +422,7 @@ export default function EnginePanel() {
                   <span className="truncate text-sm text-stone-200">{stage.title}</span>
                   {/* Три положения в одну строку: перенос читался бы как отдельные кнопки. */}
                   <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
-                    {WHERE_OPTIONS.filter(
+                    {whereOptions(panel).filter(
                       (option) => option.value !== "cpu" || stage.cpu,
                     ).map((option) => (
                       <button
@@ -454,7 +456,7 @@ export default function EnginePanel() {
                       ))}
                     </select>
                     {stage.key === "tts" && (
-                      <Row label={ui.voice} hint="Отмечены голоса, которые тянут русскую речь.">
+                      <Row label={ui.voice} hint={panel.voicesRussianMarked}>
                         <select
                           value={runtime.openrouterTtsVoice}
                           onChange={(event) => patch("openrouterTtsVoice", event.target.value)}
@@ -462,8 +464,8 @@ export default function EnginePanel() {
                         >
                           {voices.map((voice) => (
                             <option key={voice.name} value={voice.name}>
-                              {voice.name} · {voice.gender === "female" ? "жен." : voice.gender === "male" ? "муж." : "нейтр."}
-                              {voice.ru ? " · рус." : ""}
+                              {voice.name} · {voice.gender === "female" ? panel.voiceFemale : voice.gender === "male" ? panel.voiceMale : panel.voiceNeutral}
+                              {voice.ru ? panel.voiceRussianSuffix : ""}
                             </option>
                           ))}
                         </select>
@@ -479,8 +481,8 @@ export default function EnginePanel() {
                           onChange={(event) => patch("asrEngine", event.target.value)}
                           className={box}
                         >
-                          <option value="parakeet">Parakeet — быстрый, работает сразу</option>
-                          <option value="whisper">Whisper large-v3 — точнее, нужна докачка</option>
+                          <option value="parakeet">{panel.asrParakeet}</option>
+                          <option value="whisper">{panel.asrWhisper}</option>
                         </select>
                       </span>
                     )}
@@ -492,12 +494,12 @@ export default function EnginePanel() {
                     )}
                     {stage.local} · считает{" "}
                     {decided[stage.key] === "cpu"
-                      ? "процессор"
+                      ? panel.cpuWord
                       : decided[stage.key] === "gpu"
-                        ? "видеокарта"
+                        ? panel.gpuWord
                         : chosenWhere === "cpu"
-                          ? "процессор"
-                          : "видеокарта"}
+                          ? panel.cpuWord
+                          : panel.gpuWord}
                   </p>
                 )}
               </div>
@@ -505,9 +507,9 @@ export default function EnginePanel() {
           })}
 
           <details className="rounded border border-stone-800 bg-stone-950 px-3 py-2">
-            <summary className="cursor-pointer text-sm text-stone-300">Железо: память и слои</summary>
+            <summary className="cursor-pointer text-sm text-stone-300">{panel.hardwareSection}</summary>
             <div className="mt-3 space-y-3">
-              <Row label="Контекст рассказчика" hint="Больше контекст — больше занято памяти под кэш внимания.">
+              <Row label={panel.narratorContext} hint={panel.narratorContextNote}>
                 <input
                   type="number"
                   step={1024}
@@ -517,7 +519,7 @@ export default function EnginePanel() {
                   className={box}
                 />
               </Row>
-              <Row label="Слоёв рассказчика на карте" hint="−1 — все. Не действует, когда рассказчик считается процессором.">
+              <Row label={panel.narratorLayers} hint={panel.narratorLayersNote}>
                 <input
                   type="number"
                   value={runtime.narratorGpuLayers}
@@ -526,7 +528,7 @@ export default function EnginePanel() {
                 />
               </Row>
               <Toggle
-                label="Держать веса кадра в оперативной памяти"
+                label={panel.keepFrameWeightsInRam}
                 checked={runtime.imageOffloadToCpu}
                 onChange={(value) => patch("imageOffloadToCpu", value)}
               />

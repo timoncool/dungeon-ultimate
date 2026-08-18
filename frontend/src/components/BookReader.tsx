@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, Loader2, Volume2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import HTMLFlipBook from "react-pageflip";
 import { cn } from "@/lib/cn";
+import { panelText } from "@/lib/ui-text-panels";
+import { useUiLanguage } from "@/lib/ui-text-context";
 import { splitSentences } from "@/lib/text";
 import type { CheckResult } from "@/lib/rpg/dice";
 import type { GameEvent, Item } from "@/lib/rpg/types";
@@ -69,6 +71,7 @@ function withoutLeadingEmoji(text: string): string {
 // a loot drop with its portrait, a foe, damage/heal, a buff. Part of the story,
 // styled for the page (not the dark feed card).
 function BookEventCard({ event }: { event: GameEvent }) {
+  const panel = panelText(useUiLanguage());
   if (event.kind === "item") {
     const item = (event.data as { item?: Item } | undefined)?.item;
     return (
@@ -82,7 +85,7 @@ function BookEventCard({ event }: { event: GameEvent }) {
           </span>
         )}
         <div className="min-w-0">
-          <div className="truncate font-serif font-bold text-[#3a2a18]">{item?.name ?? "Предмет"}</div>
+          <div className="truncate font-serif font-bold text-[#3a2a18]">{item?.name ?? panel.item}</div>
           <div className="truncate font-serif text-xs text-[#6a4f2c]">
             {event.text.replace(/^📦\s*Получен предмет:\s*/, "")}
           </div>
@@ -229,6 +232,7 @@ export default function BookReader({
   onSpeak?: (id: string, text: string) => void;
   speakingId?: string;
 }) {
+  const panel = panelText(useUiLanguage());
   const wrapRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<FlipApi | null>(null);
@@ -574,7 +578,7 @@ export default function BookReader({
       {busy && (
         <div className="flex items-center gap-2 rounded-full border border-amber-900/50 bg-amber-950/25 px-3 py-1.5 font-serif text-sm italic text-amber-100/80">
           <span className="size-1.5 animate-pulse rounded-full bg-amber-300" aria-hidden="true" />
-          {stage || "Ход идёт…"}
+          {stage || panel.turnRunning}
         </div>
       )}
       <div className="flex items-center gap-3">
@@ -582,7 +586,7 @@ export default function BookReader({
           type="button"
           onClick={() => bookRef.current?.pageFlip().flipPrev()}
           className="inline-flex size-9 items-center justify-center rounded-full border border-stone-700 text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
-          aria-label="Предыдущая страница"
+          aria-label={panel.prevPage}
         >
           <ChevronLeft className="size-5" aria-hidden="true" />
         </button>
@@ -591,7 +595,7 @@ export default function BookReader({
             type="button"
             onClick={() => onSpeak(spreadId, spreadText)}
             className="inline-flex items-center gap-1.5 rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
-            title="Озвучить открытый разворот"
+            title={panel.readSpread}
           >
             {speakingId === spreadId ? (
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -609,7 +613,7 @@ export default function BookReader({
           type="button"
           onClick={() => bookRef.current?.pageFlip().flipNext()}
           className="inline-flex size-9 items-center justify-center rounded-full border border-stone-700 text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
-          aria-label="Следующая страница"
+          aria-label={panel.nextPage}
         >
           <ChevronRight className="size-5" aria-hidden="true" />
         </button>

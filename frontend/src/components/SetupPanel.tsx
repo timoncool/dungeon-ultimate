@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Download, Loader2, Check } from "lucide-react";
 import { useUi } from "@/lib/ui-text-context";
+import { panelText } from "@/lib/ui-text-panels";
+import { useUiLanguage } from "@/lib/ui-text-context";
 
 // Первый запуск: докачка того, чего нет на диске.
 //
@@ -23,6 +25,7 @@ const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
 const size = (component: Component) => component.files.reduce((sum, file) => sum + file.bytes, 0);
 
 export default function SetupPanel() {
+  const panel = panelText(useUiLanguage());
   const ui = useUi();
   const [components, setComponents] = useState<Component[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -37,7 +40,7 @@ export default function SetupPanel() {
       setComponents(data.components ?? []);
       return (data.components ?? []) as Component[];
     } catch {
-      setNote("Список компонентов не читается.");
+      setNote(panel.componentsUnreadable);
       return [];
     }
   }, []);
@@ -71,7 +74,7 @@ export default function SetupPanel() {
           const have = watched.reduce((sum, component) => sum + component.haveBytes, 0);
           const total = watched.reduce((sum, component) => sum + size(component), 0);
           const pending = watched.find((component) => !component.present);
-          setProgress({ title: pending ? pending.title : "Готово", have, total });
+          setProgress({ title: pending ? pending.title : panel.ready, have, total });
           if (!pending) {
             if (poll.current) window.clearInterval(poll.current);
             setProgress(null);
@@ -181,10 +184,10 @@ export default function SetupPanel() {
                   <span className="block text-[11px] leading-relaxed text-stone-600">
                     {component.note}
                     {component.requirement === "required"
-                      ? " · без него игра не пойдёт"
+                      ? panel.requiredNote
                       : component.requirement === "recommended"
-                        ? " · рекомендуется"
-                        : " · по желанию"}
+                        ? panel.recommendedNote
+                        : panel.optionalNote}
                   </span>
                 </span>
                 {!component.present && !busy && (
@@ -192,9 +195,7 @@ export default function SetupPanel() {
                     type="button"
                     onClick={() => void download([component.id])}
                     className="shrink-0 self-center rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:border-amber-700/60 hover:text-amber-200"
-                  >
-                    Скачать
-                  </button>
+                  >{panel.download}</button>
                 )}
               </li>
             ))}
