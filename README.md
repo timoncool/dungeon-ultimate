@@ -12,7 +12,7 @@
 [![Made with Rust](https://img.shields.io/badge/Rust-one%20binary-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Local & Private](https://img.shields.io/badge/100%25-on--device-7b5cff?style=flat-square)](#why-its-different)
 
-**[English](README.md)** · **[Русский](README_RU.md)**
+**[English](README.md)** · **[Русский](README_RU.md)** · **[Website](https://timoncool.github.io/dungeon-ultimate/)**
 
 ![Dungeon Ultimate](./docs/hero.png)
 
@@ -120,6 +120,10 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 <tr>
 <td width="50%" valign="top"><img src="./docs/shots/new-story-ru.png" alt="New story setup" /><br /><sub><b>Start a new story</b> — pick a genre, say who you are, and the narrator writes the opening scene.</sub></td>
 <td width="50%" valign="top"><img src="./docs/shots/book-ru.png" alt="Narrative reading view" /><br /><sub><b>Pure storytelling</b> — the narrator's prose streams in word by word, book-style.</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="./docs/shots/achievements-en.png" alt="Achievements" /><br /><sub><b>Achievements and tools</b> — the narrator asks the engine about the state of the game, rolls checks mid-sentence and hands out awards that live in your profile.</sub></td>
+<td width="50%" valign="top"><img src="./docs/shots/play-en.png" alt="A turn in play" /><br /><sub><b>A whole turn</b> — the roll, the journal with its icons, and the frame for the scene.</sub></td>
 </tr>
 </table>
 </div>

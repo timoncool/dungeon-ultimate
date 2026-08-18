@@ -79,7 +79,7 @@ import {
 } from "./lib/types";
 import { promptsFor } from "./lib/prompts";
 import { useEngineRuntime } from "./lib/runtime";
-import { ABILITIES, ABILITY_LABELS_RU, abilityMod, type CheckResult } from "./lib/rpg/dice";
+import { ABILITIES, abilityMod, type Ability, type CheckResult } from "./lib/rpg/dice";
 import { deriveForOwner, type DerivedRpg } from "./lib/rpg/derive";
 import type { CharacterRpg, GameEvent, Item } from "./lib/rpg/types";
 import { splitSentences } from "./lib/text";
@@ -92,6 +92,8 @@ const BookReader = lazy(() => import("./components/BookReader"));
 import ResourceMonitor from "./components/ResourceMonitor";
 import EnginePanel from "./components/EnginePanel";
 import SetupPanel from "./components/SetupPanel";
+import { UiTextProvider, useUi } from "./lib/ui-text-context";
+import { uiText, type UiText } from "./lib/ui-text";
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
@@ -127,11 +129,14 @@ const STAGE_WORDS: Record<string, string> = {
 
 type InputMode = "do" | "say" | "story";
 
-const INPUT_MODES: Array<{ value: InputMode; label: string; placeholder: string }> = [
-  { value: "do", label: "Действие", placeholder: "Что ты делаешь?" },
-  { value: "say", label: "Речь", placeholder: "Что ты говоришь?" },
-  { value: "story", label: "История", placeholder: "Напиши следующую часть истории…" },
-];
+/// Режимы ввода зависят от языка игры, поэтому собираются из словаря, а не лежат готовыми.
+function inputModes(ui: UiText): Array<{ value: InputMode; label: string; placeholder: string }> {
+  return [
+    { value: "do", label: ui.actionMode, placeholder: ui.actionPlaceholder },
+    { value: "say", label: ui.speechMode, placeholder: ui.speechPlaceholder },
+    { value: "story", label: ui.storyMode, placeholder: ui.storyPlaceholder },
+  ];
+}
 
 const PROSE_SIZE_OPTIONS: Array<{ value: ProseSize; label: string; className: string }> = [
   { value: "tiny", label: "12px", className: "text-xs leading-5" },
@@ -457,6 +462,8 @@ export default function Home() {
   const [characters, setCharacters] = useState<StoryCharacter[]>([]);
   const [characterDraft, setCharacterDraft] = useState<CharacterDraft>(emptyCharacterDraft);
   const [settings, setSettings] = useState<StorySettings>(DEFAULT_STORY_SETTINGS);
+  // Подписи интерфейса. В самом Home контекст ещё не создан — берём словарь напрямую.
+  const ui = uiText(settings.language);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -505,10 +512,10 @@ export default function Home() {
         const narrator = String(runtime.openrouterNarratorModel || "").split("/").pop();
         setRouting(
           cloud.length === 0
-            ? "Всё на своей карте"
+            ? ui.allOnMyCard
             : local.length === 0
-              ? `Всё в облаке · ${narrator ?? "OpenRouter"}`
-              : `Облако: ${cloud.join(", ")} · карта: ${local.join(", ")}`,
+              ? `${ui.everythingInCloud} · ${narrator ?? "OpenRouter"}`
+              : `${ui.cloudPrefix}: ${cloud.join(", ")} · ${ui.cardPrefix}: ${local.join(", ")}`,
         );
       } catch {
         if (alive) setRouting("");
@@ -2400,6 +2407,7 @@ export default function Home() {
   }
 
   return (
+    <UiTextProvider language={settings.language}>
     <main className="flex h-dvh min-h-dvh flex-1 overflow-hidden bg-[#130d09] text-stone-100">
       {/* Монитор ресурсов: карта делится между рассказчиком, картинкой и озвучкой, и видеть
           её загрузку важно — иначе непонятно, почему ход идёт дольше обычного. */}
@@ -2444,8 +2452,8 @@ export default function Home() {
               className="inline-flex h-10 items-center gap-2 rounded border border-stone-700 px-3 text-sm text-stone-300 hover:bg-stone-900"
             >
               <Plus className="size-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Новая история</span>
-              <span className="sm:hidden">Новая</span>
+              <span className="hidden sm:inline">{ui.newStory}</span>
+              <span className="sm:hidden">{ui.newStoryShort}</span>
             </button>
           </div>
         </header>
@@ -2564,9 +2572,7 @@ export default function Home() {
               <QuestsPanel quests={quests} onDecide={decideQuest} disabled={busy} />
               {journal.length > 0 && (
                 <div className="space-y-1 rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90">
-                  <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
-                    Журнал
-                  </div>
+                  <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">{ui.journal}</div>
                   {journal.slice(-40).map((event) => {
                     const rollResult =
                       event.kind === "roll"
@@ -2642,7 +2648,7 @@ export default function Home() {
                     className="inline-flex items-center gap-1.5 rounded-full border border-stone-700 px-3 py-1 text-xs text-stone-300 transition hover:border-amber-300 hover:text-amber-200"
                   >
                     <BookOpen className="size-3.5" aria-hidden="true" />
-                    {bookMode ? "Лента" : "Книга"}
+                    {bookMode ? ui.feedMode : ui.bookMode}
                   </button>
                 </div>
               )}
@@ -2764,9 +2770,7 @@ export default function Home() {
                         onClick={stopTurn}
                         className="ml-1 inline-flex items-center gap-1 rounded border border-stone-700 px-2 py-0.5 text-xs not-italic text-stone-300 transition hover:border-red-500/70 hover:text-red-300"
                       >
-                        <X className="size-3.5" aria-hidden="true" />
-                        Прервать
-                      </button>
+                        <X className="size-3.5" aria-hidden="true" />{ui.stopTurn}</button>
                     )}
                   </div>
                 )}
@@ -2791,9 +2795,7 @@ export default function Home() {
               )}
               {settings.rpgEnabled && journal.length > 0 && (
                 <div className="mb-2 max-h-28 shrink-0 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-100/90 lg:hidden">
-                  <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">
-                    Журнал
-                  </div>
+                  <div className="mb-1 font-medium uppercase tracking-wide text-amber-300/70">{ui.journal}</div>
                   {journal.slice(-8).map((event) => {
                     const rollResult =
                       event.kind === "roll"
@@ -2854,10 +2856,8 @@ export default function Home() {
 
                 {heroDead && (
                   <div className="mb-2 rounded-lg border border-red-800/70 bg-red-950/30 px-3 py-2">
-                    <p className="text-sm font-medium text-red-200">Герой погиб. История окончена.</p>
-                    <p className="mt-0.5 text-xs text-stone-400">
-                      Роковой ход можно отменить кнопкой «Стереть» — или начать новую историю.
-                    </p>
+                    <p className="text-sm font-medium text-red-200">{ui.heroDeadTitle}</p>
+                    <p className="mt-0.5 text-xs text-stone-400">{ui.heroDeadHint}</p>
                   </div>
                 )}
 
@@ -2865,21 +2865,21 @@ export default function Home() {
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <StoryActionButton
                       icon={ChevronRight}
-                      label="Продолжить"
+                      label={ui.continueTurn}
                       title="Пусть рассказчик продолжит без тебя"
                       disabled={busy || !selectedChatId || heroDead}
                       onClick={() => void continueStory()}
                     />
                     <StoryActionButton
                       icon={RotateCcw}
-                      label="Повторить"
+                      label={ui.retryTurn}
                       title="Перегенерировать последний отрывок"
                       disabled={busy || !selectedChatId || heroDead}
                       onClick={() => void retryLastTurn()}
                     />
                     <StoryActionButton
                       icon={Eraser}
-                      label="Стереть"
+                      label={ui.eraseTurn}
                       title="Убрать последний обмен"
                       disabled={busy || !selectedChatId}
                       onClick={() => void eraseLastTurn()}
@@ -2912,7 +2912,7 @@ export default function Home() {
                     placeholder={
                       heroDead
                         ? "Герой погиб — писать больше некому"
-                        : INPUT_MODES.find((m) => m.value === inputMode)?.placeholder ??
+                        : inputModes(ui).find((m) => m.value === inputMode)?.placeholder ??
                           "Что ты делаешь?"
                     }
                     className="max-h-40 min-h-16 w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base text-stone-100 outline-none placeholder:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-600 sm:min-h-20"
@@ -2921,7 +2921,7 @@ export default function Home() {
                   <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">
                     <div className="flex items-center gap-1">
                       <div className="flex rounded-lg border border-stone-800 bg-stone-950 p-0.5">
-                        {INPUT_MODES.map((m) => (
+                        {inputModes(ui).map((m) => (
                           <button
                             key={m.value}
                             type="button"
@@ -2938,7 +2938,7 @@ export default function Home() {
                       </div>
                       <button
                         type="button"
-                        aria-label="Прикрепить референсы"
+                        aria-label={ui.attachReferences}
                         onClick={() => fileInputRef.current?.click()}
                         className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
                         disabled={uploading || libraryLoading}
@@ -2962,14 +2962,14 @@ export default function Home() {
                       </span>
                       <button
                         type="submit"
-                        aria-label="Отправить"
+                        aria-label={ui.send}
                         disabled={
                           busy || !input.trim() || !selectedChatId || libraryLoading || heroDead
                         }
                         className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-amber-200 px-4 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
                       >
                         <Send className="size-4" aria-hidden="true" />
-                        <span className="hidden sm:inline">Отправить</span>
+                        <span className="hidden sm:inline">{ui.send}</span>
                       </button>
                     </div>
                   </div>
@@ -2994,9 +2994,7 @@ export default function Home() {
               {!activeDesktopPanel && (
                 <>
                   {/* Три самые ходовые настройки держим под рукой, не пряча в раздел. */}
-                  <div className="px-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-stone-600">
-                    Под рукой
-                  </div>
+                  <div className="px-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-stone-600">{ui.atHand}</div>
                   <FontSizeSlider
                     settings={settings}
                     setSettings={setSettings}
@@ -3020,6 +3018,7 @@ export default function Home() {
         </div>
       </section>
     </main>
+    </UiTextProvider>
   );
 }
 
@@ -3076,6 +3075,7 @@ function NewStoryDialog({
   }) => void;
   llm: { customBaseUrl: string; customModel: string; customApiKey: string; language: string };
 }) {
+  const ui = useUi();
   const [presetId, setPresetId] = useState<StoryPresetId>("fantasy");
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -3172,9 +3172,7 @@ function NewStoryDialog({
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <Dialog.Title className="text-balance text-base font-semibold text-stone-100">
-                Новая история
-              </Dialog.Title>
+              <Dialog.Title className="text-balance text-base font-semibold text-stone-100">{ui.newStory}</Dialog.Title>
               <Dialog.Description className="mt-1 text-pretty text-sm text-stone-500">
                 Выбери сеттинг, скажи кто ты, и выбери как начнётся история.
               </Dialog.Description>
@@ -3594,6 +3592,7 @@ function MobileChatBar({
   onSelect: (chatId: string) => void;
   onDelete: (chatId: string) => void;
 }) {
+  const ui = useUi();
   if (!chats.length) {
     return null;
   }
@@ -3620,7 +3619,7 @@ function MobileChatBar({
         <DeleteChatDialog chat={selectedChat} onConfirm={() => onDelete(selectedChat.id)}>
           <button
             type="button"
-            aria-label="Удалить текущую историю"
+            aria-label={ui.deleteStory}
             className="flex size-10 items-center justify-center rounded border border-stone-800 text-stone-400 hover:bg-stone-900 hover:text-red-200"
           >
             <Trash2 className="size-4" aria-hidden="true" />
@@ -3651,6 +3650,7 @@ function ChatLibrary({
   onDelete: (chatId: string) => void;
   fillAvailable?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   const chatListClassName = cn(
     "space-y-2 overflow-y-auto pr-1",
     fillAvailable && "min-h-0 flex-1",
@@ -3661,7 +3661,7 @@ function ChatLibrary({
     <PanelSection
       icon={Library}
       iconSrc={SIDEBAR_ICONS.chats}
-      title="Мои истории"
+      title={ui.storiesSection}
       defaultOpen
       open={open}
       onOpenChange={onOpenChange}
@@ -3785,6 +3785,7 @@ function CharacterPanel({
   voices: string[];
   compact?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   // Ask the text model to invent a fresh protagonist for the blank draft form.
   const [autofilling, setAutofilling] = useState(false);
   const [autofillError, setAutofillError] = useState("");
@@ -3831,7 +3832,7 @@ function CharacterPanel({
     <PanelSection
       icon={UserRound}
       iconSrc={SIDEBAR_ICONS.characters}
-      title="Партия"
+      title={ui.party}
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -3909,9 +3910,7 @@ function CharacterPanel({
         <div className="grid gap-2">
           <label className="block">
             <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-              <Backpack className="size-3.5" aria-hidden="true" />
-              Инвентарь
-            </span>
+              <Backpack className="size-3.5" aria-hidden="true" />{ui.inventory}</span>
             <textarea
               id="new-character-inventory"
               name="new-character-inventory"
@@ -4081,9 +4080,7 @@ function CharacterPanel({
               <div className="grid gap-2">
                 <label className="block">
                   <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-                    <Backpack className="size-3.5" aria-hidden="true" />
-                    Инвентарь
-                  </span>
+                    <Backpack className="size-3.5" aria-hidden="true" />{ui.inventory}</span>
                   <textarea
                     value={character.inventory || ""}
                     onChange={(event) =>
@@ -4133,9 +4130,7 @@ function CharacterPanel({
 
               <label className="block">
                 <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
-                  <Volume2 className="size-3.5" aria-hidden="true" />
-                  Голос
-                </span>
+                  <Volume2 className="size-3.5" aria-hidden="true" />{ui.voice}</span>
                 <select
                   value={character.voice || ""}
                   onChange={(event) => {
@@ -4282,6 +4277,7 @@ function TextModelPanel({
   localTextStatus: LocalTextStatus | null;
   compact?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   const idPrefix = compact ? "mobile" : "desktop";
   const selectedMissing =
     localTextStatus?.ok && !localTextStatus.installedModels.includes(settings.localTextModel);
@@ -4356,7 +4352,7 @@ function TextModelPanel({
     <PanelSection
       icon={Cpu}
       iconSrc={SIDEBAR_ICONS.textModel}
-      title="Модель на устройстве"
+      title={ui.modelOnDevice}
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -5009,11 +5005,12 @@ function VoicePanel({
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   compact?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   return (
     <PanelSection
       icon={Volume2}
       iconSrc={SIDEBAR_ICONS.voice}
-      title="Голос"
+      title={ui.voice}
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -5216,6 +5213,7 @@ function HudBar({
   derived: DerivedRpg;
   name: string;
 }) {
+  const ui = useUi();
   // Derived (base + equipped) view the resolver uses — computed once by the parent
   // (hero's OWN items only) so the HUD can't show buffs from a companion's gear.
   const { rpg: eff, bonus } = derived;
@@ -5260,10 +5258,10 @@ function HudBar({
             <div
               key={ability}
               className="flex flex-col items-center rounded border border-stone-800 bg-stone-950/60 py-1"
-              title={ABILITY_LABELS_RU[ability]}
+              title={statLabel(ui, ability)}
             >
               <span className="text-[9px] uppercase tracking-wide text-stone-500">
-                {ABILITY_LABELS_RU[ability].slice(0, 3)}
+                {statLabel(ui, ability)}
               </span>
               <span
                 className={cn(
@@ -5377,6 +5375,43 @@ function withoutLeadingEmoji(text: string): string {
   return text.replace(/^[^\p{L}\p{N}(«"]+/u, "").trim();
 }
 
+/// Короткая суть новой версии для плашки.
+///
+/// Заметки к релизу — это разметка со звёздочками, решётками и обратными кавычками. Плашка
+/// показывала их как есть: игрок читал «## Инструменты работают не только в облаке» вместо
+/// человеческой фразы. Берём первый настоящий абзац и снимаем разметку.
+function releaseSummary(notes: string): string {
+  // Берём первые связные строки БЕЗ заголовков и режем по границе предложения: плашке нужна
+  // суть, а не пересказ релиза. Полный текст открывается кнопкой «Что нового».
+  const lines = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#") && !line.startsWith("---"));
+  const plain = lines
+    .join(" ")
+    .replace(/[#*`_>]/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.length <= 170) return plain;
+  const cut = plain.slice(0, 170);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return stop > 60 ? cut.slice(0, stop + 1) : `${cut.trimEnd()}…`;
+}
+
+/// Короткая подпись характеристики на языке игры.
+function statLabel(ui: UiText, ability: Ability): string {
+  const byAbility: Record<Ability, string> = {
+    str: ui.statStr,
+    dex: ui.statDex,
+    con: ui.statCon,
+    int: ui.statInt,
+    wis: ui.statWis,
+    cha: ui.statCha,
+  };
+  return byAbility[ability];
+}
+
 function AchievementIcon({
   icon,
   rarity,
@@ -5415,11 +5450,15 @@ function AchievementIcon({
   );
 }
 
-const RARITY_WORDS: Record<AchievementRarity, string> = {
-  common: "Достижение",
-  rare: "Редкое достижение",
-  legendary: "Легендарное достижение",
-};
+/// Как назвать награду по редкости — на языке игры.
+function rarityWord(ui: UiText, rarity: AchievementRarity): string {
+  const byRarity: Record<AchievementRarity, string> = {
+    common: ui.rarityCommon,
+    rare: ui.rarityRare,
+    legendary: ui.rarityLegendary,
+  };
+  return byRarity[rarity];
+}
 
 /// Раздел «Достижения»: всё, что игрок заслужил за все истории.
 ///
@@ -5431,11 +5470,12 @@ function AchievementsSection({
   onOpenChange,
   divided,
 }: { achievements: Achievement[] } & PanelControlProps) {
+  const ui = useUi();
   const legendary = achievements.filter((award) => award.rarity === "legendary").length;
   return (
     <PanelSection
       icon={Trophy}
-      title="Достижения"
+      title={ui.achievements}
       open={open}
       onOpenChange={onOpenChange}
       divided={divided ?? true}
@@ -5448,8 +5488,8 @@ function AchievementsSection({
       ) : (
         <>
           <div className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
-            Всего {achievements.length}
-            {legendary > 0 && ` · легендарных ${legendary}`}
+            {ui.achievementsTotal} {achievements.length}
+            {legendary > 0 && ` · ${ui.achievementsLegendary} ${legendary}`}
           </div>
           <div className="space-y-2">
             {achievements
@@ -5470,12 +5510,12 @@ function AchievementsSection({
                   <AchievementIcon icon={award.icon} rarity={award.rarity} className="size-10 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="text-[10px] uppercase tracking-[0.16em] text-stone-500">
-                      {RARITY_WORDS[award.rarity]}
+                      {rarityWord(ui, award.rarity)}
                     </div>
                     <h4 className="text-sm font-semibold text-stone-100">{award.title}</h4>
                     <p className="mt-0.5 text-xs leading-5 text-stone-400">{award.summary}</p>
                     <div className="mt-1 text-[11px] text-stone-600">
-                      {award.story ? `История «${award.story}»` : "История удалена"} ·{" "}
+                      {award.story ? `${ui.storyLabel} «${award.story}»` : ui.storyDeleted} ·{" "}
                       {new Date(award.createdAt).toLocaleDateString()}
                     </div>
                   </div>
@@ -5501,6 +5541,7 @@ function QuestsPanel({
   onDecide: (questId: string, status: QuestStatus) => void;
   disabled?: boolean;
 }) {
+  const ui = useUi();
   const open = quests.filter((quest) => quest.status === "offered" || quest.status === "active");
   const closed = quests.filter((quest) => quest.status === "done" || quest.status === "failed");
 
@@ -5509,14 +5550,10 @@ function QuestsPanel({
   return (
     <div className="max-h-56 shrink-0 space-y-1.5 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
-        <ScrollText className="size-3.5" aria-hidden="true" />
-        Задания
-      </div>
+        <ScrollText className="size-3.5" aria-hidden="true" />{ui.quests}</div>
 
       {!open.length && !closed.length && (
-        <p className="text-[11px] leading-4 text-stone-500">
-          Пока ни одного. Задания дают жители мира — выслушай того, кому нужна помощь.
-        </p>
+        <p className="text-[11px] leading-4 text-stone-500">{ui.questsEmpty}</p>
       )}
 
       {open.map((quest) => (
@@ -5614,12 +5651,11 @@ function InventoryPanel({
   onToggle: (itemId: string, equipped: boolean) => void;
   disabled?: boolean;
 }) {
+  const ui = useUi();
   return (
     <div className="max-h-44 space-y-1 overflow-y-auto rounded border border-amber-900/40 bg-amber-950/10 px-3 py-2">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
-        <Backpack className="size-3.5" aria-hidden="true" />
-        Инвентарь
-      </div>
+        <Backpack className="size-3.5" aria-hidden="true" />{ui.inventory}</div>
       {items.map((item) => {
         const Icon = SLOT_ICON[item.slot];
         const equippable = item.slot !== "consumable" && item.slot !== "misc";
@@ -5702,6 +5738,7 @@ function CharacterSheet({
   onRegeneratePortrait?: () => void;
   portraitBusy?: boolean;
 }) {
+  const ui = useUi();
   // One inventory: worn gear sorted to the front (and amber-highlighted in the
   // grid) instead of a separate "equipped" list that duplicated the same items.
   const orderedItems = [...items].sort((a, b) => Number(b.equipped) - Number(a.equipped));
@@ -5732,7 +5769,7 @@ function CharacterSheet({
             <div className="flex items-end justify-between gap-2">
               <span className="truncate font-serif text-base text-stone-50">{name}</span>
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-amber-300/80">
-                ур. {hero.level}
+                {ui.level} {hero.level}
               </span>
             </div>
           </div>
@@ -5782,7 +5819,7 @@ function CharacterSheet({
         <div className="mt-2 flex items-center justify-between gap-2 text-xs text-stone-300">
           <span className="inline-flex items-center gap-1">
             <Shield className="size-3.5 text-amber-300" aria-hidden="true" />
-            Класс защиты{" "}
+            {ui.armorClass}{" "}
             <span className={cn("tabular-nums", bonus.ac ? "text-amber-300" : undefined)}>{effAc}</span>
           </span>
           {hero.conditions.length > 0 && (
@@ -5800,10 +5837,10 @@ function CharacterSheet({
             <div
               key={ability}
               className="flex flex-col items-center rounded border border-stone-800 bg-stone-950/60 py-1.5"
-              title={ABILITY_LABELS_RU[ability]}
+              title={statLabel(ui, ability)}
             >
               <span className="text-[9px] uppercase tracking-wide text-stone-500">
-                {ABILITY_LABELS_RU[ability].slice(0, 3)}
+                {statLabel(ui, ability)}
               </span>
               <span
                 className={cn(
@@ -5823,9 +5860,7 @@ function CharacterSheet({
 
       {hero.effects.length > 0 && (
         <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 px-3 py-2">
-          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
-            Эффекты
-          </div>
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">{ui.effects}</div>
           <div className="flex flex-wrap gap-1.5">
             {hero.effects.map((effect) => (
               <span
@@ -5848,11 +5883,9 @@ function CharacterSheet({
 
       <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 px-3 py-2">
         <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300/70">
-          <Backpack className="size-3.5" aria-hidden="true" />
-          Инвентарь
-        </div>
+          <Backpack className="size-3.5" aria-hidden="true" />{ui.inventory}</div>
         {items.length === 0 ? (
-          <p className="py-2 text-center text-[11px] text-stone-600">Пусто — добыча появится в бою</p>
+          <p className="py-2 text-center text-[11px] text-stone-600">{ui.inventoryEmpty}</p>
         ) : (
           <div className="grid grid-cols-4 gap-1.5">
             {orderedItems.map((item) => {
@@ -5944,6 +5977,7 @@ const RARITY_RING: Record<string, string> = {
 // debuff. The engine already wrote the player-facing text + emoji; the card frames
 // it like a real game UI instead of a flat journal line.
 function EventCard({ event }: { event: GameEvent }) {
+  const ui = useUi();
   if (event.kind === "item") {
     const item = (event.data as { item?: Item } | undefined)?.item;
     const ring = RARITY_RING[item?.rarity ?? "common"] ?? RARITY_RING.common;
@@ -6014,7 +6048,7 @@ function EventCard({ event }: { event: GameEvent }) {
               {award?.title ?? event.text}
             </span>
             <span className={cn("text-[8.5px] uppercase tracking-[0.1em] opacity-85", ink)}>
-              {RARITY_WORDS[rarity]}
+              {rarityWord(ui, rarity)}
             </span>
           </span>
           {award?.summary && (
@@ -6382,13 +6416,14 @@ function StorySettingsPanel({
   setSettings: Dispatch<SetStateAction<StorySettings>>;
   compact?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   const idPrefix = compact ? "mobile" : "desktop";
 
   return (
     <PanelSection
       icon={Settings2}
       iconSrc={SIDEBAR_ICONS.story}
-      title="Мир и правила"
+      title={ui.worldAndRules}
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -6583,6 +6618,7 @@ function ImageSettingsPanel({
   onOpenImageModelFolder: () => void;
   compact?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   const idPrefix = compact ? "mobile" : "desktop";
   const imageControlsDisabled = !settings.imageGenerationEnabled;
   // Отдельного сервера картинок больше нет: движок живёт внутри приложения и берёт карту
@@ -6599,7 +6635,7 @@ function ImageSettingsPanel({
     <PanelSection
       icon={Aperture}
       iconSrc={SIDEBAR_ICONS.images}
-      title="Картинки"
+      title={ui.images}
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -6747,11 +6783,12 @@ function LocalDataPanel({
   onClear: () => void;
   compact?: boolean;
 } & PanelControlProps) {
+  const ui = useUi();
   return (
     <PanelSection
       icon={Trash2}
       iconSrc={SIDEBAR_ICONS.localData}
-      title="Данные на диске"
+      title={ui.dataOnDisk}
       compact={compact}
       defaultOpen={compact}
       open={open}
@@ -6779,6 +6816,7 @@ function LocalDataPanel({
 /// Плашка «вышла новая версия». Молчит, пока обновления нет или сети нет: пугать игрока
 /// нечем, игра работает и так.
 function UpdateNotice() {
+  const ui = useUi();
   const [release, setRelease] = useState<{
     current: string;
     latest: string;
@@ -6805,16 +6843,15 @@ function UpdateNotice() {
       <Sparkles className="mt-0.5 size-4 shrink-0 text-amber-200" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="text-sm text-amber-100">
-          Вышла версия {release.latest} — у тебя {release.current}
+          {ui.updateTitle.replace("{latest}", release.latest).replace("{current}", release.current)}
         </p>
         {release.notes && (
-          <p className="mt-1 whitespace-pre-line text-[11px] leading-relaxed text-stone-400">
-            {release.notes}
+          <p className="mt-1 text-[11px] leading-relaxed text-stone-400">
+            {releaseSummary(release.notes)}
           </p>
         )}
         <p className="mt-1 text-[11px] leading-relaxed text-stone-500">
-          Обновляет <code className="text-stone-400">update.bat</code> в папке игры: он забирает
-          новую версию и пересобирает её, сохранения и модели остаются на месте.
+          {ui.updateHow}
         </p>
       </div>
       <a
@@ -6823,12 +6860,12 @@ function UpdateNotice() {
         rel="noreferrer noopener"
         className="shrink-0 self-center rounded border border-amber-800/60 px-2 py-1 text-xs text-amber-200 hover:bg-amber-900/30"
       >
-        Что нового
+        {ui.whatsNew}
       </a>
       <button
         type="button"
         onClick={() => setHidden(true)}
-        aria-label="Скрыть сообщение об обновлении"
+        aria-label={ui.hideUpdate}
         className="shrink-0 self-start text-stone-500 hover:text-stone-300"
       >
         <X className="size-4" aria-hidden="true" />
@@ -6880,11 +6917,12 @@ function CryptoRow({ coin, address }: { coin: string; address: string }) {
 }
 
 function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
+  const ui = useUi();
   return (
     <PanelSection
       icon={Heart}
       iconSrc={SIDEBAR_ICONS.support}
-      title="Поддержка"
+      title={ui.support}
       open={open}
       onOpenChange={onOpenChange}
       divided={divided}
@@ -7092,6 +7130,7 @@ function MessageActions({
   onSpeak?: () => void;
   speaking?: boolean;
 }) {
+  const ui = useUi();
   return (
     <div
       className={cn(
@@ -7103,8 +7142,8 @@ function MessageActions({
         <button
           type="button"
           onClick={onSpeak}
-          aria-label={speaking ? "Остановить озвучку" : "Озвучить"}
-          title={speaking ? "Остановить озвучку" : "Озвучить"}
+          aria-label={speaking ? ui.stopSpeaking : ui.speakAloud}
+          title={speaking ? ui.stopSpeaking : ui.speakAloud}
           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200"
         >
           {speaking ? (
@@ -7112,20 +7151,18 @@ function MessageActions({
           ) : (
             <Play className="size-3.5" aria-hidden="true" />
           )}
-          {speaking ? "Стоп" : "Озвучить"}
+          {speaking ? ui.stopSpeaking : ui.speakAloud}
         </button>
       )}
       <button
         type="button"
         onClick={onEdit}
         disabled={disabled}
-        aria-label="Изменить"
-        title="Изменить"
+        aria-label={ui.edit}
+        title={ui.edit}
         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-stone-500 hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed"
       >
-        <Pencil className="size-3.5" aria-hidden="true" />
-        Изменить
-      </button>
+        <Pencil className="size-3.5" aria-hidden="true" />{ui.edit}</button>
     </div>
   );
 }
@@ -7242,6 +7279,7 @@ function ImageBeat({
   // so the user can't queue an image render that fights the LLM for the GPU.
   busy?: boolean;
 }) {
+  const ui = useUi();
   const isLoading = status === "loading";
   const isError = status === "error";
   const [promptExpanded, setPromptExpanded] = useState(false);
@@ -7280,7 +7318,7 @@ function ImageBeat({
               onClick={() => setPromptExpanded((value) => !value)}
               className="mt-1 text-xs text-amber-200 hover:text-amber-100"
             >
-              {promptExpanded ? "Свернуть" : "Показать больше"}
+              {promptExpanded ? ui.collapse : ui.showMore}
             </button>
           )}
         </figcaption>
@@ -7305,7 +7343,7 @@ function ImageBeat({
             ? "Ошибка инструмента изображений."
             : isLoading
               ? "Генерирую сцену..."
-              : "Запрошен инструмент изображений."}
+              : ui.frameRequested}
         </span>
         {!isLoading && (
           <button
@@ -7314,7 +7352,7 @@ function ImageBeat({
             disabled={busy}
             className="ml-auto rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isError ? "Повторить" : "Сгенерировать"}
+            {isError ? ui.retryTurn : ui.generate}
           </button>
         )}
       </div>
@@ -7329,7 +7367,7 @@ function ImageBeat({
               onClick={() => setPromptExpanded((value) => !value)}
               className="mt-1 text-xs text-amber-200 hover:text-amber-100"
             >
-              {promptExpanded ? "Свернуть" : "Показать больше"}
+              {promptExpanded ? ui.collapse : ui.showMore}
             </button>
           )}
         </div>

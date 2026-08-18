@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Download, Loader2, Check } from "lucide-react";
+import { useUi } from "@/lib/ui-text-context";
 
 // Первый запуск: докачка того, чего нет на диске.
 //
@@ -22,6 +23,7 @@ const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
 const size = (component: Component) => component.files.reduce((sum, file) => sum + file.bytes, 0);
 
 export default function SetupPanel() {
+  const ui = useUi();
   const [components, setComponents] = useState<Component[] | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -102,10 +104,10 @@ export default function SetupPanel() {
           <img src="/sidebar-icons/local-data.png" alt="" className="size-full object-cover" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-stone-300">Что скачать</span>
+          <span className="block truncate text-sm font-medium text-stone-300">{ui.whatToDownload}</span>
           <span className="block truncate text-xs text-stone-500">
             {missing.length === 0
-              ? "Всё на месте"
+              ? ui.everythingInPlace
               : missingRequired.length > 0
                 ? `Не хватает главного: ${missingRequired.length}`
                 : `Можно доставить: ${missing.length}`}

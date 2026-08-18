@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
+import { useUi } from "@/lib/ui-text-context";
 
 // Настройки движков и облака.
 //
@@ -145,6 +146,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 }
 
 export default function EnginePanel() {
+  const ui = useUi();
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [keySet, setKeySet] = useState(false);
   const [open, setOpen] = useState(false);
@@ -282,11 +284,11 @@ export default function EnginePanel() {
           <img src="/sidebar-icons/engines.png" alt="" className="size-full object-cover" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-stone-300">Движки и облако</span>
+          <span className="block truncate text-sm font-medium text-stone-300">{ui.enginesAndCloud}</span>
           <span className="block truncate text-xs text-stone-500">
             {cloudStages === 0
               ? "Всё считает своя карта"
-              : `В облаке ${cloudStages} из ${STAGES.length}`}
+              : ui.cloudStagesOf.replace("{n}", String(cloudStages)).replace("{total}", String(STAGES.length))}
           </span>
         </span>
         {saving ? (
@@ -452,7 +454,7 @@ export default function EnginePanel() {
                       ))}
                     </select>
                     {stage.key === "tts" && (
-                      <Row label="Голос" hint="Отмечены голоса, которые тянут русскую речь.">
+                      <Row label={ui.voice} hint="Отмечены голоса, которые тянут русскую речь.">
                         <select
                           value={runtime.openrouterTtsVoice}
                           onChange={(event) => patch("openrouterTtsVoice", event.target.value)}

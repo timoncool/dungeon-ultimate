@@ -12,7 +12,7 @@
 [![Made with Rust](https://img.shields.io/badge/Rust-один%20бинарь-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Local & Private](https://img.shields.io/badge/100%25-на%20устройстве-7b5cff?style=flat-square)](#чем-отличается)
 
-**[English](README.md)** · **[Русский](README_RU.md)**
+**[English](README.md)** · **[Русский](README_RU.md)** · **[Сайт](https://timoncool.github.io/dungeon-ultimate/)**
 
 ![Dungeon Ultimate](./docs/hero.png)
 
@@ -120,6 +120,10 @@
 <tr>
 <td width="50%" valign="top"><img src="./docs/shots/new-story-ru.png" alt="Создание истории" /><br /><sub><b>Начни историю</b> — выбери жанр, скажи, кто ты, и рассказчик напишет завязку.</sub></td>
 <td width="50%" valign="top"><img src="./docs/shots/book-ru.png" alt="Режим чтения" /><br /><sub><b>Чистое повествование</b> — проза приходит по словам, как в книге.</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="./docs/shots/achievements-ru.png" alt="Достижения" /><br /><sub><b>Достижения и инструменты</b> — рассказчик спрашивает движок о состоянии игры, кидает проверки посреди фразы и вручает награды, которые живут в профиле.</sub></td>
+<td width="50%" valign="top"><img src="./docs/shots/play-ru.png" alt="Ход игры" /><br /><sub><b>Ход целиком</b> — бросок, значки событий в журнале и кадр к сцене.</sub></td>
 </tr>
 </table>
 </div>
