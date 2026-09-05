@@ -401,7 +401,7 @@ fn run_turn(
     let voice = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
         let chosen = runtime.openrouter_tts_voice.trim();
         if chosen.is_empty() {
-            crate::voice_catalog::suitable(&runtime.openrouter_tts_model, true, None)
+            crate::voice_catalog::suitable(&runtime.openrouter_tts_model, settings.language == du_core::Language::Ru, None)
                 .first()
                 .map(|voice| voice.name.clone())
                 .unwrap_or_default()

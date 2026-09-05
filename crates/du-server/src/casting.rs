@@ -111,14 +111,16 @@ pub fn assign(
         if character.is_empty() || !known.contains(voice) {
             continue;
         }
-        if !names.iter().any(|name| name.eq_ignore_ascii_case(character)) {
+        let Some(canonical) = names.iter().copied().find(|name| name.eq_ignore_ascii_case(character)) else {
             continue;
-        }
+        };
         // Один голос — одному персонажу: иначе двое зазвучат одинаково.
         if !taken.insert(voice.to_string()) {
             continue;
         }
-        casting.insert(character.to_string(), voice.to_string());
+        // Ключ — имя из листа, а не написание модели: раскладку ищут по character.name
+        // точным совпадением, и другой регистр молча оставил бы персонажа без голоса.
+        casting.insert(canonical.to_string(), voice.to_string());
     }
     casting
 }

@@ -807,6 +807,11 @@ pub fn add_dll_directory(path: &Path) {
     // Префикс к PATH надёжнее SetDefaultDllDirectories: не ограничивает поиск только AddDllDirectory-каталогами.
     let dir = path.to_string_lossy().into_owned();
     let current = std::env::var("PATH").unwrap_or_default();
+    // Движок грузится заново на каждый некэшированный запрос: без проверки один и тот же
+    // каталог копился бы в PATH без предела.
+    if current.split(';').any(|segment| segment.eq_ignore_ascii_case(&dir)) {
+        return;
+    }
     let new_path = if current.is_empty() {
         dir
     } else {

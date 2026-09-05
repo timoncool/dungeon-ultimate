@@ -427,42 +427,39 @@ fn record_continuity(
     }
 }
 
+/// Файл референса внутри каталога сгенерированного или загруженного.
+///
+/// url приходит из тела запроса, поэтому имя обязано быть именно именем: иначе
+/// `/generated/../../секрет` читался бы локальным движком и уходил бы в облако data-url'ом.
+fn reference_path(state: &AppState, reference: &Attachment) -> Option<std::path::PathBuf> {
+    let relative = reference.url.trim_start_matches('/');
+    let (root, name) = if let Some(name) = relative.strip_prefix("generated/") {
+        (&state.generated, name)
+    } else if let Some(name) = relative.strip_prefix("uploads/") {
+        (&state.uploads, name)
+    } else {
+        return None;
+    };
+    if !crate::chats::is_plain_file_name(name) {
+        return None;
+    }
+    let path = root.join(name);
+    path.is_file().then_some(path)
+}
+
 /// Пути к файлам референсов — как есть, без разбора картинки.
 ///
 /// Локальному движку нужны распакованные пиксели, а облаку — сам файл: он уходит туда
 /// строкой data-url. Разбирать и собирать картинку обратно ради этого незачем.
 fn reference_paths(state: &AppState, references: &[Attachment]) -> Vec<std::path::PathBuf> {
-    references
-        .iter()
-        .filter_map(|reference| {
-            let relative = reference.url.trim_start_matches('/');
-            let path = if let Some(name) = relative.strip_prefix("generated/") {
-                state.generated.join(name)
-            } else if let Some(name) = relative.strip_prefix("uploads/") {
-                state.uploads.join(name)
-            } else {
-                return None;
-            };
-            path.is_file().then_some(path)
-        })
-        .collect()
+    references.iter().filter_map(|reference| reference_path(state, reference)).collect()
 }
 
 /// Подгрузить пиксели референсов с диска. Недоступный файл просто пропускаем: кадр важнее.
 fn load_references(state: &AppState, references: &[Attachment]) -> Vec<RawImage> {
     references
         .iter()
-        .filter_map(|reference| {
-            let relative = reference.url.trim_start_matches('/');
-            let path = if let Some(name) = relative.strip_prefix("generated/") {
-                state.generated.join(name)
-            } else if let Some(name) = relative.strip_prefix("uploads/") {
-                state.uploads.join(name)
-            } else {
-                return None;
-            };
-            read_png(&path).ok()
-        })
+        .filter_map(|reference| read_png(&reference_path(state, reference)?).ok())
         .collect()
 }
 
@@ -516,8 +513,9 @@ pub async fn setup_download(
     // Закачка идёт МИМО очереди к видеокарте: это сеть, и ждать чужого кадра ей незачем.
     let job = state
         .queue
-        .spawn_detached(Box::new(move |progress, _| {
-            let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        .spawn_detached(Box::new(move |progress, abort| {
+            // Флаг отмены — из очереди: «Прервать» обязан останавливать и закачку,
+            // а не только отцеплять браузер.
             for component in crate::setup::manifest() {
                 if !body.ids.is_empty() && !body.ids.iter().any(|id| id == component.id) {
                     continue;

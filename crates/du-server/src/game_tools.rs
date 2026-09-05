@@ -389,7 +389,7 @@ fn draw_frame(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
                     characters
                         .iter()
                         .find(|character| {
-                            character.id == name || character.name.eq_ignore_ascii_case(name)
+                            character.id == name || (!name.trim().is_empty() && same_title(&character.name, name))
                         })
                         .map(|character| character.id.clone())
                 })

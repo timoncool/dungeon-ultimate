@@ -8,6 +8,8 @@ struct Harness {
     address: SocketAddr,
     /// Каталог сгенерированного: тестам нужно класть в него файлы и проверять, что с ними стало.
     generated: std::path::PathBuf,
+    /// То же состояние, что у сервера: чтобы засеять базу тем, чего нет за ручками HTTP.
+    state: AppState,
     _dir: tempfile::TempDir,
 }
 
@@ -15,6 +17,7 @@ async fn start() -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let state = AppState::new(dir.path()).unwrap();
     let generated = state.generated.clone();
+    let shared = state.clone();
     let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
         .await
         .unwrap();
@@ -22,7 +25,7 @@ async fn start() -> Harness {
     tokio::spawn(async move {
         let _ = axum::serve(listener, router(state)).await;
     });
-    Harness { address, generated, _dir: dir }
+    Harness { address, generated, state: shared, _dir: dir }
 }
 
 async fn call(
@@ -201,6 +204,46 @@ async fn deleting_a_story_takes_its_pictures_and_clips_with_it() {
     assert_eq!(status, 200);
     assert!(!frame.exists(), "кадр удалённой истории остался на диске");
     assert!(!clip.exists(), "озвучка удалённой истории осталась на диске");
+    assert!(stranger.exists(), "удалён чужой файл");
+}
+
+#[tokio::test]
+async fn erasing_a_turn_takes_its_frame_but_keeps_the_rest() {
+    let harness = start().await;
+    let (_, body) = call(&harness, "POST", "/api/chats", Some(serde_json::json!({}))).await;
+    let chat = body["chat"]["id"].as_str().unwrap().to_string();
+
+    let generated = harness.generated.clone();
+    let kept = generated.join("первый.png");
+    let erased = generated.join("второй.png");
+    let stranger = generated.join("чужой.png");
+    for path in [&kept, &erased, &stranger] {
+        std::fs::write(path, b"x").unwrap();
+    }
+    let attachment = |name: &str| du_core::Attachment {
+        id: name.to_string(),
+        name: name.to_string(),
+        kind: "image/png".into(),
+        url: format!("/generated/{name}.png"),
+        data_url: None,
+    };
+    let message = |id: &str, name: &str, at: &str| du_core::StoryMessage {
+        id: id.to_string(),
+        role: du_core::StoryRole::Assistant,
+        content: "…".into(),
+        created_at: at.to_string(),
+        attachments: vec![attachment(name)],
+        image_request: None,
+        generated_image: None,
+        rpg_snapshot: None,
+    };
+    harness.state.store.add_message(&chat, &message("m1", "первый", "2026-01-01T00:00:01Z")).unwrap();
+    harness.state.store.add_message(&chat, &message("m2", "второй", "2026-01-01T00:00:02Z")).unwrap();
+
+    let (status, _) = call(&harness, "DELETE", &format!("/api/chats/{chat}/messages/m2"), None).await;
+    assert_eq!(status, 200);
+    assert!(!erased.exists(), "кадр стёртого хода остался на диске");
+    assert!(kept.exists(), "кадр живого хода удалён");
     assert!(stranger.exists(), "удалён чужой файл");
 }
 

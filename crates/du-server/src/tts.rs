@@ -153,20 +153,7 @@ fn ensure_wav_reference(source: &std::path::Path, seconds: u32) -> Result<std::p
 
 /// Первый голос из пака — им озвучиваем, когда игрок не выбрал свой.
 pub fn default_voice(root: &std::path::Path) -> Option<String> {
-    let dir = root.join("models").join("voices");
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let extension = path.extension()?.to_string_lossy().to_lowercase();
-            ["wav", "mp3", "flac"]
-                .contains(&extension.as_str())
-                .then(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))?
-        })
-        .collect();
-    names.sort();
-    names.into_iter().next()
+    available_voices(root).into_iter().next()
 }
 
 /// Синтез речи БЕЗ очереди: зовётся либо из задачи очереди, либо из маршрута, который сам
@@ -255,7 +242,8 @@ pub fn synthesize_streaming(
         let url = format!("/generated/{name}");
 
         // Уже озвученную фразу не пересчитываем: повтор хода не должен занимать карту.
-        if !path.is_file() {
+        // Но годным считаем только целый WAV: обрубок от сорванной попытки — не звук.
+        if !playable_wav(&path) {
             let engine = match engine.as_ref() {
                 Some(engine) => engine,
                 None => {
@@ -484,10 +472,15 @@ pub fn available_voices(root: &std::path::Path) -> Vec<String> {
                         .contains(&extension.as_str())
                         .then(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))?
                 })
+                // Перекодированный эталон «Имя.refNs.wav» — не отдельный голос: имя с точкой
+                // всё равно не найти (safe_name режет точки), в списке это невыбираемый пункт.
+                .filter(|stem| !stem.contains('.'))
                 .collect()
         })
         .unwrap_or_default();
     voices.sort();
+    // Один голос в двух форматах — один пункт.
+    voices.dedup();
     voices
 }
 

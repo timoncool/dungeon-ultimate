@@ -139,8 +139,30 @@ pub fn build_rpg_section(
         format!("\n\n{}:\n{rows}", prompts.rpg.foes)
     };
 
+    // Взятые задания: рассказчик ведёт прозу и должен знать, на что герой подписался.
+    let taken: Vec<&du_rpg::Quest> =
+        quests.iter().filter(|quest| quest.status == du_rpg::QuestStatus::Active).collect();
+    let quests_block = if taken.is_empty() {
+        String::new()
+    } else {
+        let rows = taken
+            .iter()
+            .map(|quest| {
+                let giver = quest.giver.as_deref().map(|giver| format!(" ({giver})")).unwrap_or_default();
+                let conditions = if quest.conditions.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n  {}: {}", prompts.rpg.quest_conditions, quest.conditions.join("; "))
+                };
+                format!("• «{}»{giver}{conditions}", quest.title)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("\n\n{}:\n{rows}", prompts.rpg.quests)
+    };
+
     let head = if lines.is_empty() { "• (нет игровых персонажей)".to_string() } else { lines.join("\n") };
-    format!("СОСТОЯНИЕ ИГРЫ (authoritative — опирайся на него, НЕ выдумывай числа):\n{head}{inventory}{foes}\n\n{rules}")
+    format!("СОСТОЯНИЕ ИГРЫ (authoritative — опирайся на него, НЕ выдумывай числа):\n{head}{inventory}{foes}{quests_block}\n\n{rules}")
 }
 
 /// Указание языка отдельным системным сообщением ПОСЛЕ промпта нарратора: так оно
@@ -447,7 +469,7 @@ pub fn build_actors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use du_rpg::{Hp, ItemSlot};
+    use du_rpg::{Hp, ItemSlot, Quest, QuestStatus};
 
     fn character(id: &str, name: &str) -> StoryCharacter {
         StoryCharacter {
@@ -520,6 +542,33 @@ mod tests {
         let section = build_rpg_section(&actors, &items, &[], &[], prompts_for(Language::Ru));
         assert!(section.contains("меч героя"));
         assert!(!section.contains("ржавый тесак"), "чужой лут не должен попадать в инвентарь отряда");
+    }
+
+    #[test]
+    fn taken_quests_reach_the_narrator_but_offers_do_not() {
+        let mut actors = ActorMap::new();
+        actors.insert("hero".into(), Actor { name: "Герой".into(), rpg: CharacterRpg::default() });
+        let quest = |title: &str, status: QuestStatus| Quest {
+            id: format!("q-{title}"),
+            title: title.into(),
+            giver: Some("Староста".into()),
+            summary: String::new(),
+            conditions: vec!["принести кольцо".into()],
+            reward: None,
+            xp: 50,
+            status,
+            turn: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let quests = vec![quest("Найти сына", QuestStatus::Active), quest("Сжечь мельницу", QuestStatus::Offered)];
+
+        let section = build_rpg_section(&actors, &[], &[], &quests, prompts_for(Language::Ru));
+        assert!(section.contains("Найти сына"));
+        assert!(section.contains("Староста"));
+        assert!(section.contains("принести кольцо"));
+        assert!(section.contains(&prompts_for(Language::Ru).rpg.quests));
+        assert!(!section.contains("Сжечь мельницу"), "предложенное, но не взятое задание рассказчику не показывают");
     }
 
     #[test]

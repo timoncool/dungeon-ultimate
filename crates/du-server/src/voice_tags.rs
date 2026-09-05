@@ -163,11 +163,28 @@ pub fn speech_and_tail(text: &str) -> (String, String) {
             }
         }
     }
-    // Речь через тире: слова автора начинаются со ВТОРОГО тире.
+    // Речь через тире: слова автора идут после тире, перед которым стоит знак конца реплики
+    // («, . ! ? …»). Внутреннее тире («— Это — конец, — сказал он») реплику не рвёт. Если
+    // такого тире нет, берём первое: так пишут по-испански («—No sé —dijo»).
     if let Some(first) = trimmed.chars().next() {
         if matches!(first, '—' | '–') {
             let after_first = &trimmed[first.len_utf8()..];
-            if let Some(at) = ['—', '–'].iter().filter_map(|dash| after_first.find(*dash)).min() {
+            let mut prev: Option<char> = None;
+            let mut punctuated: Option<usize> = None;
+            let mut any: Option<usize> = None;
+            for (index, ch) in after_first.char_indices() {
+                if matches!(ch, '—' | '–') {
+                    any.get_or_insert(index);
+                    if matches!(prev, Some(',' | '.' | '!' | '?' | '…')) {
+                        punctuated = Some(index);
+                        break;
+                    }
+                }
+                if !ch.is_whitespace() {
+                    prev = Some(ch);
+                }
+            }
+            if let Some(at) = punctuated.or(any) {
                 let speech = &trimmed[..first.len_utf8() + at];
                 let tail = after_first[at..].trim_start_matches(['—', '–']).trim();
                 return (speech.trim().to_string(), tail.to_string());
@@ -250,6 +267,16 @@ mod tests {
         let (speech, tail) = speech_and_tail("«Пусти», — буркнул старик.");
         assert_eq!(speech, "«Пусти»");
         assert_eq!(tail, ", — буркнул старик.");
+
+        // Внутреннее тире внутри реплики её не рвёт.
+        let (speech, tail) = speech_and_tail("— Это — конец, — сказал он.");
+        assert_eq!(speech, "— Это — конец,");
+        assert_eq!(tail, "сказал он.");
+
+        // Без знака перед тире (испанская манера) слова автора всё равно отделяются.
+        let (speech, tail) = speech_and_tail("—No sé —dijo él.");
+        assert_eq!(speech, "—No sé");
+        assert_eq!(tail, "dijo él.");
 
         // Реплика без слов автора остаётся целой.
         let (speech, tail) = speech_and_tail("— Уходи.");

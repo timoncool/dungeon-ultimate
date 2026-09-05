@@ -104,12 +104,17 @@ pub async fn delete_chat(
 ///
 /// Берём только то, что лежит В КАТАЛОГЕ сгенерированного и является файлом: ссылка в
 /// сообщении может указывать куда угодно, и удалять по ней вслепую нельзя.
+/// Имя файла из url должно быть именно именем: ни каталогов, ни выхода наверх.
+/// Одно правило на все места, где клиентский url превращается в путь на диске.
+pub(crate) fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != ".." && name != "."
+}
+
 fn chat_files(state: &AppState, chat_id: &str) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     let mut keep = |url: &str| {
         if let Some(name) = url.strip_prefix("/generated/") {
-            // Имя должно быть именно именем: ни каталогов, ни выхода наверх.
-            if !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != ".." {
+            if is_plain_file_name(name) {
                 let path = state.generated.join(name);
                 if path.is_file() {
                     files.push(path);
@@ -193,12 +198,23 @@ fn yes() -> bool {
 
 pub async fn delete_message(
     State(state): State<AppState>,
-    Path((_chat_id, message_id)): Path<(String, String)>,
+    Path((chat_id, message_id)): Path<(String, String)>,
     Query(query): Query<DeleteMessage>,
 ) -> ApiResult<Json<Value>> {
+    // Кадры удаляемых сообщений тоже снимаем с диска, иначе каждый повтор хода копит
+    // осиротевшие иллюстрации в /generated. Файлы истории считаем до и после удаления:
+    // пропавшие из списка — кадры снесённых сообщений (портреты и клипы остаются в обоих).
+    let before = chat_files(&state, &chat_id);
     let removed = state.store.delete_message_and_after(&message_id, query.include_after)?;
     if !removed {
         return Err(ApiError::not_found("сообщение не найдено"));
+    }
+    let after: std::collections::HashSet<std::path::PathBuf> =
+        chat_files(&state, &chat_id).into_iter().collect();
+    for path in before {
+        if !after.contains(&path) {
+            let _ = std::fs::remove_file(path);
+        }
     }
     Ok(Json(json!({ "ok": true })))
 }
