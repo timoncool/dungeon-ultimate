@@ -88,7 +88,7 @@ function BookEventCard({ event }: { event: GameEvent }) {
         <div className="min-w-0">
           <div className="truncate font-serif font-bold text-[#3a2a18]">{item?.name ?? panel.item}</div>
           <div className="truncate font-serif text-xs text-[#6a4f2c]">
-            {event.text.replace(/^📦\s*Получен предмет:\s*/, "")}
+            {event.text.replace(/^📦\s*[^:：]+[:：]\s*/, "")}
           </div>
         </div>
       </div>
@@ -461,7 +461,7 @@ export default function BookReader({
     return (
       <div ref={wrapRef} className="flex h-full items-center justify-center px-6 text-center font-serif text-stone-500">
         {measurer}
-        Книга пока пуста — начни историю.
+        {panel.bookEmpty}
       </div>
     );
   }
@@ -603,11 +603,11 @@ export default function BookReader({
             ) : (
               <Volume2 className="size-4" aria-hidden="true" />
             )}
-            Озвучить
+            {panel.readAloud}
           </button>
         ) : (
           <span className="font-serif text-xs italic text-stone-500">
-            листай · {pages.length}
+            {panel.flipPages.replace("{n}", String(pages.length))}
           </span>
         )}
         <button

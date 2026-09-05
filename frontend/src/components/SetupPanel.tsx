@@ -21,7 +21,7 @@ type Component = {
   files: Array<{ bytes: number }>;
 };
 
-const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
+const gb = (bytes: number, unit: string) => `${(bytes / 1024 ** 3).toFixed(1)} ${unit}`;
 const size = (component: Component) => component.files.reduce((sum, file) => sum + file.bytes, 0);
 
 export default function SetupPanel() {
@@ -85,7 +85,7 @@ export default function SetupPanel() {
           }
         }, 1500);
       } catch (error) {
-        setNote(`Не скачалось: ${error instanceof Error ? error.message : String(error)}`);
+        setNote(panel.downloadFailed.replace("{error}", error instanceof Error ? error.message : String(error)));
         setBusy(false);
       }
     },
@@ -115,8 +115,8 @@ export default function SetupPanel() {
             {missing.length === 0
               ? ui.everythingInPlace
               : missingRequired.length > 0
-                ? `Не хватает главного: ${missingRequired.length}`
-                : `Можно доставить: ${missing.length}`}
+                ? panel.missingRequiredCount.replace("{n}", String(missingRequired.length))
+                : panel.optionalAvailableCount.replace("{n}", String(missing.length))}
           </span>
         </span>
         {busy ? (
@@ -140,8 +140,8 @@ export default function SetupPanel() {
             >
               <Download className="size-4" aria-hidden="true" />
               {missingRequired.length > 0
-                ? `Скачать нужное — ${gb(missingRequired.reduce((s, c) => s + size(c) - c.haveBytes, 0))}`
-                : `Всё главное на месте`}
+                ? panel.downloadRequired.replace("{size}", gb(missingRequired.reduce((s, c) => s + size(c) - c.haveBytes, 0), panel.gbUnit))
+                : panel.allRequiredPresent}
             </button>
           )}
 
@@ -150,7 +150,7 @@ export default function SetupPanel() {
               <div className="flex items-baseline justify-between text-xs">
                 <span className="truncate text-stone-300">{progress.title}</span>
                 <span className="tabular-nums text-stone-500">
-                  {gb(progress.have)} / {gb(progress.total)}
+                  {gb(progress.have, panel.gbUnit)} / {gb(progress.total, panel.gbUnit)}
                 </span>
               </div>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-stone-800">
@@ -178,7 +178,7 @@ export default function SetupPanel() {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-sm text-stone-200">{component.title}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-stone-500">{gb(size(component))}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-stone-500">{gb(size(component), panel.gbUnit)}</span>
                   </span>
                   <span className="block text-[11px] leading-relaxed text-stone-600">
                     {component.note}
@@ -202,8 +202,7 @@ export default function SetupPanel() {
 
           {missing.length > 0 && (
             <p className="text-[11px] leading-relaxed text-stone-600">
-              Всего не хватает {gb(totalMissing)}. Качается с докачкой: прерванная загрузка
-              продолжится с того же места, а не начнётся заново.
+              {panel.resumableNote.replace("{size}", gb(totalMissing, panel.gbUnit))}
             </p>
           )}
           {note && <p className="text-xs leading-relaxed text-stone-500">{note}</p>}

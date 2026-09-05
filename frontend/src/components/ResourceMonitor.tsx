@@ -7,7 +7,7 @@ import { panelText } from "@/lib/ui-text-panels";
 import { useUiLanguage } from "@/lib/ui-text-context";
 
 const gb = (n: number) => n / 1024 ** 3;
-const fmtGb = (n: number) => `${gb(n).toFixed(1)} ГБ`;
+const fmtGb = (n: number, unit: string) => `${gb(n).toFixed(1)} ${unit}`;
 
 function heat(pct: number): string {
   if (pct >= 90) return "var(--color-danger, #ef4444)";
@@ -75,7 +75,7 @@ export default function ResourceMonitor() {
         className="inline-flex shrink-0 whitespace-nowrap items-center gap-2 px-2.5 h-8 rounded-md bg-[var(--color-surface-2)] border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors">
         <Dot pct={lead} />
         {hasGpu && <span className="mono text-[11px] tabular-nums">{Math.round(hw.gpuUtilization)}%</span>}
-        <span className="mono text-[10px] text-[var(--color-muted)] tabular-nums hidden md:inline">{hasGpu ? `${fmtGb(hw.usedVram)}/${fmtGb(hw.totalVram)}` : `RAM ${Math.round(ramPct)}%`}</span>
+        <span className="mono text-[10px] text-[var(--color-muted)] tabular-nums hidden md:inline">{hasGpu ? `${fmtGb(hw.usedVram, panel.gbUnit)}/${fmtGb(hw.totalVram, panel.gbUnit)}` : `RAM ${Math.round(ramPct)}%`}</span>
         <PictureInPicture2 size={13} className="text-[var(--color-muted)]" />
       </button>,
       slot,
@@ -90,7 +90,7 @@ export default function ResourceMonitor() {
           className={`flex items-center gap-2 px-3 py-2 ${fl.dragging ? "cursor-grabbing" : "cursor-grab"} border-b border-white/5`}>
           <Move size={12} className="text-[var(--color-muted)]" />
           <Dot pct={lead} />
-          <span className="text-[12px] font-semibold truncate flex-1">{hasGpu ? hw.gpuName.replace(/NVIDIA GeForce /i, "") : "Ресурсы"}</span>
+          <span className="text-[12px] font-semibold truncate flex-1">{hasGpu ? hw.gpuName.replace(/NVIDIA GeForce /i, "") : panel.resources}</span>
           {hasGpu && <span className="mono text-[11px] text-[var(--color-muted)]">{Math.round(hw.temperature)}°</span>}
           <button onClick={fl.dock} title={panel.monitorAttach} className="text-[var(--color-muted)] hover:text-[var(--color-text)]"><Minimize2 size={13} /></button>
         </div>
@@ -98,19 +98,19 @@ export default function ResourceMonitor() {
           {hasGpu && (
             <>
               <Bar label="GPU" pct={hw.gpuUtilization} right={`${Math.round(hw.gpuUtilization)}%`} />
-              <Bar label="VRAM" pct={vramPct} right={`${fmtGb(hw.usedVram)} / ${fmtGb(hw.totalVram)}`} />
+              <Bar label="VRAM" pct={vramPct} right={`${fmtGb(hw.usedVram, panel.gbUnit)} / ${fmtGb(hw.totalVram, panel.gbUnit)}`} />
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-[var(--color-muted)]">{panel.power}</span>
-                <span className="mono tabular-nums">{Math.round(hw.powerDraw)} / {Math.round(hw.powerLimit)} Вт</span>
+                <span className="mono tabular-nums">{Math.round(hw.powerDraw)} / {Math.round(hw.powerLimit)} {panel.wattUnit}</span>
               </div>
               <div className="h-1 rounded-full bg-white/8 overflow-hidden">
                 <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, powerPct)}%`, background: heat(powerPct) }} />
               </div>
             </>
           )}
-          <Bar label="RAM" pct={ramPct} right={`${fmtGb(hw.usedRam)} / ${fmtGb(hw.totalRam)}`} />
+          <Bar label="RAM" pct={ramPct} right={`${fmtGb(hw.usedRam, panel.gbUnit)} / ${fmtGb(hw.totalRam, panel.gbUnit)}`} />
           <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
-            <span>{panel.process}</span><span className="mono tabular-nums">{fmtGb(hw.processRam)}</span>
+            <span>{panel.process}</span><span className="mono tabular-nums">{fmtGb(hw.processRam, panel.gbUnit)}</span>
           </div>
         </div>
       </div>

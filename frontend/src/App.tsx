@@ -1161,7 +1161,7 @@ export default function Home() {
       });
       const payload = await readApi<ImageWorkerActionResponse>(response);
       setImageWorkerMessage(
-        payload.path ? `Папка модели открыта: ${payload.path}` : settings_.modelFolderOpened,
+        payload.path ? settings_.modelFolderOpenedAt.replace("{path}", payload.path) : settings_.modelFolderOpened,
       );
     } catch (workerError) {
       const message =
@@ -1437,7 +1437,7 @@ export default function Home() {
         setError(
           blocked
             ? settings_.audioBlocked
-            : `Клип не проигрался: ${reason instanceof Error ? reason.message : String(reason)}`,
+            : settings_.clipNotPlayed.replace("{reason}", reason instanceof Error ? reason.message : String(reason)),
         );
         finish();
       });
@@ -1851,7 +1851,7 @@ export default function Home() {
       else
         setError(
           isAbortError(storyError)
-          ? "Рассказчик слишком долго отвечал. Модель ещё может работать в фоне; подожди немного, затем повтори или перезапусти локальную модель, если система под нагрузкой."
+          ? settings_.narratorTimedOut
           : storyError instanceof Error
             ? storyError.message
             : settings_.errorStoryRequest,
@@ -2053,7 +2053,7 @@ export default function Home() {
       }
       const portrait: Attachment = {
         id: image.id || `portrait-${heroId}`,
-        name: `${heroName} (портрет)`,
+        name: settings_.portraitOf.replace("{name}", heroName),
         type: "image/png",
         url: image.url,
       };
@@ -2240,7 +2240,8 @@ export default function Home() {
       await runTurn({
         chatId: selectedChatId,
         mode: "continue",
-        input: `Только что разрешилась проверка: ${outcome}. Опиши КОНКРЕТНОЕ последствие этого исхода в истории — при успехе удачный результат, при провале осложнение, ловушку или неудачу — и при необходимости начисли урон или лут через механику. Заверши на моменте, приглашающем следующее действие игрока. НЕ вводи новую проверку в этом отрывке.`,
+        // Директива — на языке истории, как kickoff и continue.
+        input: promptsFor(settings.language).checkResolved.replace("{outcome}", outcome),
         history: followHistory,
         settings,
       });
@@ -2695,10 +2696,7 @@ export default function Home() {
                     </div>
                     <div className="max-w-sm">
                       <p className="text-balance font-serif text-2xl text-stone-200">{settings_.everyStoryStartsWithALine}</p>
-                      <p className="mt-2 text-pretty text-sm text-stone-500">
-                        Начни историю и опиши, что ты делаешь — дальше рассказчик
-                        подхватит, со сценами и всем остальным.
-                      </p>
+                      <p className="mt-2 text-pretty text-sm text-stone-500">{settings_.emptyStoryHint}</p>
                     </div>
                     <button
                       type="button"
@@ -2929,7 +2927,7 @@ export default function Home() {
                       heroDead
                         ? settings_.heroDeadNoOne
                         : inputModes(ui).find((m) => m.value === inputMode)?.placeholder ??
-                          "Что ты делаешь?"
+                          settings_.whatDoYouDo
                     }
                     className="max-h-40 min-h-16 w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base text-stone-100 outline-none placeholder:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-600 sm:min-h-20"
                     disabled={libraryLoading || loadingChat || heroDead}
@@ -3253,7 +3251,7 @@ function NewStoryDialog({
                 value={customWorld}
                 onChange={(event) => setCustomWorld(event.target.value)}
                 rows={4}
-                placeholder="You are a lighthouse keeper on a coast where the fog has started whispering back. Last night the light went out on its own..."
+                placeholder={settings_.customWorldPlaceholder}
                 className="w-full resize-none rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
               />
             </label>
@@ -3278,7 +3276,7 @@ function NewStoryDialog({
                   name="new-story-name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="Alice Fordring"
+                  placeholder={settings_.nameExampleHero}
                   className="w-full rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
                 />
               </label>
@@ -3368,7 +3366,7 @@ function NewStoryDialog({
                   value={openingText}
                   onChange={(event) => setOpeningText(event.target.value)}
                   rows={4}
-                  placeholder="Rain hammers the tin roof of the bus shelter. You pull your coat tighter and check the time again. The 11:40 is twenty minutes late, and the only other person here keeps watching you..."
+                  placeholder={settings_.openingPlaceholder}
                   className="w-full resize-none rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
                 />
                 <span className="mt-1.5 block text-xs text-stone-600">
@@ -3470,10 +3468,10 @@ function MobileToolsSheet({
   }
 
   const tools: Array<{ value: MobileTool; label: string }> = [
-    { value: "characters", label: "Chars" },
+    { value: "characters", label: settings_.charactersTab },
     { value: "story", label: settings_.storyWord },
     { value: "images", label: settings_.images },
-    { value: "data", label: "Data" },
+    { value: "data", label: settings_.dataTab },
   ];
 
   return (
@@ -3671,7 +3669,7 @@ function ChatLibrary({
       action={
         <button
           type="button"
-          aria-label="Создать новую историю"
+          aria-label={settings_.createNewStory}
           onClick={onCreate}
           className="flex size-10 shrink-0 items-center justify-center rounded border border-stone-800 text-stone-300 hover:bg-stone-900"
         >
@@ -3870,7 +3868,7 @@ function CharacterPanel({
               ) : (
                 <Sparkles size={13} aria-hidden="true" />
               )}
-              {autofilling ? "…" : "Заполнить"}
+              {autofilling ? "…" : settings_.fill}
             </button>
           </span>
           {autofillError && (
@@ -3884,7 +3882,7 @@ function CharacterPanel({
               onDraftChange((current) => ({ ...current, name: event.target.value }))
             }
             className="w-full rounded border border-stone-800 bg-stone-950 px-3 py-2 text-sm text-stone-200 outline-none focus:border-amber-300"
-            placeholder="Valerie Maroto"
+            placeholder={settings_.nameExampleCharacter}
           />
         </label>
 
@@ -4009,7 +4007,7 @@ function CharacterPanel({
             ) : (
               <Plus className="size-4" aria-hidden="true" />
             )}
-            Добавить
+            {settings_.add}
           </button>
         </div>
       </div>
@@ -4128,7 +4126,7 @@ function CharacterPanel({
                   className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1.5 text-xs text-stone-200 outline-none focus:border-amber-300"
                 >
                   <option value="">
-                    {`Авто${
+                    {`${settings_.auto}${
                       settings.multiVoice
                         ? ` · ${voiceForCharacter({ voice: settings.voice, multiVoice: true }, { id: character.id }, voices, characters)}`
                         : ""
@@ -4171,7 +4169,7 @@ function CharacterPanel({
                   ) : (
                     <ImagePlus className="size-3.5" aria-hidden="true" />
                   )}
-                  Photo
+                  {settings_.portrait}
                 </label>
                 {character.portrait && (
                   <button
@@ -4211,7 +4209,7 @@ function DeleteCharacterDialog({
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-stone-700 bg-[#130d09] p-5 shadow-xl">
           <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">{settings_.deleteThisCharacter}</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            {characterName || settings_.thisCharacter} будет удалён из этой истории.
+            {settings_.willBeRemovedFromStory.replace("{name}", characterName || settings_.thisCharacter)}
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
@@ -4347,7 +4345,7 @@ function TextModelPanel({
           value={settings.textProvider}
           options={[
             { value: "custom", label: settings_.localServer },
-            { value: "local", label: "Ollama" },
+            { value: "local", label: settings_.builtInModel },
           ]}
           onChange={(textProvider) =>
             setSettings((current) => ({ ...current, textProvider }))
@@ -4382,26 +4380,17 @@ function TextModelPanel({
             })}
           </select>
           {localTextStatus && !localTextStatus.ok && (
-            <p className="text-xs text-amber-200/80">
-              Ollama недоступна. Это необязательный провайдер Ollama — основной
-              путь «Локальный сервер» в ней не нуждается. Запусти Ollama, если
-              хочешь её использовать, затем перезагрузи страницу.
-            </p>
+            <p className="text-xs text-amber-200/80">{settings_.localModelUnavailable}</p>
           )}
           {selectedMissing && (
-            <p className="text-xs text-amber-200/80">
-              Install with{" "}
-              <code className="rounded bg-stone-900 px-1 py-0.5 text-amber-100">
-                ollama pull {settings.localTextModel}
-              </code>
-            </p>
+            <p className="text-xs text-amber-200/80">{settings_.localModelMissing}</p>
           )}
         </div>
       ) : (
         <div className="space-y-3">
           <div className="space-y-1.5">
             <span className="block text-xs font-medium uppercase text-stone-500">
-              Быстрое заполнение
+              {settings_.quickFill}
             </span>
             <div className="flex flex-wrap gap-1.5">
               {serverPresets(settings_).map((preset) => (
@@ -4423,7 +4412,7 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-base-url`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              URL сервера
+              {settings_.serverUrl}
             </label>
             <input
               id={`${idPrefix}-custom-base-url`}
@@ -4447,7 +4436,7 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-model`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              Модель
+              {settings_.model}
             </label>
             {activeCustomModels.length > 0 && (
               <select
@@ -4464,7 +4453,7 @@ function TextModelPanel({
                 {!customModelInList && (
                   <option value="">
                     {settings.customModel
-                      ? `${settings.customModel} (вручную)`
+                      ? `${settings.customModel} ${settings_.enteredManually}`
                       : settings_.pickModel}
                   </option>
                 )}
@@ -4494,7 +4483,7 @@ function TextModelPanel({
             />
             {activeCustomModelsError && (
               <p className="text-xs text-stone-500">
-                Не удалось получить список моделей с сервера — впиши id вручную.
+                {settings_.modelListFailed}
               </p>
             )}
           </div>
@@ -4503,7 +4492,7 @@ function TextModelPanel({
               htmlFor={`${idPrefix}-custom-api-key`}
               className="block text-xs font-medium uppercase text-stone-500"
             >
-              API-ключ <span className="normal-case text-stone-600">{settings_.optional}</span>
+              {settings_.apiKey} <span className="normal-case text-stone-600">{settings_.optional}</span>
             </label>
             <input
               id={`${idPrefix}-custom-api-key`}
@@ -4522,9 +4511,7 @@ function TextModelPanel({
             />
           </div>
           <p className="text-xs leading-relaxed text-stone-500">
-            Any OpenAI-compatible server: llama.cpp, LM Studio, vLLM, TabbyAPI, KoboldCpp,
-            OpenRouter, or a remote Ollama. Everything stays on your machine, and most
-            local servers need no key. For OpenRouter, paste a model id from{" "}
+            {settings_.customServerNote}
             <a
               href="https://openrouter.ai/models"
               target="_blank"
@@ -4840,8 +4827,7 @@ function VoiceControl({
           className="w-full accent-amber-200"
         />
         <p className="mt-1 text-[11px] leading-4 text-stone-500">
-          Работает с любым голосом — и своим, и облачным: темп ставит сам проигрыватель, тон
-          не меняется.
+          {settings_.speechRateNote}
         </p>
       </div>
       <VoiceEngineTuning />
@@ -5162,7 +5148,7 @@ function MicButton({
       type="button"
       onClick={() => void (recording ? stop() : start())}
       disabled={disabled || busy}
-      title={recording ? settings_.stopRecording : "Голосовой ввод"}
+      title={recording ? settings_.stopRecording : settings_.voiceInput}
       className="flex size-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-900 hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-600"
     >
       {busy ? (
@@ -5454,6 +5440,7 @@ function AchievementsSection({
   onOpenChange,
   divided,
 }: { achievements: Achievement[] } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   const legendary = achievements.filter((award) => award.rarity === "legendary").length;
   return (
@@ -5465,10 +5452,7 @@ function AchievementsSection({
       divided={divided ?? true}
     >
       {!achievements.length ? (
-        <p className="text-xs leading-5 text-stone-500">
-          Пока пусто. Награды дают за поступок — выстоять против сильнейшего, пощадить
-          побеждённого, пройти сцену без единого удара. Их не выпрашивают: они случаются.
-        </p>
+        <p className="text-xs leading-5 text-stone-500">{settings_.noAchievementsYet}</p>
       ) : (
         <>
           <div className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
@@ -5555,12 +5539,12 @@ function QuestsPanel({
             <p className="min-w-0 text-xs font-medium text-amber-100">{quest.title}</p>
             {quest.xp > 0 && (
               <span className="shrink-0 text-[10px] tabular-nums text-amber-400/80">
-                +{quest.xp} опыта
+                {settings_.xpReward.replace("{n}", String(quest.xp))}
               </span>
             )}
           </div>
           {quest.giver && (
-            <p className="mt-0.5 text-[11px] text-stone-400">от: {quest.giver}</p>
+            <p className="mt-0.5 text-[11px] text-stone-400">{settings_.from} {quest.giver}</p>
           )}
           {quest.summary && (
             <p className="mt-0.5 text-[11px] leading-4 text-stone-300">{quest.summary}</p>
@@ -5575,7 +5559,7 @@ function QuestsPanel({
             </ul>
           )}
           {quest.reward && (
-            <p className="mt-0.5 text-[11px] text-amber-300/80">награда: {quest.reward}</p>
+            <p className="mt-0.5 text-[11px] text-amber-300/80">{settings_.reward} {quest.reward}</p>
           )}
 
           <div className="mt-1.5 flex gap-1.5">
@@ -5853,7 +5837,7 @@ function CharacterSheet({
                 )}
               >
                 {effect.kind === "debuff" ? "🔻" : "✨"} {effect.name}
-                <span className="tabular-nums opacity-70">{effect.turns}х</span>
+                <span className="tabular-nums opacity-70">{effect.turns}×</span>
               </span>
             ))}
           </div>
@@ -5975,9 +5959,9 @@ function EventCard({ event }: { event: GameEvent }) {
           </span>
         )}
         <div className="min-w-0">
-          <div className="truncate font-medium text-stone-100">{item?.name ?? "Предмет"}</div>
+          <div className="truncate font-medium text-stone-100">{item?.name ?? settings_.item}</div>
           <div className="truncate text-xs text-stone-400">
-            {event.text.replace(/^📦\s*Получен предмет:\s*/, settings_.loot)}
+            {event.text.replace(/^📦\s*[^:：]+[:：]\s*/, settings_.loot)}
           </div>
         </div>
       </div>
@@ -6607,7 +6591,7 @@ function ImageSettingsPanel({
   const workerStatusLabel = engineReady ? settings_.frameEngineReady : settings_.frameWeightsMissing;
   const workerDetail = engineReady
     ? imageWorkerStatus?.defaultBackend
-      ? `Считает: ${imageWorkerStatus.defaultBackend}`
+      ? `${settings_.computesOn} ${imageWorkerStatus.defaultBackend}`
       : settings_.frameEngineNote
     : settings_.frameWeightsHint;
 
@@ -6648,7 +6632,7 @@ function ImageSettingsPanel({
             ) : (
               <Play className="size-4" aria-hidden="true" />
             )}
-            Проверить
+            {settings_.check}
           </button>
           <button
             type="button"
@@ -6751,6 +6735,7 @@ function LocalDataPanel({
   onClear: () => void;
   compact?: boolean;
 } & PanelControlProps) {
+  const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
   return (
     <PanelSection
@@ -6774,7 +6759,7 @@ function LocalDataPanel({
           ) : (
             <Trash2 className="size-4" aria-hidden="true" />
           )}
-          Удалить все локальные данные
+          {settings_.deleteAllLocalData}
         </button>
       </ClearLocalDataDialog>
     </PanelSection>
@@ -6897,11 +6882,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
       onOpenChange={onOpenChange}
       divided={divided}
     >
-      <p className="text-pretty text-xs leading-relaxed text-stone-500">
-        Dungeon Ultimate — бесплатный проект с открытым исходным кодом от Nerual Dreming и
-        Нейро-Софт. Если он нашёл место на твоей машине, поддержка помогает делать новые
-        портативные нейросети.
-      </p>
+      <p className="text-pretty text-xs leading-relaxed text-stone-500">{settings_.supportBlurb}</p>
       <div className="grid grid-cols-2 gap-2">
         <a
           href={DONATE.card}
@@ -6925,7 +6906,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
       </div>
       <div className="space-y-2 border-t border-stone-800 pt-3">
         <p className="text-[11px] leading-relaxed text-stone-500">
-          Сделал{" "}
+          {settings_.madeBy}{" "}
           <a
             href={DONATE.telegram}
             target="_blank"
@@ -6934,7 +6915,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           >
             Nerual Dreming
           </a>{" "}
-          — основатель{" "}
+          {settings_.founderOf}{" "}
           <a
             href="https://artgeneration.me"
             target="_blank"
@@ -6946,7 +6927,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
         </p>
         <div className="flex flex-wrap gap-1.5">
           {[
-            ["Нейро-Софт", "https://t.me/neuroport"],
+            [settings_.neuroSoft, "https://t.me/neuroport"],
             ["GitHub", DONATE.github],
             ["Telegram", DONATE.telegram],
             [settings_.allWays, DONATE.all],
@@ -6983,8 +6964,7 @@ function ClearLocalDataDialog({
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),440px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-red-900/80 bg-[#130d09] p-5 shadow-xl">
           <AlertDialog.Title className="text-balance text-base font-semibold text-red-100">{settings_.wipeEverything}</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            Удалит все локальные истории, сообщения, персонажей, загруженные фото, сгенерированные
-            картинки и временные файлы-референсы с этого компьютера.
+            {settings_.clearLocalDataWarning}
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
@@ -7025,7 +7005,7 @@ function DeleteChatDialog({
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-stone-700 bg-[#130d09] p-5 shadow-xl">
           <AlertDialog.Title className="text-balance text-base font-semibold text-stone-100">{settings_.deleteThisStory}</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-pretty text-sm text-stone-400">
-            {chat.title} и его сохранённые сообщения будут удалены из локальной базы.
+            {settings_.chatWillBeDeleted.replace("{title}", chat.title)}
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>

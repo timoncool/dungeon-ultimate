@@ -8,4 +8,6 @@ export type PromptSet = {
   continue: string;
   // Prefix for the player's own hint about how the story should open.
   playerDirection: string;
+  // Follow-up turn after a dice check resolved; {outcome} is the roll summary.
+  checkResolved: string;
 };

@@ -10,6 +10,9 @@ const de: PromptSet = {
     "Setze die Geschichte genau dort fort, wo sie unterbrochen wurde. Der Spieler führt in diesem Zug keine Handlung aus — entwickle die Szene natürlich durch Erzählung, Dialog oder Ereignisse weiter und halte dann bei einem Moment inne, der seine nächste Handlung einlädt.",
 
   playerDirection: "Vorgabe des Spielers für den Anfang (baue die Szene darum herum): ",
+
+  checkResolved:
+    "Eine Probe wurde gerade entschieden: {outcome}. Beschreibe die KONKRETE Folge dieses Ausgangs in der Geschichte – bei Erfolg ein günstiges Ergebnis, bei Misserfolg eine Komplikation, eine Falle oder einen Rückschlag – und verbuche bei Bedarf Schaden oder Beute über die Mechanik. Ende an einem Moment, der die nächste Handlung des Spielers einlädt. Führe in diesem Abschnitt KEINE neue Probe ein.",
 };
 
 export default de;

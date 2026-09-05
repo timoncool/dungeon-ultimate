@@ -228,7 +228,7 @@ export default function EnginePanel() {
       // Перезапуск не нужен: сервер перечитывает настройки на каждом запуске модели.
       setNote(panel.saved);
     } catch (error) {
-      setNote(`Не сохранилось: ${error instanceof Error ? error.message : String(error)}`);
+      setNote(panel.notSaved.replace("{error}", error instanceof Error ? error.message : String(error)));
       // Переключатель мы двигаем сразу, не дожидаясь ответа. Раз ответа нет — возвращаем
       // то, что на сервере: иначе панель показывала бы облако там, где его не включили.
       try {
@@ -498,12 +498,9 @@ export default function EnginePanel() {
                       </span>
                     )}
                     {stage.key === "narrator" && chosenWhere === "cpu" && (
-                      <span className="mb-1 block text-amber-500/80">
-                        Очень медленно: около полутора минут на отрывок против секунд на
-                        карте. Замерено — 14 знаков в секунду.
-                      </span>
+                      <span className="mb-1 block text-amber-500/80">{panel.cpuSlowNote}</span>
                     )}
-                    {stage.local} · считает{" "}
+                    {stage.local} · {panel.computesWord}{" "}
                     {decided[stage.key] === "cpu"
                       ? panel.cpuWord
                       : decided[stage.key] === "gpu"
@@ -544,13 +541,9 @@ export default function EnginePanel() {
                 onChange={(value) => patch("imageOffloadToCpu", value)}
               />
               <p className="text-[11px] leading-relaxed text-stone-600">
-                Экономит память видеокарты, считает всё равно она. Где именно считать —
-                выбирается выше, у стадии «Кадр».
+                {panel.imageWorkerNote.replace("{frame}", panel.frame)}
               </p>
-              <p className="text-[11px] leading-relaxed text-stone-600">
-                Настройки самой озвучки — в разделе «Голос», отрисовки кадра — в «Картинках».
-                Здесь остаётся только железо.
-              </p>
+              <p className="text-[11px] leading-relaxed text-stone-600">{panel.hardwareOnlyNote}</p>
             </div>
           </details>
 

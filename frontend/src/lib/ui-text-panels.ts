@@ -75,6 +75,24 @@ export type PanelText = {
   // Распознавание речи
   asrParakeet: string;
   asrWhisper: string;
+  // Остатки текста из кода (ревью 2026-09)
+  notSaved: string;
+  cpuSlowNote: string;
+  computesWord: string;
+  imageWorkerNote: string;
+  hardwareOnlyNote: string;
+  gbUnit: string;
+  wattUnit: string;
+  resources: string;
+  downloadFailed: string;
+  missingRequiredCount: string;
+  optionalAvailableCount: string;
+  downloadRequired: string;
+  allRequiredPresent: string;
+  resumableNote: string;
+  bookEmpty: string;
+  readAloud: string;
+  flipPages: string;
 };
 
 const RU: PanelText = {
@@ -141,6 +159,23 @@ const RU: PanelText = {
 
   asrParakeet: "Parakeet — быстрый, работает сразу",
   asrWhisper: "Whisper large-v3 — точнее, нужна докачка",
+  notSaved: "Не сохранилось: {error}",
+  cpuSlowNote: "Очень медленно: около полутора минут на отрывок против секунд на карте. Замерено — 14 знаков в секунду.",
+  computesWord: "считает",
+  imageWorkerNote: "Экономит память видеокарты, считает всё равно она. Где именно считать — выбирается выше, у стадии «{frame}».",
+  hardwareOnlyNote: "Настройки самой озвучки — в разделе «Голос», отрисовки кадра — в «Картинках». Здесь остаётся только железо.",
+  gbUnit: "ГБ",
+  wattUnit: "Вт",
+  resources: "Ресурсы",
+  downloadFailed: "Не скачалось: {error}",
+  missingRequiredCount: "Не хватает главного: {n}",
+  optionalAvailableCount: "Можно доставить: {n}",
+  downloadRequired: "Скачать нужное — {size}",
+  allRequiredPresent: "Всё главное на месте",
+  resumableNote: "Всего не хватает {size}. Качается с докачкой: прерванная загрузка продолжится с того же места, а не начнётся заново.",
+  bookEmpty: "Книга пока пуста — начни историю.",
+  readAloud: "Озвучить",
+  flipPages: "листай · {n}",
 };
 
 const EN: PanelText = {
@@ -207,6 +242,23 @@ const EN: PanelText = {
 
   asrParakeet: "Parakeet — fast, works right away",
   asrWhisper: "Whisper large-v3 — more precise, needs a download",
+  notSaved: "Not saved: {error}",
+  cpuSlowNote: "Very slow: about a minute and a half per passage versus seconds on the GPU. Measured at 14 characters per second.",
+  computesWord: "runs on",
+  imageWorkerNote: "Saves GPU memory; the GPU still does the work. Where to compute is chosen above, at the “{frame}” stage.",
+  hardwareOnlyNote: "Voice settings live in the “Voice” section, frame rendering in “Images”. Only the hardware stays here.",
+  gbUnit: "GB",
+  wattUnit: "W",
+  resources: "Resources",
+  downloadFailed: "Download failed: {error}",
+  missingRequiredCount: "Essentials missing: {n}",
+  optionalAvailableCount: "Available to add: {n}",
+  downloadRequired: "Download the essentials — {size}",
+  allRequiredPresent: "All essentials are in place",
+  resumableNote: "{size} missing in total. Downloads resume: an interrupted download continues from where it stopped instead of starting over.",
+  bookEmpty: "The book is still empty — start a story.",
+  readAloud: "Read aloud",
+  flipPages: "flip · {n}",
 };
 
 const ES: PanelText = {
@@ -273,6 +325,23 @@ const ES: PanelText = {
 
   asrParakeet: "Parakeet: rápido, funciona ya",
   asrWhisper: "Whisper large-v3: más preciso, hay que descargarlo",
+  notSaved: "No se guardó: {error}",
+  cpuSlowNote: "Muy lento: cerca de minuto y medio por pasaje frente a segundos en la tarjeta gráfica. Medido: 14 caracteres por segundo.",
+  computesWord: "calcula en",
+  imageWorkerNote: "Ahorra memoria de la tarjeta gráfica; el cálculo sigue haciéndolo ella. Dónde calcular se elige arriba, en la etapa «{frame}».",
+  hardwareOnlyNote: "Los ajustes de la voz están en «Voz», los del fotograma en «Imágenes». Aquí solo queda el hardware.",
+  gbUnit: "GB",
+  wattUnit: "W",
+  resources: "Recursos",
+  downloadFailed: "No se descargó: {error}",
+  missingRequiredCount: "Faltan esenciales: {n}",
+  optionalAvailableCount: "Se pueden añadir: {n}",
+  downloadRequired: "Descargar lo esencial: {size}",
+  allRequiredPresent: "Todo lo esencial está listo",
+  resumableNote: "Faltan {size} en total. Las descargas se reanudan: una descarga interrumpida continúa desde donde se quedó en lugar de empezar de nuevo.",
+  bookEmpty: "El libro aún está vacío: empieza una historia.",
+  readAloud: "Leer en voz alta",
+  flipPages: "pasa página · {n}",
 };
 
 const FR: PanelText = {
@@ -339,6 +408,23 @@ const FR: PanelText = {
 
   asrParakeet: "Parakeet — rapide, marche tout de suite",
   asrWhisper: "Whisper large-v3 — plus précis, à télécharger",
+  notSaved: "Non enregistré : {error}",
+  cpuSlowNote: "Très lent : environ une minute et demie par passage contre quelques secondes sur la carte graphique. Mesuré : 14 caractères par seconde.",
+  computesWord: "calcule sur",
+  imageWorkerNote: "Économise la mémoire de la carte graphique ; c'est toujours elle qui calcule. Où calculer se choisit plus haut, à l'étape « {frame} ».",
+  hardwareOnlyNote: "Les réglages de la voix sont dans « Voix », ceux du rendu dans « Images ». Ici, il ne reste que le matériel.",
+  gbUnit: "Go",
+  wattUnit: "W",
+  resources: "Ressources",
+  downloadFailed: "Téléchargement échoué : {error}",
+  missingRequiredCount: "Éléments essentiels manquants : {n}",
+  optionalAvailableCount: "Disponibles en plus : {n}",
+  downloadRequired: "Télécharger l'essentiel — {size}",
+  allRequiredPresent: "Tout l'essentiel est là",
+  resumableNote: "{size} manquants au total. Les téléchargements reprennent : un téléchargement interrompu continue là où il s'est arrêté au lieu de repartir de zéro.",
+  bookEmpty: "Le livre est encore vide : commence une histoire.",
+  readAloud: "Lire à voix haute",
+  flipPages: "feuillette · {n}",
 };
 
 const DE: PanelText = {
@@ -405,6 +491,23 @@ const DE: PanelText = {
 
   asrParakeet: "Parakeet — schnell, läuft sofort",
   asrWhisper: "Whisper large-v3 — genauer, muss geladen werden",
+  notSaved: "Nicht gespeichert: {error}",
+  cpuSlowNote: "Sehr langsam: etwa anderthalb Minuten pro Abschnitt gegenüber Sekunden auf der Grafikkarte. Gemessen: 14 Zeichen pro Sekunde.",
+  computesWord: "rechnet auf",
+  imageWorkerNote: "Spart Grafikspeicher; gerechnet wird trotzdem auf der Karte. Wo gerechnet wird, wählst du oben bei der Stufe „{frame}“.",
+  hardwareOnlyNote: "Die Sprachausgabe stellst du unter „Stimme“ ein, das Bildrendering unter „Bilder“. Hier bleibt nur die Hardware.",
+  gbUnit: "GB",
+  wattUnit: "W",
+  resources: "Ressourcen",
+  downloadFailed: "Download fehlgeschlagen: {error}",
+  missingRequiredCount: "Wesentliches fehlt: {n}",
+  optionalAvailableCount: "Zusätzlich verfügbar: {n}",
+  downloadRequired: "Das Nötige laden – {size}",
+  allRequiredPresent: "Alles Wesentliche ist da",
+  resumableNote: "Insgesamt fehlen {size}. Downloads werden fortgesetzt: ein abgebrochener Download macht dort weiter, wo er aufgehört hat, statt neu zu beginnen.",
+  bookEmpty: "Das Buch ist noch leer – beginne eine Geschichte.",
+  readAloud: "Vorlesen",
+  flipPages: "blättern · {n}",
 };
 
 const ZH: PanelText = {
@@ -471,6 +574,23 @@ const ZH: PanelText = {
 
   asrParakeet: "Parakeet——快，装好即用",
   asrWhisper: "Whisper large-v3——更准，需要另外下载",
+  notSaved: "未能保存：{error}",
+  cpuSlowNote: "非常慢：每段约一分半钟，而显卡只需几秒。实测每秒 14 个字符。",
+  computesWord: "运行于",
+  imageWorkerNote: "节省显存，但仍由显卡计算。在哪里计算，请在上方“{frame}”阶段选择。",
+  hardwareOnlyNote: "语音设置在“语音”栏，画面渲染在“图片”栏。这里只剩硬件。",
+  gbUnit: "GB",
+  wattUnit: "W",
+  resources: "资源",
+  downloadFailed: "下载失败：{error}",
+  missingRequiredCount: "缺少必需项：{n}",
+  optionalAvailableCount: "可选安装：{n}",
+  downloadRequired: "下载必需项——{size}",
+  allRequiredPresent: "必需项已齐全",
+  resumableNote: "总共缺少 {size}。支持断点续传：中断的下载会从原处继续，而不是重新开始。",
+  bookEmpty: "书还是空的——开始一个故事吧。",
+  readAloud: "朗读",
+  flipPages: "翻页 · {n}",
 };
 
 const JA: PanelText = {
@@ -537,6 +657,23 @@ const JA: PanelText = {
 
   asrParakeet: "Parakeet——速い、すぐ動く",
   asrWhisper: "Whisper large-v3——正確、別途落とす必要あり",
+  notSaved: "保存できませんでした：{error}",
+  cpuSlowNote: "とても遅い：1 段落に約 1 分半、GPU なら数秒です。実測で毎秒 14 文字。",
+  computesWord: "処理先",
+  imageWorkerNote: "GPU メモリを節約しますが、計算するのは GPU のままです。どこで計算するかは上の「{frame}」段階で選びます。",
+  hardwareOnlyNote: "音声の設定は「声」、場面画像の描画は「画像」にあります。ここに残るのはハードウェアだけです。",
+  gbUnit: "GB",
+  wattUnit: "W",
+  resources: "リソース",
+  downloadFailed: "ダウンロードできませんでした：{error}",
+  missingRequiredCount: "必須の不足：{n}",
+  optionalAvailableCount: "追加可能：{n}",
+  downloadRequired: "必須をダウンロード — {size}",
+  allRequiredPresent: "必須はすべて揃っています",
+  resumableNote: "合計 {size} 不足しています。ダウンロードは再開可能：中断しても最初からではなく、止まった場所から続きます。",
+  bookEmpty: "本はまだ白紙です。物語を始めましょう。",
+  readAloud: "読み上げ",
+  flipPages: "ページをめくる · {n}",
 };
 
 const BY_LANGUAGE: Record<Language, PanelText> = {

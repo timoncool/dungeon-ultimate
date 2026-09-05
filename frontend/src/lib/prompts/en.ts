@@ -10,6 +10,9 @@ const en: PromptSet = {
     "Continue the story exactly where it left off. The player takes no action this turn — develop the scene naturally through narration, dialogue or events, then pause on a moment that invites their next action.",
 
   playerDirection: "The player's direction for the opening (build the scene around it): ",
+
+  checkResolved:
+    "A check has just been resolved: {outcome}. Describe the CONCRETE consequence of this outcome in the story — on success a favourable result, on failure a complication, a trap or a setback — and, if needed, apply damage or loot through the mechanics. End on a moment that invites the player's next action. Do NOT introduce a new check in this passage.",
 };
 
 export default en;
