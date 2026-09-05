@@ -236,8 +236,11 @@ pub fn kill_orphans(tools_dir: &Path) {
         }
         // Свой собственный процесс и чужие сборки не трогаем: убиваем только то, что
         // запускали мы, из нашего каталога.
+        // Путь процесса тоже приводим к канону: на Windows у `ours` есть verbatim-префикс
+        // \\?\, а у exe его нет, и starts_with всегда ложь — сироты не убивались.
         let from_us = process
             .exe()
+            .and_then(|path| path.canonicalize().ok())
             .and_then(|path| path.parent().map(|dir| dir.starts_with(&ours)))
             .unwrap_or(false);
         if from_us && pid.as_u32() != mine {

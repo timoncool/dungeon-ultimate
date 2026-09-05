@@ -837,6 +837,11 @@ pub fn apply_game_update(
         }
     }
 
+    // award_xp кладёт получателей опыта прямо в result.changed; без слияния строка ниже
+    // затёрла бы их, и рост опыта и уровня не попал бы в сохранение.
+    for id in std::mem::take(&mut result.changed) {
+        changed.insert(id, ());
+    }
     result.changed = changed.into_keys().collect();
     result
 }
@@ -1037,11 +1042,12 @@ mod tests {
             award_xp: vec![XpAwardDecl { amount: 350, reason: Some("логово разорено".into()), ..Default::default() }],
             ..Default::default()
         };
-        apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        let result = apply_game_update(&update, &mut actors, &ApplyOptions::default());
         let hero = &actors["hero"].rpg;
         assert_eq!(hero.level, 3, "350 опыта — это сразу третий уровень");
         assert_eq!(hero.hp.max, before + 2 * crate::levels::HP_PER_LEVEL);
         assert!(hero.hp.current > 30, "рост уровня прибавляет и текущие силы");
+        assert!(result.changed.iter().any(|id| id == "hero"), "получатель опыта идёт в сохранение");
     }
 
     #[test]

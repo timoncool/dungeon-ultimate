@@ -51,7 +51,8 @@ fn exec_config() -> ExecutionConfig {
             3 => GraphOptimizationLevel::Level3,
             _ => GraphOptimizationLevel::Level1,
         };
-        let b = b.with_optimization_level(lvl)?;
+        #[cfg_attr(not(feature = "cuda"), allow(unused_mut))]
+        let mut b = b.with_optimization_level(lvl)?;
         #[cfg(feature = "cuda")]
         {
             if gpu {
@@ -749,8 +750,10 @@ fn is_dup_of_tail(all: &[Word], w: &Word, tol: f64) -> bool {
         if overlap > 0.0 {
             return true;
         }
-        // Вырожденный случай нулевой длительности (start==end): fallback на близость start в tol.
-        if (prev.end - prev.start).abs() < 1e-6 && (prev.start - w.start).abs() <= tol {
+        // Вырожденный интервал (start==end) у ЛЮБОГО из слов: точка не даёт overlap>0, даже
+        // лёжа внутри соседа (overlap==0). Параллельный путь отдаёт такие слова на шве.
+        let degenerate = (prev.end - prev.start).abs() < 1e-6 || (w.end - w.start).abs() < 1e-6;
+        if degenerate && (overlap >= 0.0 || (prev.start - w.start).abs() <= tol) {
             return true;
         }
     }
@@ -833,6 +836,14 @@ mod dedup_tests {
         append_dedup_words(&mut all, vec![w("a", 0.0, 0.3), w("b", 0.3, 0.6)], 0.0);
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].word, "a");
+    }
+
+    #[test]
+    fn a_zero_length_word_inside_its_twin_is_a_duplicate() {
+        // Параллельный путь отдаёт на шве слово нулевой длительности внутри уже добавленного.
+        let mut all: Vec<Word> = vec![w("да", 9.8, 10.2)];
+        append_dedup_words(&mut all, vec![w("да", 10.0, 10.0)], 9.6);
+        assert_eq!(all.len(), 1, "точечный дубль просочился: {all:?}");
     }
 
     #[test]

@@ -135,15 +135,18 @@ fn parse_notation(notation: &str) -> Option<(i32, i64, i32)> {
     let modifier = if tail.is_empty() {
         0
     } else {
-        let (sign, number) = tail.split_at(1);
-        let number: String = number.chars().filter(|c| !c.is_whitespace()).collect();
+        // По символам, а не split_at(1): хвост вроде «1d6 урона» начинается с многобайтового
+        // символа, и разрез по байту попал бы в середину кодовой точки и уронил ход паникой.
+        let mut chars = tail.chars();
+        let sign = chars.next()?;
+        let number: String = chars.filter(|c| !c.is_whitespace()).collect();
         if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
         let value = number.parse::<i32>().ok()?;
         match sign {
-            "+" => value,
-            "-" => -value,
+            '+' => value,
+            '-' => -value,
             _ => return None,
         }
     };
@@ -197,6 +200,13 @@ pub fn clamp_stat(value: i32, min: i32, max: i32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_multibyte_tail_after_the_sides_is_not_dice_and_does_not_panic() {
+        assert_eq!(parse_notation("1d6 урона"), None);
+        assert_eq!(parse_notation("2d6+3"), Some((2, 6, 3)));
+        assert_eq!(parse_notation("1d8 - 1"), Some((1, 8, -1)));
+    }
 
     #[test]
     fn ability_modifier_rounds_down_including_negatives() {

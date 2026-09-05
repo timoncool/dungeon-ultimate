@@ -78,11 +78,12 @@ pub fn strip_image_artifacts(text: &str) -> String {
 
 /// Начало вызова `generate_image[` или `generate_image{` в начале строки.
 fn find_call_start(text: &str) -> Option<usize> {
-    let lower = text.to_lowercase();
     let mut offset = 0usize;
     for line in text.split_inclusive('\n') {
         let trimmed_start = offset + (line.len() - line.trim_start().len());
-        let lower_line = &lower[offset..offset + line.len()];
+        // Нижний регистр считаем построчно: индексировать общий lower смещениями оригинала
+        // нельзя — у некоторых символов нижний регистр иной длины, и срез уедет за границу.
+        let lower_line = line.to_lowercase();
         let candidate = lower_line.trim_start();
         let candidate = candidate.strip_prefix("call:").map(str::trim_start).unwrap_or(candidate);
         if let Some(rest) = candidate.strip_prefix("generate_image") {
@@ -103,9 +104,13 @@ fn strip_closed_fences(text: &str) -> String {
     while let Some(open) = rest.find("```") {
         let after_open = &rest[open + 3..];
         let Some(newline) = after_open.find('\n') else { break };
-        // Между ``` и переводом строки допустим только ярлык языка.
+        // Между ``` и переводом строки допустим только ярлык языка. Случайная ``` в прозе —
+        // не повод бросать разбор: пропускаем её и ищем настоящий закрытый забор дальше,
+        // иначе позже идущий блок уцелеет, а хвостовой фолбэк срежет историю по этой ```.
         if !after_open[..newline].chars().all(|c| c.is_ascii_alphanumeric()) {
-            break;
+            out.push_str(&rest[..open + 3]);
+            rest = after_open;
+            continue;
         }
         let body = &after_open[newline + 1..];
         let Some(close) = body.find("```") else { break };
@@ -116,8 +121,19 @@ fn strip_closed_fences(text: &str) -> String {
     out
 }
 
+/// Индекс указывает в оригинал (по нему потом режут truncate). Все иголки ASCII, поэтому
+/// сравниваем побайтно без учёта регистра: начало совпадения всегда на границе символа,
+/// а to_lowercase у некоторых символов меняет длину и сдвинул бы индекс.
 fn find_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
-    haystack.to_lowercase().find(&needle.to_lowercase())
+    debug_assert!(needle.is_ascii(), "маркеры — только ASCII");
+    let needle = needle.as_bytes();
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .position(|window| window.eq_ignore_ascii_case(needle))
 }
 
 #[cfg(test)]
@@ -172,6 +188,19 @@ mod tests {
     fn a_closed_code_fence_is_removed_but_the_story_survives() {
         let text = "Начало.\n```json\n{\"a\":1}\n```\nПродолжение.";
         assert_eq!(strip_image_artifacts(text), "Начало.\n\nПродолжение.");
+    }
+
+    #[test]
+    fn a_letter_whose_lowercase_is_longer_never_breaks_the_scan() {
+        // 'İ' в нижнем регистре занимает больше байт: срез по смещениям оригинала падал.
+        assert_eq!(strip_image_artifacts("İİ\ngenerate_image[x]"), "İİ");
+        assert_eq!(strip_image_artifacts("İ[IMAGE_GEN_PROMPT] a door"), "İ");
+    }
+
+    #[test]
+    fn a_stray_backtick_before_a_real_fence_keeps_the_prose() {
+        let text = "Он сказал ``` и замолчал.\n```json\n{\"prompt\": \"x\"}\n```";
+        assert_eq!(strip_image_artifacts(text), "Он сказал ``` и замолчал.");
     }
 
     #[test]
