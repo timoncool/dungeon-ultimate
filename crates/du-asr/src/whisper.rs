@@ -91,6 +91,12 @@ pub struct WhisperAsr {
 }
 
 impl WhisperAsr {
+    /// Сборка XXL (Faster-Whisper-XXL): знает --batched и флаги анти-галлюцинаций,
+    /// старый onefile r192 их не понимает.
+    fn is_xxl(&self) -> bool {
+        self.bin.file_name().and_then(|s| s.to_str()).is_some_and(|n| n.to_ascii_lowercase().contains("xxl"))
+    }
+
     pub fn new(
         bin: impl AsRef<Path>,
         model_dir: impl AsRef<Path>,
@@ -249,8 +255,7 @@ impl WhisperAsr {
         // Анти-галлюцинации (ENGINES_FINDINGS §3, arxiv 2501.11378: VAD до декодера = 0.2% галлюцинаций
         // против 21.3%; condition_on_previous_text тянет «Субтитры создавал…» через паузы; temp-fallback
         // на no_speech = петли). Флаги подтверждены по --help нашего XXL r245.4.
-        let is_xxl_flags = self.bin.file_name().and_then(|s| s.to_str()).is_some_and(|n| n.to_ascii_lowercase().contains("xxl"));
-        if is_xxl_flags {
+        if self.is_xxl() {
             cmd.arg("--vad_filter").arg("True")
                 .arg("--vad_method").arg("silero_v5_fw")
                 .arg("--condition_on_previous_text").arg("False")
@@ -260,12 +265,7 @@ impl WhisperAsr {
         }
         // XXL-сборка: батч-инференс внутри движка (--batched, Silero-VAD окна ≤30с пачками; появился в
         // r239.1 — старый onefile r192 флага НЕ знает, ему не передаём). Главный рычаг скорости на GPU.
-        let is_xxl = self
-            .bin
-            .file_name()
-            .and_then(|s| s.to_str())
-            .is_some_and(|n| n.to_ascii_lowercase().contains("xxl"));
-        if is_xxl {
+        if self.is_xxl() {
             cmd.arg("--batched");
         }
         // Явные CPU-потоки (флаг есть в v1.0.1): оконная параллель делит ядра между сабпроцессами.
@@ -364,8 +364,7 @@ impl AsrEngine for WhisperAsr {
             .arg("--compute_type").arg(&self.compute)
             .arg("--device").arg(&self.device)
             .arg("--beep_off");
-        let is_xxl = self.bin.file_name().and_then(|s| s.to_str()).is_some_and(|n| n.to_ascii_lowercase().contains("xxl"));
-        if is_xxl {
+        if self.is_xxl() {
             cmd.arg("--batched");
             // QC коротких клипов (ENGINES_FINDINGS §3.2): VAD до декодера + без истории + temp 0 +
             // жёстче no_speech — гул/тишина возвращают ПУСТО (= брак по qc_similarity), а не галлюцинацию.

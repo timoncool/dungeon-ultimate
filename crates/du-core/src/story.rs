@@ -175,7 +175,7 @@ pub struct Scene {
 }
 
 /// Артикли, которые снимаются с начала ярлыка места, — по одному на каждый язык игры.
-const LOCATION_ARTICLES: [&str; 9] = ["the", "a", "an", "le", "la", "les", "el", "los", "der"];
+const LOCATION_ARTICLES: [&str; 11] = ["the", "a", "an", "le", "la", "les", "el", "los", "der", "die", "das"];
 
 /// Привести ярлык места от нарратора к устойчивому ключу: нижний регистр, снятая
 /// пунктуация, схлопнутые пробелы, отброшенный ведущий артикль, обрезка до 80 символов —
@@ -199,13 +199,6 @@ pub fn normalize_location(label: &str) -> String {
                 break;
             }
         }
-    }
-    // «das» отдельно: в исходном списке он есть, но выше цикл уже мог сработать.
-    if let Some(rest) = key.strip_prefix("das ") {
-        key = rest.trim_start().to_string();
-    }
-    if let Some(rest) = key.strip_prefix("die ") {
-        key = rest.trim_start().to_string();
     }
 
     key.chars().take(80).collect::<String>().trim_end().to_string()
@@ -239,6 +232,8 @@ mod tests {
         assert_eq!(normalize_location("«Крипта пепла»"), "крипта пепла");
         assert_eq!(normalize_location("La Taverne"), "taverne");
         assert_eq!(normalize_location("Das Tor"), "tor");
+        assert_eq!(normalize_location("Die Katze"), "katze");
+        assert_eq!(normalize_location("Diebstahl"), "diebstahl", "артикль снимается только как отдельное слово");
     }
 
     #[test]

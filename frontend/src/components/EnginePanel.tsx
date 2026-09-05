@@ -382,10 +382,14 @@ export default function EnginePanel() {
                     onClick={() => {
                       // Общий выбор действует на стадии, у которых нет своего: иначе он бы
                       // не менял ничего и выглядел сломанным.
-                      patch("localBackend", option.value);
-                      for (const stage of stages(panel)) {
-                        patch(stage.backend, "");
-                      }
+                      // Одним PUT вместо пяти параллельных: те гоняли один файл настроек
+                      // наперегонки.
+                      const next = {
+                        localBackend: option.value,
+                        ...Object.fromEntries(stages(panel).map((stage) => [stage.backend, ""])),
+                      } as Partial<Runtime>;
+                      setRuntime((current) => (current ? { ...current, ...next } : current));
+                      void save(next);
                     }}
                     className={`whitespace-nowrap px-2 py-1 text-xs ${
                       (runtime.localBackend || "auto") === option.value
@@ -418,8 +422,10 @@ export default function EnginePanel() {
                 patch(stage.on, true);
                 return;
               }
-              patch(stage.on, false);
-              patch(stage.backend, where);
+              // Одним PUT: два раздельных запроса на один файл настроек могут затереть друг друга.
+              const next = { [stage.on]: false, [stage.backend]: where } as Partial<Runtime>;
+              setRuntime((current) => (current ? { ...current, ...next } : current));
+              void save(next);
             };
             return (
               <div key={stage.key} className="space-y-2 rounded border border-stone-800 bg-stone-950 px-3 py-3">

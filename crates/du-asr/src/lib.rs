@@ -344,13 +344,12 @@ impl Asr {
                     let Some((i, off, w_start, clip)) = job else { break };
                     match model.transcribe_samples(clip, sr_c, 1, Some(TimestampMode::Words)) {
                         Ok(r) => {
-                            let end_abs = |v: f64| v;
                             let mut ws: Vec<Word> = r
                                 .tokens
                                 .into_iter()
                                 .map(|t| Word {
                                     word: t.text.trim().to_string(),
-                                    start: end_abs(t.start as f64) + off,
+                                    start: t.start as f64 + off,
                                     end: (t.end as f64).max(t.start as f64) + off,
                                 })
                                 .filter(|w| !w.word.is_empty())

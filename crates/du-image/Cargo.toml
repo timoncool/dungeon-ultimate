@@ -9,7 +9,7 @@ description = "Движок картинок: FFI над stable-diffusion.dll (s
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-libloading = "0.8"
+libloading = { workspace = true }
 
 [dev-dependencies]
 # Пример пишет и читает PNG; смоук-проверки грузят настоящую DLL и молча пропускаются без неё.

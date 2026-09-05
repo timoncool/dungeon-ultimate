@@ -395,10 +395,10 @@ impl ChatClient {
             let line = line.map_err(|e| LlmError::Http(format!("обрыв потока: {e}")))?;
             let Some(payload) = line.strip_prefix("data:") else { continue };
             let payload = payload.trim();
-            if payload.is_empty() || payload == "[DONE]" {
-                if payload == "[DONE]" {
-                    break;
-                }
+            if payload == "[DONE]" {
+                break;
+            }
+            if payload.is_empty() {
                 continue;
             }
             let Ok(value) = serde_json::from_str::<Value>(payload) else { continue };

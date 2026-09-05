@@ -29,27 +29,15 @@ export const PROSE_SIZE_VALUES = [
 
 export type ProseSize = (typeof PROSE_SIZE_VALUES)[number];
 
-export function isProseSize(value: unknown): value is ProseSize {
-  return typeof value === "string" && PROSE_SIZE_VALUES.includes(value as ProseSize);
-}
-
 export const RESPONSE_LENGTH_VALUES = ["short", "medium", "long", "epic"] as const;
 
 export type ResponseLength = (typeof RESPONSE_LENGTH_VALUES)[number];
-
-export function isResponseLength(value: unknown): value is ResponseLength {
-  return typeof value === "string" && RESPONSE_LENGTH_VALUES.includes(value as ResponseLength);
-}
 
 // Story language: the narrator, the "surprise me" suggestions, the quick-action
 // chips and the TTS all speak the player's chosen language.
 export const LANGUAGE_VALUES = ["ru", "en", "es", "fr", "de", "zh", "ja"] as const;
 
 export type Language = (typeof LANGUAGE_VALUES)[number];
-
-export function isLanguage(value: unknown): value is Language {
-  return typeof value === "string" && LANGUAGE_VALUES.includes(value as Language);
-}
 
 // Native names for the language picker.
 export const LANGUAGE_LABELS: Record<Language, string> = {

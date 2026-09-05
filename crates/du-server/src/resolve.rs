@@ -109,7 +109,8 @@ pub fn resolve_engine_update(raw: &Value, actors: &ActorMap, hero_id: Option<&st
     for item in array("grantItems") {
         let Some(name) = text(&item, "name") else { continue };
         update.grant_items.push(GrantItemDecl {
-            owner_id: resolve_actor(actors, text(&item, "owner").as_deref(), hero_id),
+            // В схеме grantItems поля owner нет, а apply.rs при None отдаёт лут герою.
+            owner_id: None,
             name,
             slot: parse_enum(&item, "slot"),
             rarity: parse_enum(&item, "rarity"),

@@ -15,7 +15,7 @@ tracing = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 base64 = "0.22"
 # Нужен, чтобы находить и убирать процессы модели, оставшиеся от прошлого запуска.
-sysinfo = "0.32"
+sysinfo = { workspace = true }
 
 # Windows-задание (job object): в нём живёт llama-server, и система убивает его вместе с
 # нами — даже если нас сняли силой и до штатного закрытия дело не дошло.

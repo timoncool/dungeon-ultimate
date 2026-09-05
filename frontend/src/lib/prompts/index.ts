@@ -10,9 +10,7 @@ import ja from "./ja";
 
 export type { PromptSet } from "./types";
 
-// Every model-facing prompt, keyed by language. The narrator, RPG rules, the
-// "surprise me" generators, the quick-action chips and the kickoff/continue
-// directives are all pulled from here in the player's chosen language.
+// Player-side directives keyed by language. Model-facing prompts live on the server.
 export const PROMPTS: Record<Language, PromptSet> = { ru, en, es, fr, de, zh, ja };
 
 export function promptsFor(language: Language): PromptSet {

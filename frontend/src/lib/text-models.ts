@@ -17,9 +17,6 @@ export const LOCAL_TEXT_MODELS = [
   { id: "gemma4:31b-it-qat", label: "Gemma 4 31B", size: "19 GB", ram: "~20 GB", context: 262_144 },
 ] as const;
 
-export function localModelContextWindow(modelId: string): number {
-  return LOCAL_TEXT_MODELS.find((model) => model.id === modelId)?.context ?? 131_072;
-}
 
 export type LocalTextModelId = (typeof LOCAL_TEXT_MODELS)[number]["id"];
 
@@ -29,10 +26,3 @@ export const LOCAL_TEXT_MODEL_IDS = LOCAL_TEXT_MODELS.map(
 
 export const DEFAULT_LOCAL_TEXT_MODEL: LocalTextModelId = "gemma4:12b-it-qat";
 
-export function isLocalTextModelId(value: unknown): value is LocalTextModelId {
-  return LOCAL_TEXT_MODEL_IDS.includes(value as LocalTextModelId);
-}
-
-export function isTextProvider(value: unknown): value is TextProvider {
-  return value === "local" || value === "custom";
-}

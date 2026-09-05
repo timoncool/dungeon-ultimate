@@ -1868,10 +1868,9 @@ export default function Home() {
 
   async function kickoffStory(chat: StoryChat, hint?: string) {
     const trimmedHint = hint?.trim();
-    const kickoff = promptsFor(chat.settings.language).kickoff;
-    const input = trimmedHint
-      ? `${kickoff} Направление начала от игрока (выстрой сцену вокруг этого): ${trimmedHint}`
-      : kickoff;
+    const prompts = promptsFor(chat.settings.language);
+    // Обёртка подсказки — на языке истории: русская фраза утекала в промпт любой игры.
+    const input = trimmedHint ? `${prompts.kickoff} ${prompts.playerDirection}${trimmedHint}` : prompts.kickoff;
     await runTurn({
       chatId: chat.id,
       mode: "kickoff",

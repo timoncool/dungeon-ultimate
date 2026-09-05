@@ -36,7 +36,7 @@ rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # Монитор ресурсов: карта через NVML, память через sysinfo.
 nvml-wrapper = "0.10"
-sysinfo = "0.32"
+sysinfo = { workspace = true }
 async-stream = "0.3"
 
 [dev-dependencies]

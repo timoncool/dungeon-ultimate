@@ -33,8 +33,6 @@ pub enum ImageError {
     ContextCreation,
     #[error("генерация не удалась")]
     GenerationFailed,
-    #[error("генерация отменена")]
-    Cancelled,
 }
 
 /// Готовый кадр в виде сырых пикселей.

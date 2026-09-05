@@ -92,7 +92,9 @@ pub fn stage_backend(runtime: &Runtime, stage: Stage) -> Backend {
     }
     parse(stage_choice(runtime, stage))
         .or_else(|| parse(&runtime.local_backend))
-        .unwrap_or(if gpu_present() { Backend::Gpu } else { Backend::Cpu })
+        // Зонд железа дорогой (NVML под общим с монитором мьютексом) — только когда выбор
+        // ничем не задан.
+        .unwrap_or_else(|| if gpu_present() { Backend::Gpu } else { Backend::Cpu })
 }
 
 #[cfg(test)]

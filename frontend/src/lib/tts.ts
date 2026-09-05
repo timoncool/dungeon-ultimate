@@ -26,12 +26,6 @@ import type { StoryCharacter, StorySettings } from "@/lib/types";
 // Keep this module free of node-only imports so the client can import it too.
 // ---------------------------------------------------------------------------
 
-// Filesystem-safe slug for a value used in a filename (TTS WAVs, uploaded
-// clones). Pure string fn shared by the tts/tts-voice routes.
-export function safeName(value: string, max = 120): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, max);
-}
-
 // Stable 32-bit hash (FNV-1a) of a string. Deterministic across runs/sessions so
 // a character always maps to the same auto-assigned voice.
 function hashString(value: string): number {

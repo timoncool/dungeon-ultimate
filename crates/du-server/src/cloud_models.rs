@@ -54,7 +54,9 @@ impl Kind {
     }
 }
 
-static CACHE: Mutex<Option<(Instant, String, Value)>> = Mutex::new(None);
+/// Кэш на запрос, а не одна ячейка: панель ходит по нескольким назначениям подряд, и общий
+/// слот они затирали бы друг другу.
+static CACHE: Mutex<Option<std::collections::HashMap<String, (Instant, Value)>>> = Mutex::new(None);
 
 /// Параметр запроса под назначение: провайдер сам отфильтрует список по модальностям.
 fn query_for(kind: Kind) -> &'static str {
@@ -82,8 +84,8 @@ fn fetch(key: &str, kind: Kind) -> Result<Value, String> {
 
 fn fetch_query(key: &str, query: &str) -> Result<Value, String> {
     if let Ok(cache) = CACHE.lock() {
-        if let Some((at, cached_query, value)) = cache.as_ref() {
-            if cached_query == query && at.elapsed() < CACHE_TTL {
+        if let Some((at, value)) = cache.as_ref().and_then(|map| map.get(query)) {
+            if at.elapsed() < CACHE_TTL {
                 return Ok(value.clone());
             }
         }
@@ -99,7 +101,7 @@ fn fetch_query(key: &str, query: &str) -> Result<Value, String> {
     let value: Value = serde_json::from_str(&text)
         .map_err(|error| format!("непонятный ответ со списком моделей: {error}"))?;
     if let Ok(mut cache) = CACHE.lock() {
-        *cache = Some((Instant::now(), query.to_string(), value.clone()));
+        cache.get_or_insert_with(Default::default).insert(query.to_string(), (Instant::now(), value.clone()));
     }
     Ok(value)
 }
@@ -185,19 +187,13 @@ pub fn list(key: &str, kind: Kind) -> Result<Vec<CloudModel>, String> {
     Ok(out)
 }
 
-/// Голоса модели озвучки. У провайдера их в списке моделей нет, поэтому для известных
-/// семейств отдаём их набор, а для незнакомой модели — пусто, и голос вводится вручную.
+/// Голоса модели озвучки. У провайдера их в списке моделей нет, поэтому берём их из того же
+/// справочника, что отвечает `/api/cloud/voices`: обе ручки одной панели показывают один набор.
+/// Для незнакомой модели — пусто, и голос вводится вручную.
 pub fn voices_for(model: &str) -> Vec<&'static str> {
-    // Набор голосов моделей OpenAI, единственного семейства с озвучкой в текущем списке.
-    const OPENAI: [&str; 11] = [
-        "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer",
-        "verse",
-    ];
-    if model.starts_with("openai/") {
-        OPENAI.to_vec()
-    } else {
-        Vec::new()
-    }
+    crate::voice_catalog::voices(model)
+        .map(|voices| voices.iter().map(|voice| voice.name.as_str()).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
