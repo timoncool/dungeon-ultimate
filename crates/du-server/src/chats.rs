@@ -113,9 +113,15 @@ pub(crate) fn is_plain_file_name(name: &str) -> bool {
 fn chat_files(state: &AppState, chat_id: &str) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     let mut keep = |url: &str| {
-        if let Some(name) = url.strip_prefix("/generated/") {
+        // Кадры и портреты лежат в сгенерированном, загруженные игроком файлы — в uploads;
+        // и те, и другие принадлежат только этой истории.
+        let located = url
+            .strip_prefix("/generated/")
+            .map(|name| (&state.generated, name))
+            .or_else(|| url.strip_prefix("/uploads/").map(|name| (&state.uploads, name)));
+        if let Some((root, name)) = located {
             if is_plain_file_name(name) {
-                let path = state.generated.join(name);
+                let path = root.join(name);
                 if path.is_file() {
                     files.push(path);
                 }
@@ -157,7 +163,7 @@ pub async fn list_events(
     State(state): State<AppState>,
     Path(chat_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    Ok(Json(json!({ "events": state.store.list_events(&chat_id, 200)? })))
+    Ok(Json(json!({ "events": state.store.list_events(&chat_id, EVENT_HISTORY_LIMIT)? })))
 }
 
 pub async fn list_items(

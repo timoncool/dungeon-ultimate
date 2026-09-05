@@ -129,7 +129,6 @@ impl Component {
 const ORT: &str = "https://github.com/microsoft/onnxruntime/releases/download/v1.24.2/onnxruntime-win-x64-1.24.2.zip";
 
 /// Что нужно приложению. Порядок задаёт порядок показа на экране первого запуска.
-/// Что нужно приложению. Порядок задаёт порядок показа на экране первого запуска.
 ///
 /// Список статический: срез файлов внутри компонента обязан жить всю программу, иначе на
 /// него нельзя ссылаться из статуса и качалки.
@@ -544,8 +543,8 @@ fn download_range_once(
     Ok(())
 }
 
-/// Скачать один компонент. `progress` зовут с числом уже полученных байт.
 /// Скачать компонент целиком: все его файлы по очереди, с общим прогрессом.
+/// `progress` зовут с числом уже полученных байт.
 pub fn download_component(
     root: &Path,
     component: &Component,
@@ -627,6 +626,10 @@ fn download_file(
         }
         drop(file);
         std::fs::rename(&part, &target).map_err(|error| error.to_string())?;
+        // Тот же финал, что у докачки диапазонами: без распаковки архив так и лежал бы
+        // архивом, маркер не появлялся бы, и компонент качался бы заново при каждом старте.
+        unpack_if_archive(root, spec, &target)?;
+        progress(total, total);
         return Ok(());
     }
 
@@ -706,12 +709,17 @@ fn download_file(
     drop(file);
     std::fs::rename(&part, &target).map_err(|error| format!("финализация: {error}"))?;
     let _ = std::fs::remove_file(&done_file);
-    if spec.extract == Extract::ZipFlat {
-        unpack_flat(&target, &root.join(spec.extract_dir))?;
-        // Архив после распаковки только занимал бы место.
-        let _ = std::fs::remove_file(&target);
-    }
+    unpack_if_archive(root, spec, &target)?;
     progress(total, total);
+    Ok(())
+}
+
+/// Архив разворачивается сразу после закачки; сам он после этого только занимал бы место.
+fn unpack_if_archive(root: &Path, spec: &FileSpec, target: &Path) -> Result<(), String> {
+    if spec.extract == Extract::ZipFlat {
+        unpack_flat(target, &root.join(spec.extract_dir))?;
+        let _ = std::fs::remove_file(target);
+    }
     Ok(())
 }
 

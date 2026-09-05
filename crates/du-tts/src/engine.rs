@@ -515,9 +515,15 @@ impl Engine {
         } else {
             Err(match status {
                 5 => EngineError::Cancelled,
-                _ => EngineError::Generation(
-                    error_msg.unwrap_or_else(|| format!("generation failed (code {status})")),
-                ),
+                _ => EngineError::Generation(error_msg.unwrap_or_else(|| {
+                    // Как в load_model: без текста в результате причина лежит в last_error.
+                    let last = self.get_last_error();
+                    if last.trim().is_empty() {
+                        format!("generation failed (code {status})")
+                    } else {
+                        format!("generation failed (code {status}): {last}")
+                    }
+                })),
             })
         };
 

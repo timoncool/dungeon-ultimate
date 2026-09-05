@@ -17,6 +17,8 @@ pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
 const RELEASES: &str = "https://api.github.com/repos/timoncool/dungeon-ultimate/releases/latest";
 const CACHE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
+/// Неудача (сеть на старте ещё не поднялась) — не ответ: перепроверяем куда раньше.
+const RETRY_TTL: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,7 +108,8 @@ fn fetch() -> Result<Release, String> {
 pub fn check() -> Release {
     if let Ok(guard) = cache().lock() {
         if let Some((at, release)) = guard.as_ref() {
-            if at.elapsed() < CACHE_TTL {
+            let ttl = if release.latest.is_empty() { RETRY_TTL } else { CACHE_TTL };
+            if at.elapsed() < ttl {
                 return release.clone();
             }
         }
@@ -124,6 +127,18 @@ pub fn check() -> Release {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_server_version_matches_the_installer_version() {
+        // Плашка обновления сравнивает CURRENT с тегом релиза: отстанет версия воркспейса
+        // от tauri.conf.json — и свежая сборка будет вечно звать себя обновить.
+        let conf = include_str!("../../../desktop/src-tauri/tauri.conf.json");
+        let installer = conf
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("\"version\": \"").and_then(|rest| rest.strip_suffix("\",")))
+            .expect("в tauri.conf.json есть version");
+        assert_eq!(CURRENT, installer, "Cargo.toml [workspace.package].version отстал от tauri.conf.json");
+    }
 
     #[test]
     fn a_bigger_version_wins_regardless_of_the_v_prefix() {

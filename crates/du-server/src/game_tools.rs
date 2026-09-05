@@ -620,7 +620,12 @@ fn roll_check(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
     use du_rpg::dice::{roll_check as roll, Ability};
 
 
-    let dc = arguments.get("dc").and_then(Value::as_i64).unwrap_or(12) as i32;
+    // Модель без грамматики отдаёт «12.0» или «"12"» — это всё ещё число.
+    let dc = arguments
+        .get("dc")
+        .and_then(|value| value.as_f64().or_else(|| value.as_str().and_then(|s| s.trim().parse().ok())))
+        .map(|value| value.round() as i32)
+        .unwrap_or(12);
     let label = arguments.get("label").and_then(Value::as_str).unwrap_or("проверка");
     // Своя Гемма называет характеристику как ей удобнее: «Dexterity», «ловкость», «DEX».
     // Молча сваливать всё незнакомое в ловкость нельзя — бросок пойдёт не по той строке листа.
@@ -718,14 +723,29 @@ fn lore_recall(state: &crate::state::Inner, chat_id: &str, arguments: &Value) ->
     })
 }
 
-fn voices_list(state: &crate::state::Inner, chat_id: &str) -> Value {
+/// Голос с тем, что о нём известно: имя, пол, возраст.
+struct VoiceInfo {
+    name: String,
+    gender: String,
+    age: String,
+}
+
+/// Голоса, которыми можно озвучивать эту историю. Набор зависит от того, ГДЕ считается
+/// озвучка: в облаке это голоса модели (по языку истории), на карте — эталонные клипы с
+/// диска. Смешивать нельзя: чужое имя провайдер не примет.
+fn voice_pool(state: &crate::state::Inner, chat_id: &str) -> Vec<VoiceInfo> {
     let runtime = crate::runtime::load(&state.root);
-    // Набор зависит от того, ГДЕ считается озвучка: в облаке это голоса модели, на карте —
-    // эталонные клипы с диска. Смешивать нельзя: чужое имя провайдер не примет.
-    let voices: Vec<Value> = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
-        crate::voice_catalog::suitable(&runtime.openrouter_tts_model, true, None)
+    if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
+        let russian = state
+            .store
+            .get_chat(chat_id)
+            .ok()
+            .flatten()
+            .map(|chat| chat.summary.settings.language == du_core::Language::Ru)
+            .unwrap_or(true);
+        crate::voice_catalog::suitable(&runtime.openrouter_tts_model, russian, None)
             .into_iter()
-            .map(|voice| json!({ "name": voice.name, "gender": voice.gender, "age": voice.age }))
+            .map(|voice| VoiceInfo { name: voice.name.clone(), gender: voice.gender.clone(), age: voice.age.clone() })
             .collect()
     } else {
         crate::tts::available_voices(&state.root)
@@ -736,10 +756,17 @@ fn voices_list(state: &crate::state::Inner, chat_id: &str) -> Value {
                     Some(crate::dialogue::Gender::Male) => "male",
                     None => "unknown",
                 };
-                json!({ "name": name, "gender": gender, "age": "adult" })
+                VoiceInfo { name, gender: gender.to_string(), age: "adult".to_string() }
             })
             .collect()
-    };
+    }
+}
+
+fn voices_list(state: &crate::state::Inner, chat_id: &str) -> Value {
+    let voices: Vec<Value> = voice_pool(state, chat_id)
+        .into_iter()
+        .map(|voice| json!({ "name": voice.name, "gender": voice.gender, "age": voice.age }))
+        .collect();
     let taken: Vec<Value> = state
         .store
         .list_characters(chat_id)
@@ -811,14 +838,7 @@ fn character_add(state: &crate::state::Inner, chat_id: &str, arguments: &Value) 
     // Голос закрепляем СРАЗУ и насовсем: женщине женский, ребёнку детский. Ради этого всё и
     // затевалось — чтобы озвучка не зависела от того, вспомнит ли модель поставить пометку.
     let runtime = crate::runtime::load(&state.root);
-    let pool: Vec<String> = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
-        crate::voice_catalog::suitable(&runtime.openrouter_tts_model, true, None)
-            .into_iter()
-            .map(|voice| voice.name.clone())
-            .collect()
-    } else {
-        crate::tts::available_voices(&state.root)
-    };
+    let pool: Vec<String> = voice_pool(state, chat_id).into_iter().map(|voice| voice.name).collect();
     let taken: Vec<String> = characters.iter().filter_map(|c| c.voice.clone()).collect();
     let free: Vec<String> = pool.iter().filter(|voice| !taken.contains(voice)).cloned().collect();
     let choose_from = if free.is_empty() { pool.clone() } else { free };

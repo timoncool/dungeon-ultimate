@@ -134,12 +134,8 @@ export default function SetupPanel() {
           {missing.length > 0 && (
             <button
               type="button"
-              disabled={busy}
-              onClick={() =>
-                void download(
-                  missing.filter((c) => c.requirement === "required").map((c) => c.id),
-                )
-              }
+              disabled={busy || missingRequired.length === 0}
+              onClick={() => void download(missingRequired.map((c) => c.id))}
               className="flex w-full items-center justify-center gap-2 rounded bg-amber-200 px-3 py-2 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
             >
               <Download className="size-4" aria-hidden="true" />

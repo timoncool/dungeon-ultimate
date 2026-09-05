@@ -548,7 +548,13 @@ pub fn draw(
                         None => "облачный кадр: модель не вернула картинку".to_string(),
                     }
                 })?;
-            let response = ureq::get(url)
+            // Ссылка провайдера живёт минуты, а без таймаута зависший CDN держал бы ход вечно.
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(120)))
+                .build()
+                .into();
+            let response = agent
+                .get(url)
                 .call()
                 .map_err(|error| format!("облачный кадр: не скачался: {error}"))?;
             let mut buffer = Vec::new();

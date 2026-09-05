@@ -271,12 +271,22 @@ pub fn speaker_from_text(leading: &str) -> Option<(String, Option<Gender>, Optio
     };
     let lower = tail.to_lowercase();
 
+    // Основа роли считается только с начала слова: иначе «понимать» читалось бы как «мать»,
+    // а «отечество» — как «отец».
+    let last_at = |role: &str| {
+        lower
+            .match_indices(role)
+            .filter(|(at, _)| !lower[..*at].chars().next_back().is_some_and(char::is_alphabetic))
+            .map(|(at, _)| at)
+            .last()
+    };
     let role = FEMALE_ROLES
         .iter()
         .chain(MALE_ROLES.iter())
-        .filter(|role| lower.contains(**role))
+        .filter_map(|role| last_at(role).map(|at| (role, at)))
         // Из нескольких ролей берём НАЗВАННУЮ ПОСЛЕДНЕЙ: она ближе к самой реплике.
-        .max_by_key(|role| lower.rfind(**role).unwrap_or(0));
+        .max_by_key(|(_, at)| *at)
+        .map(|(role, _)| role);
 
     let gender = role.and_then(|role| {
         if FEMALE_ROLES.contains(role) {
@@ -537,6 +547,10 @@ mod tests {
     #[test]
     fn plain_narration_names_nobody() {
         assert!(super::speaker_from_text("Солнце встаёт над деревней.").is_none());
+        // Основа роли внутри чужого слова — не роль: «понимать» не «мать», «отечество» не «отец».
+        assert!(super::speaker_from_text("Он начал понимать, что отечество далеко:").is_none());
+        let (label, gender, _) = super::speaker_from_text("Мать у печи говорит:").unwrap();
+        assert_eq!(gender, Some(super::Gender::Female), "{label}");
     }
 
     #[test]

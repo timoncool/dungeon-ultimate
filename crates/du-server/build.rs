@@ -27,7 +27,7 @@ fn main() {
         "<!doctype html><meta charset=\"utf-8\">\
          <title>Dungeon Ultimate</title>\
          <body style=\"font:16px/1.5 system-ui;padding:2rem\">\
-         Интерфейс не собран. Выполни <code>cd frontend &amp;&amp; yarn build</code> \
+         Интерфейс не собран. Выполни <code>cd frontend &amp;&amp; npm run build</code> \
          и пересобери сервер.</body>",
     );
 }

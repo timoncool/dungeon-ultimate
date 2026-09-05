@@ -12,9 +12,7 @@ use crate::state::AppState;
 
 type ApiResult<T> = Result<T, ApiError>;
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
-}
+use crate::story::now_iso;
 
 /// Отличить «поле не прислали» от «прислали `null`». Обычный `Option<Option<T>>` этого не
 /// умеет: внешний `Option` сам поглощает `null`, и снятие портрета выглядит как отсутствие правки.

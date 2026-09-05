@@ -276,9 +276,16 @@ impl ChatClient {
             .send()
             .map_err(|error| LlmError::Http(error.to_string()))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .map_err(|error| LlmError::Http(format!("разбор ответа: {error}")))?;
+        let text = response.text().map_err(|error| LlmError::Http(format!("чтение ответа: {error}")))?;
+        let value: Value = match serde_json::from_str(&text) {
+            Ok(value) => value,
+            // Прокси и шлюзы отвечают HTML: код и начало тела ценнее, чем «разбор ответа».
+            Err(error) if status.is_success() => return Err(LlmError::Http(format!("разбор ответа: {error}"))),
+            Err(_) => {
+                let head: String = text.trim().chars().take(200).collect();
+                return Err(LlmError::Http(format!("{status}: {head}")));
+            }
+        };
         if !status.is_success() {
             let message = value
                 .pointer("/error/message")

@@ -143,6 +143,8 @@ fn ensure_ort_dylib() {
 pub enum AsrError {
     #[error("parakeet: {0}")]
     Parakeet(String),
+    #[error("whisper: {0}")]
+    Whisper(String),
     #[error("не удалось прочитать wav {0}: {1}")]
     WavRead(String, String),
     #[error("io: {0}")]

@@ -1749,7 +1749,8 @@ export default function Home() {
                 ),
               );
               const jobs = rollJobsFromEvents(incoming);
-              if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
+              // Без сцены костей очередь некому разбирать — не копим её.
+              if (jobs.length && settings.diceEnabled) setDiceQueue((queue) => [...queue, ...jobs]);
               if (
                 selectedChatId &&
                 incoming.some((e) => e.kind === "hp" || e.kind === "item" || e.kind === "death" || e.kind === "effect")
@@ -1830,7 +1831,7 @@ export default function Home() {
               message.id === assistantMessage.id ? { ...message, events: payload.events } : message,
             ),
           );
-          const jobs = rollJobsFromEvents(payload.events);
+          const jobs = rollJobsFromEvents(settings.diceEnabled ? payload.events : []);
           if (jobs.length) setDiceQueue((queue) => [...queue, ...jobs]);
           if (
             selectedChatId &&
@@ -3114,7 +3115,7 @@ function NewStoryDialog({
       const response = await fetch("/api/story-setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setting, gender, settings: llm }),
+        body: JSON.stringify({ setting, gender, language: llm.language, settings: llm }),
       });
       const data = (await response.json().catch(() => null)) as {
         ok?: boolean;
@@ -3795,12 +3796,14 @@ function CharacterPanel({
       const response = await fetch("/api/character", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Сервер читает language верхним полем; вложенный в settings он молча терялся,
+        // и лист персонажа для нерусской истории приходил по-русски.
         body: JSON.stringify({
+          language: settings.language,
           settings: {
             customBaseUrl: settings.customBaseUrl,
             customModel: settings.customModel,
             customApiKey: settings.customApiKey,
-            language: settings.language,
           },
         }),
       });
@@ -3874,8 +3877,8 @@ function CharacterPanel({
             <span className="mb-1 block text-[11px] text-red-400">{autofillError}</span>
           )}
           <input
-            id="new-character-name"
-            name="new-character-name"
+            id={`${compact ? "mobile" : "desktop"}-new-character-name`}
+            name={`${compact ? "mobile" : "desktop"}-new-character-name`}
             value={draft.name}
             onChange={(event) =>
               onDraftChange((current) => ({ ...current, name: event.target.value }))
@@ -3888,8 +3891,8 @@ function CharacterPanel({
         <label className="block">
           <span className="mb-1 block text-xs font-medium uppercase text-stone-500">{settings_.details}</span>
           <textarea
-            id="new-character-details"
-            name="new-character-details"
+            id={`${compact ? "mobile" : "desktop"}-new-character-details`}
+            name={`${compact ? "mobile" : "desktop"}-new-character-details`}
             value={draft.details}
             onChange={(event) =>
               onDraftChange((current) => ({ ...current, details: event.target.value }))
@@ -3905,8 +3908,8 @@ function CharacterPanel({
             <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
               <Backpack className="size-3.5" aria-hidden="true" />{ui.inventory}</span>
             <textarea
-              id="new-character-inventory"
-              name="new-character-inventory"
+              id={`${compact ? "mobile" : "desktop"}-new-character-inventory`}
+              name={`${compact ? "mobile" : "desktop"}-new-character-inventory`}
               value={draft.inventory}
               onChange={(event) =>
                 onDraftChange((current) => ({ ...current, inventory: event.target.value }))
@@ -3921,8 +3924,8 @@ function CharacterPanel({
               <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                 <Sparkles className="size-3.5" aria-hidden="true" />{settings_.skills}</span>
               <textarea
-                id="new-character-skills"
-                name="new-character-skills"
+                id={`${compact ? "mobile" : "desktop"}-new-character-skills`}
+                name={`${compact ? "mobile" : "desktop"}-new-character-skills`}
                 value={draft.skills}
                 onChange={(event) =>
                   onDraftChange((current) => ({ ...current, skills: event.target.value }))
@@ -3936,8 +3939,8 @@ function CharacterPanel({
               <span className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase text-stone-500">
                 <WandSparkles className="size-3.5" aria-hidden="true" />{settings_.spells}</span>
               <textarea
-                id="new-character-spells"
-                name="new-character-spells"
+                id={`${compact ? "mobile" : "desktop"}-new-character-spells`}
+                name={`${compact ? "mobile" : "desktop"}-new-character-spells`}
                 value={draft.spells}
                 onChange={(event) =>
                   onDraftChange((current) => ({ ...current, spells: event.target.value }))
@@ -3970,8 +3973,8 @@ function CharacterPanel({
 
         <div className="flex items-center gap-2">
           <input
-            id="new-character-picture"
-            name="new-character-picture"
+            id={`${compact ? "mobile" : "desktop"}-new-character-picture`}
+            name={`${compact ? "mobile" : "desktop"}-new-character-picture`}
             type="file"
             accept="image/png,image/jpeg,image/webp"
             className="hidden"
@@ -3984,7 +3987,7 @@ function CharacterPanel({
             }}
           />
           <label
-            htmlFor="new-character-picture"
+            htmlFor={`${compact ? "mobile" : "desktop"}-new-character-picture`}
             className="inline-flex h-9 cursor-pointer items-center gap-2 rounded border border-stone-700 px-3 text-sm text-stone-300 hover:bg-stone-900"
           >
             {uploadingId === "draft" ? (

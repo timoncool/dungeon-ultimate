@@ -187,7 +187,7 @@ impl WhisperAsr {
                     let words = match eng.run_words(&p, &lang, Some(threads_per)) {
                         Ok(w) => w,
                         Err(_) => eng.run_words(&p, &lang, Some(threads_per)).map_err(|e| {
-                            AsrError::Parakeet(format!("whisper окно {i} (offset {off:.0}s): {e}"))
+                            AsrError::Whisper(format!("окно {i} (offset {off:.0}s): {e}"))
                         })?,
                     };
                     Ok(words
@@ -209,7 +209,7 @@ impl WhisperAsr {
                     }
                     Err(_) => {
                         let _ = std::fs::remove_dir_all(&tmp_dir);
-                        return Err(AsrError::Parakeet("whisper: паника окна".into()));
+                        return Err(AsrError::Whisper("паника окна".into()));
                     }
                 }
             }
@@ -287,7 +287,7 @@ impl WhisperAsr {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
-        let out = cmd.output().map_err(|e| AsrError::Parakeet(format!("whisper spawn: {e}")))?;
+        let out = cmd.output().map_err(|e| AsrError::Whisper(format!("не запустился: {e}")))?;
         if !out.status.success() {
             // АВТО-ФОЛБЭК cuda -> cpu: дефолт девайса теперь cuda (быстрее в разы на NVIDIA), но на
             // машине без CUDA/либ сабпроцесс падает — повторяем ОДИН раз на cpu с безопасным int8
@@ -304,25 +304,27 @@ impl WhisperAsr {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let mut tail: Vec<&str> = stderr.lines().chain(stdout.lines()).rev().take(10).collect();
             tail.reverse();
-            return Err(AsrError::Parakeet(format!(
-                "whisper код {:?}: {}",
+            return Err(AsrError::Whisper(format!(
+                "код {:?}: {}",
                 out.status.code(),
                 tail.join(" | ")
             )));
         }
 
-        // Читаем единственный *.json из out_dir.
-        let json_path = std::fs::read_dir(&out_dir)
-            .map_err(|e| AsrError::Io(e.to_string()))?
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
-            .ok_or_else(|| AsrError::Parakeet("whisper: нет JSON-вывода".into()))?;
-        let txt = std::fs::read_to_string(&json_path)
-            .map_err(|e| AsrError::WavRead(json_path.display().to_string(), e.to_string()))?;
-        let words = parse_whisper_json(&txt);
+        // Читаем единственный *.json из out_dir; каталог убираем и при ошибке чтения.
+        let words = (|| {
+            let json_path = std::fs::read_dir(&out_dir)
+                .map_err(|e| AsrError::Io(e.to_string()))?
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+                .ok_or_else(|| AsrError::Whisper("нет JSON-вывода".into()))?;
+            let txt = std::fs::read_to_string(&json_path)
+                .map_err(|e| AsrError::WavRead(json_path.display().to_string(), e.to_string()))?;
+            Ok(parse_whisper_json(&txt))
+        })();
         let _ = std::fs::remove_dir_all(&out_dir);
-        Ok(words)
+        words
     }
 }
 
