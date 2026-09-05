@@ -753,8 +753,15 @@ fn is_dup_of_tail(all: &[Word], w: &Word, tol: f64) -> bool {
         }
         // Вырожденный интервал (start==end) у ЛЮБОГО из слов: точка не даёт overlap>0, даже
         // лёжа внутри соседа (overlap==0). Параллельный путь отдаёт такие слова на шве.
-        let degenerate = (prev.end - prev.start).abs() < 1e-6 || (w.end - w.start).abs() < 1e-6;
-        if degenerate && (overlap >= 0.0 || (prev.start - w.start).abs() <= tol) {
+        // Дубль — только когда точка лежит внутри двойника или касается его (overlap == 0):
+        // близкое по времени, но НЕ пересекающееся слово — настоящий повтор («да да»), не шов.
+        let prev_degenerate = (prev.end - prev.start).abs() < 1e-6;
+        let degenerate = prev_degenerate || (w.end - w.start).abs() < 1e-6;
+        if degenerate && overlap >= 0.0 {
+            return true;
+        }
+        // Вырожденный prev без пересечения: как и раньше, спасает близость start в tol.
+        if prev_degenerate && (prev.start - w.start).abs() <= tol {
             return true;
         }
     }
@@ -845,6 +852,14 @@ mod dedup_tests {
         let mut all: Vec<Word> = vec![w("да", 9.8, 10.2)];
         append_dedup_words(&mut all, vec![w("да", 10.0, 10.0)], 9.6);
         assert_eq!(all.len(), 1, "точечный дубль просочился: {all:?}");
+    }
+
+    #[test]
+    fn a_zero_length_repeat_after_its_twin_is_a_real_repeat() {
+        // «да да»: второе слово вырожденное, но начинается ПОСЛЕ конца первого — не шов.
+        let mut all: Vec<Word> = vec![w("да", 9.8, 10.0)];
+        append_dedup_words(&mut all, vec![w("да", 10.05, 10.05), w("точно", 10.4, 10.7)], 9.6);
+        assert_eq!(all.len(), 3, "настоящий повтор съеден: {all:?}");
     }
 
     #[test]

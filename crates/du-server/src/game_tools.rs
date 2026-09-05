@@ -388,9 +388,7 @@ fn draw_frame(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
                 .filter_map(|name| {
                     characters
                         .iter()
-                        .find(|character| {
-                            character.id == name || (!name.trim().is_empty() && same_title(&character.name, name))
-                        })
+                        .find(|character| character.id == name || same_name(&character.name, name))
                         .map(|character| character.id.clone())
                 })
                 .collect()
@@ -581,6 +579,13 @@ fn achievement_grant(state: &crate::state::Inner, chat_id: &str, arguments: &Val
 }
 
 /// Совпадение по названию: модель редко повторяет заголовок слово в слово.
+/// Имя персонажа: точное совпадение без учёта регистра (и кириллического тоже). Подстрочный
+/// матч здесь опасен — «Мара» цеплялась бы за «Капитан Мара», и в кадр шёл бы чужой портрет.
+fn same_name(left: &str, right: &str) -> bool {
+    let right = right.trim();
+    !right.is_empty() && left.trim().to_lowercase() == right.to_lowercase()
+}
+
 fn same_title(left: &str, right: &str) -> bool {
     let left = left.trim().to_lowercase();
     let right = right.trim().to_lowercase();
@@ -944,6 +949,14 @@ pub fn converse(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_character_name_matches_exactly_but_ignores_cyrillic_case() {
+        assert!(same_name("Мариана", "мариана"));
+        assert!(same_name("Мара", " МАРА "));
+        assert!(!same_name("Капитан Мара", "Мара"), "подстрока — не тот персонаж");
+        assert!(!same_name("Мара", ""));
+    }
 
     #[test]
     fn every_tool_describes_itself_completely() {
