@@ -31,5 +31,11 @@ declare module "@3d-dice/dice-box-threejs" {
     add(notation: string): Promise<unknown>;
     remove(ids: number[]): Promise<unknown>;
     clearDice(): void;
+    /** three.js renderer the box creates in initialize(); needed to release the WebGL context. */
+    renderer?: {
+      forceContextLoss?: () => void;
+      dispose?: () => void;
+      domElement?: { remove?: () => void };
+    };
   }
 }

@@ -7,7 +7,8 @@ export type AspectPreset = "square" | "portrait" | "landscape";
 
 export type ImageMode = "fast" | "slow";
 
-export type ImageBackend = "mflux-hs" | "sdnq-hs" | "flux-uncensored";
+// Зеркало du_core::ImageBackend (serde kebab-case).
+export type ImageBackend = "krea2-turbo" | "klein9b-edit" | "ideogram4";
 
 // Camera distance the narrator picks for a shot. A hard change of shot (e.g. wide
 // vista -> tight close-up) is treated as a new framing, so the scene engine

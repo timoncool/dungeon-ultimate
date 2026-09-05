@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useUi, useUiLanguage } from "@/lib/ui-text-context";
 import { panelText, type PanelText } from "@/lib/ui-text-panels";
@@ -178,10 +178,14 @@ export default function EnginePanel() {
   }, []);
 
   // Списки моделей тянем только когда панель открыта: это сетевой запрос к провайдеру.
+  // Что уже запрошено, помним в ref: зависимость от `models` перезапускала эффект на
+  // каждый ответ и дёргала провайдера по ещё не отвеченным стадиям повторно.
+  const requestedKinds = useRef(new Set<string>());
   useEffect(() => {
     if (!open || !keySet) return;
     for (const stage of stages(panel)) {
-      if (models[stage.kind]) continue;
+      if (requestedKinds.current.has(stage.kind)) continue;
+      requestedKinds.current.add(stage.kind);
       void (async () => {
         try {
           const data = await (await fetch(`/api/cloud/models?kind=${stage.kind}`)).json();
@@ -189,10 +193,11 @@ export default function EnginePanel() {
           setModels((current) => ({ ...current, [stage.kind]: list }));
         } catch {
           setModels((current) => ({ ...current, [stage.kind]: [] }));
+          requestedKinds.current.delete(stage.kind);
         }
       })();
     }
-  }, [open, keySet, models]);
+  }, [open, keySet, panel]);
 
   const ttsModel = runtime?.openrouterTtsModel ?? "";
   useEffect(() => {

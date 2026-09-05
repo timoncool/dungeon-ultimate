@@ -71,6 +71,9 @@ export default function SetupPanel() {
         poll.current = window.setInterval(async () => {
           const list = await refresh();
           const watched = list.filter((component) => ids.includes(component.id));
+          // Пустой список — сбой чтения статуса, а не «всё скачано»: иначе разрыв связи
+          // во время докачки выдал бы «готово» и спрятал бы прогресс.
+          if (!watched.length) return;
           const have = watched.reduce((sum, component) => sum + component.haveBytes, 0);
           const total = watched.reduce((sum, component) => sum + size(component), 0);
           const pending = watched.find((component) => !component.present);

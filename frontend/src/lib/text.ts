@@ -9,5 +9,7 @@ export function splitSentences(text: string): string[] {
   // Terminal punctuation AND trailing closers (»”")) share one class so a run
   // like `!»…` stays whole — keeping the closer with its sentence without ever
   // dropping a terminal that follows it (concat must reconstruct the original).
-  return text.match(/[^.!?…]+[.!?…"”»)]*\s*/g) ?? (text ? [text] : []);
+  // Leading terminals («…и тишина») stick to the sentence that follows them, so the
+  // parts still concatenate back into the original.
+  return text.match(/[.!?…]*[^.!?…]+[.!?…"”»)]*\s*/g) ?? (text ? [text] : []);
 }

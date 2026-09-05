@@ -710,6 +710,12 @@ export default function Home() {
     setHeroRpg(null);
     setHeroId(null);
     setItems([]);
+    // Как и applyChat: задания, журнал, подсказки и очередь кубиков принадлежат истории,
+    // иначе после удаления последнего чата они висят от уже несуществующей игры.
+    setQuests([]);
+    setJournal([]);
+    setSuggestedActions([]);
+    setDiceQueue([]);
   }, [applyDefaultSettings]);
 
   const equipItem = useCallback(
@@ -1750,6 +1756,8 @@ export default function Home() {
               ) {
                 void refreshRpg(selectedChatId);
               }
+              // Награда должна появиться в разделе сразу, а не после перезапуска.
+              if (incoming.some((event) => event.kind === "achievement")) void refreshAchievements();
               if (selectedChatId) void illustrateDroppedItems(selectedChatId, incoming);
             }
           }
@@ -3985,7 +3993,7 @@ function CharacterPanel({
             ) : (
               <ImagePlus className="size-4" aria-hidden="true" />
             )}
-            Портрет
+            {settings_.portrait}
           </label>
 
           <button
@@ -5201,7 +5209,7 @@ function HudBar({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-serif text-sm text-stone-100">{name}</span>
-          <span className="text-[10px] uppercase tracking-wide text-amber-300/70">Ур. {hero.level}</span>
+          <span className="text-[10px] uppercase tracking-wide text-amber-300/70">{ui.level} {hero.level}</span>
           {hero.dead && (
             <span className="rounded border border-red-500/60 px-1.5 text-[10px] font-medium uppercase text-red-300">{settings_.dead}</span>
           )}
@@ -6237,8 +6245,15 @@ function DiceStage({
     })();
     return () => {
       cancelled = true;
+      // clearDice() снимает только кости: WebGL-контекст и <canvas> живут до сборщика
+      // мусора, и повторные выключения 3D-костей копят контексты, пока WebView не
+      // уронит старейший («Too many active WebGL contexts»). Гасим явно.
+      const box = boxRef.current;
       try {
-        boxRef.current?.clearDice();
+        box?.clearDice();
+        box?.renderer?.forceContextLoss?.();
+        box?.renderer?.dispose?.();
+        box?.renderer?.domElement?.remove?.();
       } catch {
         // ignore teardown races
       }

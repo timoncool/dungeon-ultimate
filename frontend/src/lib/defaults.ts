@@ -25,7 +25,7 @@ export const DEFAULT_STORY_SETTINGS: StorySettings = {
   customModel: "gemma-4-12b-uncensored",
   customApiKey: "",
   imageMode: "fast",
-  imageBackend: "sdnq-hs",
+  imageBackend: "krea2-turbo",
   aspect: "square",
   imageGenerationEnabled: true,
   autoImages: true,
