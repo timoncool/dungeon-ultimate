@@ -578,7 +578,6 @@ fn achievement_grant(state: &crate::state::Inner, chat_id: &str, arguments: &Val
     json!({ "ok": true, "title": award.title, "rarity": award.rarity })
 }
 
-/// Совпадение по названию: модель редко повторяет заголовок слово в слово.
 /// Имя персонажа: точное совпадение без учёта регистра (и кириллического тоже). Подстрочный
 /// матч здесь опасен — «Мара» цеплялась бы за «Капитан Мара», и в кадр шёл бы чужой портрет.
 fn same_name(left: &str, right: &str) -> bool {
@@ -586,6 +585,7 @@ fn same_name(left: &str, right: &str) -> bool {
     !right.is_empty() && left.trim().to_lowercase() == right.to_lowercase()
 }
 
+/// Совпадение по названию: модель редко повторяет заголовок слово в слово.
 fn same_title(left: &str, right: &str) -> bool {
     let left = left.trim().to_lowercase();
     let right = right.trim().to_lowercase();
