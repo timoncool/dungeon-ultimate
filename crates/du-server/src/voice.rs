@@ -87,9 +87,10 @@ async fn transcribe_inner(State(state): State<AppState>, body: Bytes) -> ApiResu
                 let text = crate::cloud::transcribe(&root, &runtime, &path, "ru")?;
                 return Ok(json!({ "text": text }));
             }
-            // Распознавание тоже слушается общего выбора: движок читает его из окружения.
+            // Распознавание слушается общего выбора — для Whisper. Parakeet собран без
+            // CUDA-провайдера и считает на процессоре, о чём и говорит панель движков.
             let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
-            std::env::set_var("DUB_ASR_BACKEND", device.engine_name());
+            std::env::set_var("DUB_ASR_BACKEND", "cpu");
 
             use du_asr::AsrEngine as _;
             let segments = if by_whisper {
