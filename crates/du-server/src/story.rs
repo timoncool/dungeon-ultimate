@@ -46,6 +46,7 @@ fn new_id() -> String {
 }
 
 /// Ход отдаётся потоком событий: проза приходит кусками, в конце — итог с механикой и кадром.
+#[allow(clippy::result_large_err)]
 pub async fn story(
     State(state): State<AppState>,
     Json(body): Json<StoryBody>,
@@ -315,6 +316,7 @@ fn run_turn(
     // Рассказчик идёт либо на своей карте, либо в облако — тогда карта вообще не нужна.
     let runtime = crate::runtime::load(&state.root);
     let client = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
+        crate::cloud::require(&runtime, crate::cloud::Stage::Narrator)?;
         progress(json!({ "stage": "облако" }));
         // Размышления ПРЯЧЕМ, а не запрещаем: запрет часть моделей отвергает отказом, а
         // если рассуждения попадают в ответ, структурный проход возвращает их вместо JSON —

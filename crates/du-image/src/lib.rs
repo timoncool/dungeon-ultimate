@@ -19,7 +19,7 @@ use ffi::*;
 
 /// Коммит движка, под который написан слой FFI. Раскладка структур обязана совпадать,
 /// поэтому на старте фактический коммит сверяется и расхождение попадает в лог.
-pub const PINNED_COMMIT: &str = "de298c2";
+pub const PINNED_COMMIT: &str = "1b0ba10";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImageError {
@@ -156,6 +156,7 @@ extern "C" fn log_trampoline(level: SdLogLevel, text: *const c_char, _data: *mut
     let message = message.trim_end();
     match level {
         SdLogLevel::Debug => tracing::debug!(target: "sd", "{message}"),
+        SdLogLevel::Verbose => tracing::trace!(target: "sd", "{message}"),
         SdLogLevel::Info => tracing::info!(target: "sd", "{message}"),
         SdLogLevel::Warn => tracing::warn!(target: "sd", "{message}"),
         SdLogLevel::Error => tracing::error!(target: "sd", "{message}"),
@@ -295,7 +296,8 @@ impl Engine {
         params.vae_format = config.vae_format;
         params.diffusion_flash_attn = config.diffusion_flash_attn;
         params.n_threads = config.n_threads;
-        params.stream_layers = config.stream_layers && config.offload_to_cpu;
+        // Упреждающая подкачка весов — только вместе с выгрузкой в оперативную память.
+        params.disable_prefetch = !(config.stream_layers && config.offload_to_cpu);
         // LoRA поверх INT8 обязана применяться в рантайме, иначе движку пришлось бы
         // деквантовать и переквантовать веса.
         params.lora_apply_mode = LoraApplyMode::Auto;

@@ -154,8 +154,8 @@ mod tests {
 
     #[test]
     fn expired_effects_do_not_apply_but_active_ones_do() {
-        let mut base = CharacterRpg::default();
-        base.effects = vec![
+        let base = CharacterRpg {
+            effects: vec![
             Effect {
                 id: "1".into(),
                 name: "Каменная кожа".into(),
@@ -172,29 +172,32 @@ mod tests {
                 turns: 0,
                 note: None,
             },
-        ];
+        ],
+            ..Default::default()
+        };
         let derived = derive_rpg(&base, &[]);
         assert_eq!(derived.rpg.ac, 12);
     }
 
     #[test]
     fn armor_class_floors_at_zero() {
-        let mut base = CharacterRpg::default();
-        base.effects = vec![Effect {
+        let base = CharacterRpg {
+            effects: vec![Effect {
             id: "1".into(),
             name: "Сглаз".into(),
             kind: EffectKind::Debuff,
             modifiers: Modifiers { ac: Some(-40), ..Default::default() },
             turns: 3,
             note: None,
-        }];
+        }],
+            ..Default::default()
+        };
         assert_eq!(derive_rpg(&base, &[]).rpg.ac, 0);
     }
 
     #[test]
     fn current_hp_is_clamped_when_a_max_hp_bonus_goes_away() {
-        let mut base = CharacterRpg::default();
-        base.hp = Hp { current: 24, max: 20 };
+        let base = CharacterRpg { hp: Hp { current: 24, max: 20 }, ..Default::default() };
         let derived = derive_rpg(&base, &[]);
         assert_eq!(derived.rpg.hp.current, 20);
     }

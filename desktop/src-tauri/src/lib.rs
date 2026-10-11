@@ -64,25 +64,12 @@ fn wait_until_ready(port: u16, timeout: Duration) -> bool {
     false
 }
 
-/// Прописать ORT_DYLIB_PATH (onnxruntime 1.24) в окружение ПРОЦЕССА до старта сервера (dub-asr трогает ort
-/// лениво; PATH под движок/инструменты добавит augment_path_for_tools внутри serve_blocking).
+/// Прописать ORT_DYLIB_PATH (onnxruntime 1.28.2) в окружение ПРОЦЕССА до старта сервера (du-asr трогает ort
+/// лениво; PATH под движок/инструменты добавит augment_path_for_tools внутри serve_blocking). Библиотеки ещё
+/// нет — путь всё равно ставится: ort упадёт с «нет файла», а не возьмёт системную чужой версии.
 fn setup_server_env(repo_root: &PathBuf) {
     if std::env::var_os("ORT_DYLIB_PATH").is_none() {
-        let rt = repo_root.join("models").join("runtime");
-        for cand in [
-            // GPU-сборка (cuda13) приоритетнее — суперсет CPU+CUDA; переключение backend без рестарта.
-            rt.join("onnxruntime-win-x64-gpu-1.24.2").join("lib").join("onnxruntime.dll"),
-            rt.join("onnxruntime-win-x64-gpu_cuda13-1.24.2").join("lib").join("onnxruntime.dll"),
-            rt.join("onnxruntime-win-x64-1.24.2").join("lib").join("onnxruntime.dll"),
-            app_root_dir().join("onnxruntime.dll"),
-            rt.join("onnxruntime-1.24.dll"),
-            rt.join("onnxruntime.dll"),
-        ] {
-            if cand.is_file() {
-                std::env::set_var("ORT_DYLIB_PATH", cand);
-                break;
-            }
-        }
+        std::env::set_var("ORT_DYLIB_PATH", du_core::runtime::ort_library(&repo_root.join("models")));
     }
 }
 
@@ -121,6 +108,13 @@ fn hide_console_window() {
 /// или обновления — выходим молча. Портативную раскладку на лету не обновляем: перезаписать
 /// каталог, из которого прямо сейчас запущена игра, нельзя — предлагаем открыть страницу.
 const RELEASES_URL: &str = "https://github.com/timoncool/dungeon-ultimate/releases/latest";
+
+fn open_in_browser(app: &tauri::AppHandle, url: &tauri::Url) {
+    use tauri_plugin_opener::OpenerExt;
+    if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+        eprintln!("[ERROR] ссылка {url} не открылась в браузере: {e}");
+    }
+}
 
 fn spawn_update_check(app: tauri::AppHandle) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -195,14 +189,16 @@ pub fn run() {
     let url = format!("http://127.0.0.1:{port}/");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
+        // Скрипт ссылок плагина отвечает на клик через IPC, которого у страницы с http://127.0.0.1 нет;
+        // без него клик доходит до on_new_window и уходит в браузер.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             // Иконка бандла для GUI-окна: без явной установки окно оставалось пустым в ALT+TAB/панели задач
             // (иконка висела на консольном окне). Ставим её на само GUI-окно.
             let icon = app.default_window_icon().cloned();
+            let (for_tabs, for_links) = (app.handle().clone(), app.handle().clone());
             let win = WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -222,6 +218,19 @@ pub fn run() {
                 "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
                  --autoplay-policy=no-user-gesture-required",
             )
+            // WebView2 молча глотает target="_blank" и window.open, если у окна нет обработчика новых окон.
+            .on_new_window(move |target, _features| {
+                open_in_browser(&for_tabs, &target);
+                tauri::webview::NewWindowResponse::Deny
+            })
+            .on_navigation(move |target| {
+                let own = target.host_str() == Some("127.0.0.1") && target.port() == Some(port);
+                if own || !matches!(target.scheme(), "http" | "https") {
+                    return true;
+                }
+                open_in_browser(&for_links, target);
+                false
+            })
             .build()?;
             // Иконка окна (ALT+TAB/таскбар) — ПОСЛЕ создания: не паникуем, если не выйдет, окно рабочее.
             if let Some(ic) = icon {

@@ -70,7 +70,7 @@ fn read_png(path: &Path) -> Result<RawImage, String> {
     // Движок ждёт три канала, поэтому альфу отбрасываем.
     let data = match info.color_type {
         png::ColorType::Rgb => buffer,
-        png::ColorType::Rgba => buffer.chunks_exact(4).flat_map(|px| px[..3].to_vec()).collect(),
+        png::ColorType::Rgba => buffer.as_chunks::<4>().0.iter().flat_map(|px| px[..3].to_vec()).collect(),
         other => return Err(format!("не поддержанный цвет PNG: {other:?}")),
     };
     Ok(RawImage { width: info.width, height: info.height, channels: 3, data })

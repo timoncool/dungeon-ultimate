@@ -3,6 +3,7 @@
 //! Контракт с фронтом остаётся тем же JSON, что отдавали роуты Next.js, поэтому все
 //! структуры сериализуются в camelCase, а необязательные поля не пишутся при None.
 
+pub mod runtime;
 pub mod settings;
 pub mod story;
 

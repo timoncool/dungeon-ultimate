@@ -25,19 +25,32 @@ pub enum Stage {
     Asr,
 }
 
-/// Включена ли стадия в облаке: нужен и флаг, и ключ, и выбранная модель. Иначе работаем
-/// на своей карте — молча, без падения.
+/// Уведена ли стадия в облако: решает флаг стадии. Ключ и модель проверяет [`require`] на входе в
+/// облачный вызов — включённая стадия без ключа даёт ошибку с причиной, а не молча уходит на карту.
 pub fn stage_enabled(runtime: &Runtime, stage: Stage) -> bool {
-    if runtime.openrouter_key.trim().is_empty() {
-        return false;
+    match stage {
+        Stage::Narrator => runtime.openrouter_narrator_on,
+        Stage::Image => runtime.openrouter_image_on,
+        Stage::Tts => runtime.openrouter_tts_on,
+        Stage::Asr => runtime.openrouter_asr_on,
     }
-    let (on, model) = match stage {
-        Stage::Narrator => (runtime.openrouter_narrator_on, &runtime.openrouter_narrator_model),
-        Stage::Image => (runtime.openrouter_image_on, &runtime.openrouter_image_model),
-        Stage::Tts => (runtime.openrouter_tts_on, &runtime.openrouter_tts_model),
-        Stage::Asr => (runtime.openrouter_asr_on, &runtime.openrouter_asr_model),
+}
+
+/// Готова ли облачная стадия к вызову: есть ключ и выбрана модель.
+pub fn require(runtime: &Runtime, stage: Stage) -> Result<(), String> {
+    let (name, model) = match stage {
+        Stage::Narrator => ("рассказчик", &runtime.openrouter_narrator_model),
+        Stage::Image => ("картинки", &runtime.openrouter_image_model),
+        Stage::Tts => ("озвучка", &runtime.openrouter_tts_model),
+        Stage::Asr => ("распознавание речи", &runtime.openrouter_asr_model),
     };
-    on && !model.trim().is_empty()
+    if runtime.openrouter_key.trim().is_empty() {
+        return Err(format!("{name} включён в облаке, но ключ OpenRouter не задан — впишите ключ или выключите облако для этой стадии"));
+    }
+    if model.trim().is_empty() {
+        return Err(format!("{name} включён в облаке, но модель не выбрана — выберите модель или выключите облако для этой стадии"));
+    }
+    Ok(())
 }
 
 /// Путь к сайдкару, который умеет речь и распознавание: обычным чат-запросом их не сделать.
@@ -96,6 +109,7 @@ const CLOUD_PCM_RATE: u32 = 24_000;
 ///
 /// Пробуем сайдкар, а на чат откатываемся: так работает любая выбранная модель.
 pub fn speak(root: &Path, runtime: &Runtime, text: &str, out: &Path) -> Result<(), String> {
+    require(runtime, Stage::Tts)?;
     let voice = default_voice_for(&runtime.openrouter_tts_model, &runtime.openrouter_tts_voice);
     let payload = json!({
         "model": runtime.openrouter_tts_model,
@@ -271,6 +285,7 @@ fn speak_via_chat(runtime: &Runtime, text: &str, out: &Path, voice: &str) -> Res
 /// прочие — их 19) знает сайдкар, а мультимодальные чат-модели на ручке расшифровки
 /// отсутствуют, и запись им отдают куском сообщения. Пробуем сайдкар, откатываемся на чат.
 pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) -> Result<String, String> {
+    require(runtime, Stage::Asr)?;
     let mut payload = json!({
         "model": runtime.openrouter_asr_model,
         "audio": wav.to_string_lossy(),
@@ -497,6 +512,7 @@ pub fn draw(
     references: &[PathBuf],
     out: &Path,
 ) -> Result<PathBuf, String> {
+    require(runtime, Stage::Image)?;
     let (width, height) = size;
     let mut body = json!({
         "model": runtime.openrouter_image_model,
@@ -622,17 +638,22 @@ mod tests {
     }
 
     #[test]
-    fn a_stage_needs_the_flag_the_key_and_a_model() {
-        let mut runtime = Runtime::default();
-        runtime.openrouter_narrator_on = true;
-        runtime.openrouter_narrator_model = "some/model".into();
-        assert!(!stage_enabled(&runtime, Stage::Narrator), "без ключа облако невозможно");
+    fn a_stage_on_without_a_key_or_a_model_is_an_error_not_the_local_card() {
+        let mut runtime = Runtime {
+            openrouter_narrator_on: true,
+            openrouter_narrator_model: "some/model".into(),
+            ..Runtime::default()
+        };
+        assert!(stage_enabled(&runtime, Stage::Narrator), "решает флаг стадии");
+        let error = require(&runtime, Stage::Narrator).unwrap_err();
+        assert!(error.contains("ключ"), "{error}");
 
         runtime.openrouter_key = "ключ".into();
-        assert!(stage_enabled(&runtime, Stage::Narrator));
+        assert!(require(&runtime, Stage::Narrator).is_ok());
 
         runtime.openrouter_narrator_model = "  ".into();
-        assert!(!stage_enabled(&runtime, Stage::Narrator), "без выбранной модели тоже нет");
+        let error = require(&runtime, Stage::Narrator).unwrap_err();
+        assert!(error.contains("модель"), "{error}");
     }
 
     #[test]
@@ -673,7 +694,7 @@ mod tests {
         // Распознавание идёт через ручку расшифровки, а чат — только запасной путь. Когда не
         // вышло нигде, показать надо причину ОСНОВНОГО пути: она и объясняет поломку.
         let dir = tempfile::tempdir().unwrap();
-        let runtime = with_key();
+        let runtime = Runtime { openrouter_asr_model: "openai/whisper-large-v3".into(), ..with_key() };
         let error = transcribe(dir.path(), &runtime, &dir.path().join("in.wav"), "ru").unwrap_err();
         assert!(error.contains("сайдкар"), "показана ошибка запасного пути: {error}");
     }

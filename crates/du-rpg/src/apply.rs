@@ -854,9 +854,7 @@ mod tests {
     };
 
     fn actor(name: &str, hp: i32, ac: i32) -> Actor {
-        let mut rpg = CharacterRpg::default();
-        rpg.hp = Hp { current: hp, max: hp };
-        rpg.ac = ac;
+        let rpg = CharacterRpg { hp: Hp { current: hp, max: hp }, ac, ..Default::default() };
         Actor { name: name.into(), rpg }
     }
 

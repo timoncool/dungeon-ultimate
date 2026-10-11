@@ -60,9 +60,7 @@ fn schema_creation_is_idempotent() {
 #[test]
 fn a_chat_round_trips_with_its_settings() {
     let store = store();
-    let mut settings = StorySettings::default();
-    settings.world = "Подземелье".into();
-    settings.rpg_enabled = true;
+    let settings = StorySettings { world: "Подземелье".into(), rpg_enabled: true, ..Default::default() };
     let id = store.create_chat(settings, "Первая история").unwrap();
 
     let chat = store.get_chat(&id).unwrap().expect("чат читается");

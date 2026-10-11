@@ -398,7 +398,7 @@ mod tests {
         let voices = dir.path().join("models").join("voices");
         std::fs::create_dir_all(&voices).unwrap();
         std::fs::write(voices.join("Goblin.mp3"), b"x").unwrap();
-        let (_, transcript) = voice_reference(&dir.path().to_path_buf(), "Goblin").unwrap();
+        let (_, transcript) = voice_reference(dir.path(), "Goblin").unwrap();
         assert!(transcript.is_none());
     }
 }
@@ -525,7 +525,7 @@ mod playable_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("звук.wav");
         let mut bytes = b"RIFF\x00\x00\x00\x00WAVE".to_vec();
-        bytes.extend(std::iter::repeat(0u8).take(4096));
+        bytes.extend(std::iter::repeat_n(0u8, 4096));
         std::fs::write(&path, bytes).unwrap();
         assert!(playable_wav(&path));
     }

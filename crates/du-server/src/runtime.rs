@@ -31,6 +31,13 @@ pub struct Runtime {
     /// Каким движком распознавать речь: `parakeet` (в процессе, быстрый) или `whisper`
     /// (отдельная программа, точнее на шумной записи и на смеси языков).
     pub asr_engine: String,
+    /// Кто пишет текст игры: пусто — своя карта или облако по флагам ниже, `agent` — агент,
+    /// подключённый к MCP игры (Claude Code и т.п.): каждый проход хода уходит ему вопросом.
+    pub narrator_provider: String,
+    /// Вариант Parakeet: `int8` (по умолчанию) или `ultra`.
+    pub asr_model: String,
+    /// Модель Whisper: tiny|base|small|medium|large-v3|large-v3-turbo.
+    pub whisper_model: String,
 
     /// Контекст рассказчика в токенах. Это главный потребитель памяти под KV-кэш: в промпт
     /// уезжает около 48 тысяч символов истории, то есть примерно 13 тысяч токенов, поэтому
@@ -81,6 +88,9 @@ impl Default for Runtime {
             tts_backend: String::new(),
             asr_backend: String::new(),
             asr_engine: "parakeet".to_string(),
+            narrator_provider: String::new(),
+            asr_model: "int8".to_string(),
+            whisper_model: "large-v3-turbo".to_string(),
             narrator_ctx: 16_384,
             narrator_gpu_layers: -1,
             image_steps: 8,
@@ -157,9 +167,7 @@ mod tests {
     #[test]
     fn settings_survive_a_round_trip_on_disk() {
         let dir = tempfile::tempdir().unwrap();
-        let mut runtime = Runtime::default();
-        runtime.narrator_ctx = 32_768;
-        runtime.tts_parallel = false;
+        let runtime = Runtime { narrator_ctx: 32_768, tts_parallel: false, ..Runtime::default() };
         save(dir.path(), &runtime).unwrap();
 
         let back = load(dir.path());

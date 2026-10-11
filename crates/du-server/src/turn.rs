@@ -521,8 +521,7 @@ mod tests {
     #[test]
     fn the_game_state_block_carries_ids_stats_and_foes() {
         let mut actors = ActorMap::new();
-        let mut rpg = CharacterRpg::default();
-        rpg.hp = Hp { current: 12, max: 20 };
+        let rpg = CharacterRpg { hp: Hp { current: 12, max: 20 }, ..Default::default() };
         actors.insert("hero".into(), Actor { name: "Герой".into(), rpg });
         let enemies = vec![Enemy { id: "foe".into(), name: "Гоблин".into(), rpg: CharacterRpg::default() }];
 
@@ -621,8 +620,7 @@ mod tests {
     #[test]
     fn dead_foes_are_left_out_of_the_turns_cast() {
         let characters = vec![character("hero", "Герой")];
-        let mut dead = CharacterRpg::default();
-        dead.dead = true;
+        let dead = CharacterRpg { dead: true, ..Default::default() };
         let enemies = vec![
             Enemy { id: "живой".into(), name: "Гоблин".into(), rpg: CharacterRpg::default() },
             Enemy { id: "мёртвый".into(), name: "Скелет".into(), rpg: dead },

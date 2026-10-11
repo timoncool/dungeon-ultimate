@@ -433,12 +433,9 @@ fn record_continuity(
 /// `/generated/../../секрет` читался бы локальным движком и уходил бы в облако data-url'ом.
 fn reference_path(state: &AppState, reference: &Attachment) -> Option<std::path::PathBuf> {
     let relative = reference.url.trim_start_matches('/');
-    let (root, name) = if let Some(name) = relative.strip_prefix("generated/") {
-        (&state.generated, name)
-    } else if let Some(name) = relative.strip_prefix("uploads/") {
-        (&state.uploads, name)
-    } else {
-        return None;
+    let (root, name) = match relative.strip_prefix("generated/") {
+        Some(name) => (&state.generated, name),
+        None => (&state.uploads, relative.strip_prefix("uploads/")?),
     };
     if !crate::chats::is_plain_file_name(name) {
         return None;
@@ -472,7 +469,7 @@ pub fn read_png(path: &std::path::Path) -> Result<RawImage, String> {
     buffer.truncate(info.buffer_size());
     let data = match info.color_type {
         png::ColorType::Rgb => buffer,
-        png::ColorType::Rgba => buffer.chunks_exact(4).flat_map(|px| px[..3].to_vec()).collect(),
+        png::ColorType::Rgba => buffer.as_chunks::<4>().0.iter().flat_map(|px| px[..3].to_vec()).collect(),
         other => return Err(format!("не поддержанный цвет PNG: {other:?}")),
     };
     Ok(RawImage { width: info.width, height: info.height, channels: 3, data })
@@ -516,8 +513,18 @@ pub async fn setup_download(
         .spawn_detached(Box::new(move |progress, abort| {
             // Флаг отмены — из очереди: «Прервать» обязан останавливать и закачку,
             // а не только отцеплять браузер.
+            // Пустой список — всё нужное, чего нет: необязательные варианты сами не качаются.
+            let wanted: Vec<String> = if body.ids.is_empty() {
+                crate::setup::status(&inner.root)
+                    .into_iter()
+                    .filter(|status| !status.present && status.component.requirement != crate::setup::Requirement::Optional)
+                    .map(|status| status.component.id.to_string())
+                    .collect()
+            } else {
+                body.ids.clone()
+            };
             for component in crate::setup::manifest() {
-                if !body.ids.is_empty() && !body.ids.iter().any(|id| id == component.id) {
+                if !wanted.iter().any(|id| id == component.id) {
                     continue;
                 }
                 let title = component.title;
@@ -539,6 +546,11 @@ pub async fn setup_download(
                     return Err(format!("{title}: {error}"));
                 }
                 tracing::info!("компонент «{title}» готов");
+                let mut runtime = crate::runtime::load(&inner.root);
+                if crate::setup::select_variant(&mut runtime, component.id) {
+                    crate::runtime::save(&inner.root, &runtime)?;
+                    tracing::info!("распознавание переключено на «{title}»");
+                }
             }
             Ok(json!({ "ok": true }))
         }))

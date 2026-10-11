@@ -305,9 +305,7 @@ mod tests {
         // один длинный активный участок с явным «провалом» энергии в середине -> min-cut режет там.
         let sr = 16000;
         // 40с активности с тихим окном на 25-25.4с (во 2-й половине [20,40))
-        let mut active: Vec<(f64, f64)> = Vec::new();
-        active.push((0.0, 25.0));
-        active.push((25.4, 40.0));
+        let active: Vec<(f64, f64)> = vec![(0.0, 25.0), (25.4, 40.0)];
         let s = synth(sr, 40.0, &active);
         let cfg = WindowConfig { max_active: 30.0, min_silence: 0.20, ..Default::default() };
         let (env, fs) = speech_envelope(&s, sr, 0.032);
