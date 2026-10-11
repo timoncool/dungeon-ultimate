@@ -46,7 +46,17 @@ fn resolve_repo_root() -> PathBuf {
 }
 
 /// Занять свободный TCP-порт на 127.0.0.1 (ядро выдаёт порт 0 -> читаем реальный, отпускаем).
-fn pick_free_port() -> std::io::Result<u16> {
+/// Порт MCP и окна по умолчанию — постоянный, как у студий (YuE2 8791, Dub 8793): по нему агент
+/// подключается к игре. `DU_PORT` его меняет. Занят — берётся свободный, и панель «Активность»
+/// показывает фактический адрес MCP.
+const DEFAULT_PORT: u16 = 8795;
+
+fn pick_port() -> std::io::Result<u16> {
+    let wanted = std::env::var("DU_PORT").ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_PORT);
+    if TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, wanted)).is_ok() {
+        return Ok(wanted);
+    }
+    eprintln!("[ERROR] порт {wanted} занят — игра слушает другой; адрес MCP показан в панели «Активность»");
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;
     Ok(listener.local_addr()?.port())
 }
@@ -179,7 +189,7 @@ pub fn run() {
     }
 
     let repo_root = resolve_repo_root();
-    let port = pick_free_port().unwrap_or(8765);
+    let port = pick_port().expect("нет свободного порта на 127.0.0.1");
     setup_server_env(&repo_root);
 
     // axum-бэкенд поднимается В ЭТОМ ЖЕ процессе на фоновом потоке — ОДИН exe, без сервер.exe-сайдкара.

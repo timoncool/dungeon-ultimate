@@ -302,23 +302,34 @@ pub async fn character(
 /// Чипсы действий, «заполнить за меня» и подсказки — это тот же рассказчик, только короткий.
 /// Раньше они ВСЕГДА поднимали модель на карте и вставали в её очередь: игрок видел загрузку
 /// видеокарты, хотя весь ход считало облако.
-fn remote_helper(state: &AppState) -> ApiResult<Option<ChatClient>> {
+///
+/// Возвращает настройки, если текст пишет не своя карта. Сам клиент собирается уже в рабочем
+/// потоке: он держит собственный рантайм, и его рождение или смерть в асинхронном обработчике
+/// роняет поток целиком.
+fn remote_writer(state: &AppState) -> Option<crate::runtime::Runtime> {
     let runtime = crate::runtime::load(&state.root);
-    crate::narrator::remote_client(&runtime, std::time::Duration::from_secs(180)).map_err(ApiError::internal)
+    (crate::narrator::writer(&runtime) != crate::narrator::Writer::Local).then_some(runtime)
+}
+
+fn remote_client(runtime: &crate::runtime::Runtime) -> Result<ChatClient, String> {
+    crate::narrator::remote_client(runtime, std::time::Duration::from_secs(180))?
+        .ok_or_else(|| "рассказчик на своей карте".to_string())
 }
 
 /// Общий путь служебного вызова: облако напрямую, а на карте — через её очередь.
 async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> ApiResult<Value> {
     let schema = schema.clone();
-    if let Some(client) = remote_helper(state)? {
+    if let Some(runtime) = remote_writer(state) {
         let messages = messages.clone();
         let schema = schema.clone();
         return tokio::task::spawn_blocking(move || {
-            client.chat_json(&messages, &structured_sampling(), &schema)
+            remote_client(&runtime)?
+                .chat_json(&messages, &structured_sampling(), &schema)
+                .map_err(|error| error.to_string())
         })
         .await
         .map_err(|_| ApiError::internal("задача пропала"))?
-        .map_err(|error| ApiError::internal(error.to_string()));
+        .map_err(ApiError::internal);
     }
 
     let inner = state.0.clone();
@@ -340,13 +351,15 @@ async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> A
 }
 
 async fn ask_text(state: &AppState, messages: Vec<Message>, sampling: Sampling) -> ApiResult<String> {
-    if let Some(client) = remote_helper(state)? {
+    if let Some(runtime) = remote_writer(state) {
         let messages = messages.clone();
         let sampling = sampling.clone();
-        let text = tokio::task::spawn_blocking(move || client.chat(&messages, &sampling))
-            .await
-            .map_err(|_| ApiError::internal("задача пропала"))?
-            .map_err(|error| ApiError::internal(error.to_string()))?;
+        let text = tokio::task::spawn_blocking(move || {
+            remote_client(&runtime)?.chat(&messages, &sampling).map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(ApiError::internal)?;
         return Ok(text);
     }
 
