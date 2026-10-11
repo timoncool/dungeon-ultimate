@@ -8,9 +8,15 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let root = std::env::var("DU_ROOT").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    // onnxruntime игры — та, что скачана в её корень; без явного пути распознавание искало бы её
+    // рядом с бинарём. Так же делает оболочка.
+    if std::env::var_os("ORT_DYLIB_PATH").is_none() {
+        std::env::set_var("ORT_DYLIB_PATH", du_core::runtime::ort_library(&root.join("models")));
+    }
+    // Порт MCP и окна — тот же, что у оболочки.
     let port = std::env::var("DU_PORT")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(8770);
+        .unwrap_or(8795);
     du_server::serve_blocking(&root, port)
 }
