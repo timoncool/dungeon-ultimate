@@ -1295,10 +1295,12 @@ dependencies = [
  "mime_guess",
  "nvml-wrapper",
  "png 0.18.1",
+ "reqwest",
  "rust-embed",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "studio-hub-client",
  "sysinfo",
  "thiserror 2.0.21",
  "tokio",
@@ -4810,6 +4812,22 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "studio-hub-client"
+version = "0.1.0"
+source = "git+https://github.com/timoncool/studio-hub-client?rev=531327a64882580bd44f8e173908be0a046c7adc#531327a64882580bd44f8e173908be0a046c7adc"
+dependencies = [
+ "axum",
+ "chrono",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "subtle"

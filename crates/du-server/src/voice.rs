@@ -32,7 +32,13 @@ fn whisper_bin(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Браузер пишет 16 кГц моно WAV — ровно то, что ждёт распознавание.
-pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+pub async fn transcribe(state: State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+    let result = transcribe_inner(state, body).await;
+    crate::routes::report(crate::hub::Work::Asr, &result);
+    result
+}
+
+async fn transcribe_inner(State(state): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
     if body.is_empty() {
         return Err(ApiError::bad_request("пустая запись"));
     }

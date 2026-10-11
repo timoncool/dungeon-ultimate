@@ -280,7 +280,13 @@ pub fn synthesize_streaming(
     first.ok_or_else(|| "нечего озвучивать".to_string())
 }
 
-pub async fn speak(State(state): State<AppState>, Json(body): Json<TtsBody>) -> ApiResult<Json<Value>> {
+pub async fn speak(state: State<AppState>, body: Json<TtsBody>) -> ApiResult<Json<Value>> {
+    let result = speak_inner(state, body).await;
+    crate::routes::report(crate::hub::Work::Tts, &result);
+    result
+}
+
+async fn speak_inner(State(state): State<AppState>, Json(body): Json<TtsBody>) -> ApiResult<Json<Value>> {
     let voice = if body.voice.trim().is_empty() {
         default_voice(&state.root).unwrap_or_default()
     } else {

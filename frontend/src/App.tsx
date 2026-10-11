@@ -92,6 +92,9 @@ const BookReader = lazy(() => import("./components/BookReader"));
 import ResourceMonitor from "./components/ResourceMonitor";
 import EnginePanel from "./components/EnginePanel";
 import SetupPanel from "./components/SetupPanel";
+import HubNews from "./components/HubNews";
+import { HubBars } from "./components/HubBars";
+import { reportUiLanguage } from "./lib/studioHub";
 import { UiTextProvider, useUi, useUiLanguage } from "./lib/ui-text-context";
 import { uiText, type UiText } from "./lib/ui-text";
 import { settingsText, type SettingsText } from "./lib/ui-text-settings";
@@ -256,6 +259,7 @@ type DesktopPanel =
   | "voice"
   | "engines"
   | "setup"
+  | "news"
   | "localData"
   | "support";
 type LocalTextStatus = { ok: boolean; installedModels: string[] };
@@ -297,6 +301,7 @@ const DESKTOP_PANEL_ORDER: DesktopPanel[] = [
   "engines",
   "textModel",
   "setup",
+  "news",
   "localData",
   "support",
 ];
@@ -476,6 +481,9 @@ export default function Home() {
   // Подписи интерфейса. В самом Home контекст ещё не создан — берём словарь напрямую.
   const ui = uiText(settings.language);
   const settings_ = settingsText(settings.language);
+  useEffect(() => {
+    reportUiLanguage(settings.language ?? "ru");
+  }, [settings.language]);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -2403,6 +2411,10 @@ export default function Home() {
       return <SetupPanel key={panel} />;
     }
 
+    if (panel === "news") {
+      return <HubNews key={panel} />;
+    }
+
     if (panel === "localData") {
       return (
         <LocalDataPanel
@@ -2442,6 +2454,7 @@ export default function Home() {
         />
       )}
       <section className="mx-auto flex h-dvh min-h-0 w-full max-w-[1700px] flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4 2xl:px-12">
+        <HubBars />
         <UpdateNotice />
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
           <div className="flex min-w-0 items-center gap-3">

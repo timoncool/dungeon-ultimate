@@ -90,7 +90,12 @@ pub async fn story(
     let job_id = state
         .queue
         .enqueue(Box::new(move |progress, abort| {
-            run_turn(&inner, &chat_id, &input, &chat, progress, abort)
+            let result = run_turn(&inner, &chat_id, &input, &chat, progress, abort.clone());
+            // Прерванный игроком ход — не сбой и не удача: в отчёт надёжности он не идёт.
+            if !abort.load(std::sync::atomic::Ordering::Relaxed) {
+                crate::hub::ended(crate::hub::Work::Turn, result.as_ref().map(|_| ()).map_err(String::as_str));
+            }
+            result
         }))
         .await;
 
@@ -156,6 +161,7 @@ fn take_ready(
     flying: &mut Vec<FlyingClip>,
     sink: &crate::jobs::ProgressFn,
     first: &mut Option<String>,
+    last_error: &mut Option<String>,
 ) {
     if flying.is_empty() {
         return;
@@ -167,9 +173,13 @@ fn take_ready(
         }
         Ok((_, _, Err(error))) => {
             tracing::warn!("фраза не озвучилась: {error}");
-            sink(json!({ "stage": "озвучка", "voiceError": error }));
+            sink(json!({ "stage": "озвучка", "voiceError": error.clone() }));
+            *last_error = Some(error);
         }
-        Err(_) => tracing::warn!("поток озвучки не дожил до ответа"),
+        Err(_) => {
+            tracing::warn!("поток озвучки не дожил до ответа");
+            *last_error = Some("поток озвучки не дожил до ответа".into());
+        }
     }
 }
 
@@ -501,6 +511,7 @@ fn run_turn(
                     Err(error) => {
                         tracing::warn!("озвучка не удалась: {error}");
                         sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
+                        crate::hub::ended(crate::hub::Work::Tts, Err(&error.to_string()));
                         return None;
                     }
                 }
@@ -510,6 +521,7 @@ fn run_turn(
             let mut references: std::collections::HashMap<String, Option<(std::path::PathBuf, Option<String>)>> =
                 std::collections::HashMap::new();
             let mut first = None;
+            let mut last_error: Option<String> = None;
             // В облаке фразы синтезируются ОДНОВРЕМЕННО: это независимые запросы к чужому
             // серверу, и ждать, пока договорит предыдущая, незачем. На своей карте так нельзя —
             // движок там один, и очередь обязательна.
@@ -520,7 +532,7 @@ fn run_turn(
                     // Больше четырёх запросов разом провайдер не любит, а игрок всё равно
                     // столько вперёд не прослушает.
                     while flying.len() >= 4 {
-                        take_ready(&mut flying, &sink, &mut first);
+                        take_ready(&mut flying, &sink, &mut first, &mut last_error);
                     }
                     let root = root.clone();
                     let generated = generated.clone();
@@ -595,12 +607,18 @@ fn run_turn(
                     Err(error) => {
                         tracing::warn!("фраза не озвучилась: {error}");
                         sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
+                        last_error = Some(error.to_string());
                     }
                 }
             }
             // Хвост: последние запросы ещё в полёте, их клипы игрок ждёт.
             while !flying.is_empty() {
-                take_ready(&mut flying, &sink, &mut first);
+                take_ready(&mut flying, &sink, &mut first, &mut last_error);
+            }
+            match (&last_error, &first) {
+                (Some(error), _) => crate::hub::ended(crate::hub::Work::Tts, Err(error)),
+                (None, Some(_)) => crate::hub::ended(crate::hub::Work::Tts, Ok(())),
+                (None, None) => {}
             }
             first
         }))

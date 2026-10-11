@@ -126,12 +126,23 @@ fn spawn_update_check(app: tauri::AppHandle) {
             _ => return,
         };
         let version = update.version.clone();
+        // Окно сообщает свой язык вскоре после загрузки: вопрос ждёт его.
+        let _ = tauri::async_runtime::spawn_blocking(|| {
+            for _ in 0..100 {
+                if du_server::ui_lang::reported() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        })
+        .await;
+        use du_server::ui_lang::text;
         let yes = app
             .dialog()
-            .message(format!("Вышла версия {version}. Обновить сейчас? Игра перезапустится."))
-            .title("Обновление Dungeon Ultimate")
+            .message(text("update-install-now", &[("version", &version)]))
+            .title(text("update-title", &[]))
             .kind(MessageDialogKind::Info)
-            .buttons(MessageDialogButtons::OkCancelCustom("Обновить".into(), "Позже".into()))
+            .buttons(MessageDialogButtons::OkCancelCustom(text("update-button-install", &[]), text("update-button-later", &[])))
             .blocking_show();
         if !yes {
             return;
@@ -143,11 +154,10 @@ fn spawn_update_check(app: tauri::AppHandle) {
                 use tauri_plugin_opener::OpenerExt;
                 let open = app
                     .dialog()
-                    .message(format!("Не удалось обновить: {error}
-Открыть страницу загрузки?"))
-                    .title("Обновление Dungeon Ultimate")
+                    .message(text("update-failed", &[("error", &error.to_string())]))
+                    .title(text("update-title", &[]))
                     .kind(MessageDialogKind::Error)
-                    .buttons(MessageDialogButtons::OkCancelCustom("Открыть".into(), "Позже".into()))
+                    .buttons(MessageDialogButtons::OkCancelCustom(text("update-button-open", &[]), text("update-button-later", &[])))
                     .blocking_show();
                 if open {
                     let _ = app.opener().open_url(RELEASES_URL, None::<&str>);
@@ -240,6 +250,11 @@ pub fn run() {
             spawn_update_check(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("ошибка запуска Tauri");
+        .build(tauri::generate_context!())
+        .expect("ошибка запуска Tauri")
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                du_server::hub::flush_on_exit();
+            }
+        });
 }

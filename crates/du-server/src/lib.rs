@@ -18,6 +18,7 @@ pub mod google_tts;
 pub mod runtime;
 pub mod game_tools;
 pub mod gpu;
+pub mod hub;
 pub mod hw;
 pub mod jobs;
 mod model_caps;
@@ -34,6 +35,7 @@ pub mod voice;
 pub mod voice_catalog;
 mod voice_tags;
 pub mod turn;
+pub mod ui_lang;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
@@ -83,6 +85,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/jobs/{job}/stop", post(routes::stop_job))
         .route("/api/runtime", get(routes::runtime_get).put(routes::runtime_put))
         .route("/api/google/key", axum::routing::put(routes::google_key_put))
+        .route("/api/ui-language", post(ui_lang::report))
         .route("/api/hw", get(routes::hardware))
         .route("/api/setup/status", get(routes::setup_status))
         .route("/api/setup/download", post(routes::setup_download))
@@ -93,6 +96,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tts", post(tts::speak))
         .route("/api/images", post(routes::create_image))
         .route("/api/story", post(story::story))
+        .merge(hub::router())
         .fallback(serve_static)
         // Предела на размер запроса нет вовсе. Стандартные два мегабайта существуют, чтобы
         // публичный сервер не завалили чужие запросы; этот слушает только 127.0.0.1, и
@@ -128,6 +132,7 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {
         let state = AppState::new(root)?;
+        hub::start(root);
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = tokio::net::TcpListener::bind(address).await?;
         tracing::info!("сервер слушает http://{address}");

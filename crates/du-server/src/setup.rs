@@ -105,6 +105,7 @@ pub enum Requirement {
 
 /// Набор файлов, который игрок ставит одной кнопкой.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Component {
     pub id: &'static str,
     pub title: &'static str,

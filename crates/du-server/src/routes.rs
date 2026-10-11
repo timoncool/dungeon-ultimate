@@ -37,6 +37,17 @@ impl ApiError {
     }
 }
 
+impl ApiError {
+    pub fn message(&self) -> &str {
+        &self.1
+    }
+}
+
+/// Исход работы — в хаб: удача или сбой с причиной.
+pub(crate) fn report<T>(work: crate::hub::Work, result: &ApiResult<T>) {
+    crate::hub::ended(work, result.as_ref().map(|_| ()).map_err(ApiError::message));
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.0, Json(json!({ "error": self.1 }))).into_response()
@@ -225,7 +236,13 @@ pub struct ImageBody {
     pub references: Vec<Attachment>,
 }
 
-pub async fn create_image(
+pub async fn create_image(state: State<AppState>, body: Json<ImageBody>) -> ApiResult<Json<GeneratedImage>> {
+    let result = create_image_inner(state, body).await;
+    report(crate::hub::Work::Image, &result);
+    result
+}
+
+async fn create_image_inner(
     State(state): State<AppState>,
     Json(body): Json<ImageBody>,
 ) -> ApiResult<Json<GeneratedImage>> {
@@ -694,7 +711,13 @@ pub async fn cloud_model_list(
 
 /// Нарисовать иконку предмета и привязать её к нему. Портрет потом переиспользуется как
 /// референс, чтобы знакомая вещь выглядела в сценах одинаково.
-pub async fn item_image(
+pub async fn item_image(state: State<AppState>, path: Path<(String, String)>) -> ApiResult<Json<Value>> {
+    let result = item_image_inner(state, path).await;
+    report(crate::hub::Work::Image, &result);
+    result
+}
+
+async fn item_image_inner(
     State(state): State<AppState>,
     Path((chat_id, item_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
