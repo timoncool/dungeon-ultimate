@@ -297,39 +297,20 @@ pub async fn character(
     Ok(Json(value))
 }
 
-/// Собрать облачного собеседника для служебных проходов, если рассказчик уведён в облако.
+/// Собрать собеседника для служебных проходов, если текст пишет облако или агент.
 ///
 /// Чипсы действий, «заполнить за меня» и подсказки — это тот же рассказчик, только короткий.
 /// Раньше они ВСЕГДА поднимали модель на карте и вставали в её очередь: игрок видел загрузку
 /// видеокарты, хотя весь ход считало облако.
-fn cloud_helper(state: &AppState) -> Option<ChatClient> {
+fn remote_helper(state: &AppState) -> ApiResult<Option<ChatClient>> {
     let runtime = crate::runtime::load(&state.root);
-    if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
-        return None;
-    }
-    let caps = crate::model_caps::caps(&runtime.openrouter_narrator_model, &runtime.openrouter_key);
-    // Размышления прячем, а не запрещаем: часть моделей запрет отвергает.
-    let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
-        (true, false) => du_llm::Reasoning::Off,
-        (true, true) => du_llm::Reasoning::Hide,
-        _ => du_llm::Reasoning::AsIs,
-    };
-    let effort = du_llm::Effort(caps.cheapest_effort().map(str::to_string));
-    ChatClient::new("https://openrouter.ai/api/v1", std::time::Duration::from_secs(180))
-        .ok()
-        .map(|client| {
-            client
-                .with_api_key(Some(runtime.openrouter_key.clone()))
-                .with_model(Some(runtime.openrouter_narrator_model.clone()))
-                .with_reasoning(reasoning)
-                .with_effort(effort)
-        })
+    crate::narrator::remote_client(&runtime, std::time::Duration::from_secs(180)).map_err(ApiError::internal)
 }
 
 /// Общий путь служебного вызова: облако напрямую, а на карте — через её очередь.
 async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> ApiResult<Value> {
     let schema = schema.clone();
-    if let Some(client) = cloud_helper(state) {
+    if let Some(client) = remote_helper(state)? {
         let messages = messages.clone();
         let schema = schema.clone();
         return tokio::task::spawn_blocking(move || {
@@ -359,7 +340,7 @@ async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> A
 }
 
 async fn ask_text(state: &AppState, messages: Vec<Message>, sampling: Sampling) -> ApiResult<String> {
-    if let Some(client) = cloud_helper(state) {
+    if let Some(client) = remote_helper(state)? {
         let messages = messages.clone();
         let sampling = sampling.clone();
         let text = tokio::task::spawn_blocking(move || client.chat(&messages, &sampling))

@@ -325,35 +325,20 @@ fn run_turn(
 
     // Рассказчик идёт либо на своей карте, либо в облако — тогда карта вообще не нужна.
     let runtime = crate::runtime::load(&state.root);
-    let client = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
-        crate::cloud::require(&runtime, crate::cloud::Stage::Narrator)?;
-        progress(json!({ "stage": "облако" }));
-        // Размышления ПРЯЧЕМ, а не запрещаем: запрет часть моделей отвергает отказом, а
-        // если рассуждения попадают в ответ, структурный проход возвращает их вместо JSON —
-        // и механика хода не срабатывает вовсе.
-        let caps = crate::model_caps::caps(
-            &runtime.openrouter_narrator_model,
-            &runtime.openrouter_key,
-        );
-        // Отключать можно только там, где схема это разрешает; иначе прячем и просим
-        // самый слабый уровень из объявленных — глубокие размышления тут лишние.
-        let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
-            (true, false) => du_llm::Reasoning::Off,
-            (true, true) => du_llm::Reasoning::Hide,
-            _ => du_llm::Reasoning::AsIs,
-        };
-        let effort = du_llm::Effort(caps.cheapest_effort().map(str::to_string));
-        ChatClient::new("https://openrouter.ai/api", std::time::Duration::from_secs(600))
-            .map_err(|error| error.to_string())?
-            .with_api_key(Some(runtime.openrouter_key.clone()))
-            .with_model(Some(runtime.openrouter_narrator_model.clone()))
-            .with_reasoning(reasoning)
-            .with_effort(effort)
-    } else {
-        progress(json!({ "stage": "загрузка модели" }));
-        let base_url = state.gpu.text_base_url().map_err(|error| error.to_string())?;
-        ChatClient::new(&base_url, std::time::Duration::from_secs(600))
-            .map_err(|error| error.to_string())?
+    let client = match crate::narrator::remote_client(&runtime, std::time::Duration::from_secs(600))? {
+        Some(client) => {
+            progress(json!({ "stage": match crate::narrator::writer(&runtime) {
+                crate::narrator::Writer::Agent => "агент",
+                _ => "облако",
+            } }));
+            client
+        }
+        None => {
+            progress(json!({ "stage": "загрузка модели" }));
+            let base_url = state.gpu.text_base_url().map_err(|error| error.to_string())?;
+            ChatClient::new(&base_url, std::time::Duration::from_secs(600))
+                .map_err(|error| error.to_string())?
+        }
     };
 
     // Состав хода и снимок ДО него: по снимку Повтор откатит последствия.
@@ -850,56 +835,23 @@ fn run_turn(
         match client.chat_json(&ask, &turn::structured_sampling(), &turn::engine_schema()) {
             Err(error) => tracing::warn!("проход механики не удался: {error}"),
             Ok(raw) => {
-            let update = resolve_engine_update(&raw, &actors, hero_id.as_deref());
-            let opts = ApplyOptions {
-                hero_id: hero_id.clone(),
-                random_events: settings.random_events,
-                quests: open_quests.clone(),
-                // Номер хода: по нему движок держит редкость заданий.
-                turn: chat.messages.len() as i64,
-                // Журнал приключения пишется на языке игры, а не по-русски при любом языке.
-                journal: du_prompts::prompts_for(settings.language).journal.clone(),
-            };
-            let applied = apply_game_update(&update, &mut actors, &opts);
+            let (applied_events, applied_items) = apply_mechanics(
+                state,
+                chat_id,
+                settings,
+                &raw,
+                &mut actors,
+                &Mechanics {
+                    characters: &characters,
+                    enemies: &enemies,
+                    open_quests: &open_quests,
+                    hero_id: hero_id.as_deref(),
+                    turn: chat.messages.len() as i64,
+                },
+            );
             // Дописываем, а НЕ заменяем: иначе броски и награды инструментов пропадут.
-            events.extend(applied.events);
-            granted = applied.items;
-
-            // Сохраняем всё, что изменил ход.
-            for id in &applied.changed {
-                if let Some(actor) = actors.get(id) {
-                    if characters.iter().any(|character| &character.id == id) {
-                        let _ = state.store.save_character_rpg(id, &actor.rpg);
-                    }
-                }
-            }
-            let mut roster = enemies.clone();
-            roster.extend(applied.spawned_enemies.clone());
-            for enemy in roster.iter_mut() {
-                if let Some(actor) = actors.get(&enemy.id) {
-                    enemy.rpg = actor.rpg.clone();
-                }
-            }
-            let _ = state.store.set_combatants(chat_id, &roster);
-            let _ = state.store.add_items(chat_id, &granted);
-
-            // Задания: новые кладём предложенными — решение за игроком; закрытые меняют
-            // состояние там, где лежали.
-            let now = now_iso();
-            let offered: Vec<du_rpg::Quest> = applied
-                .quests_offered
-                .into_iter()
-                .map(|mut quest| {
-                    quest.created_at = now.clone();
-                    quest.updated_at = now.clone();
-                    quest
-                })
-                .collect();
-            let _ = state.store.put_quests(chat_id, &offered);
-            for (quest_id, status) in &applied.quests_closed {
-                let _ = state.store.set_quest_status(chat_id, quest_id, *status, &now);
-            }
-
+            events.extend(applied_events);
+            granted = applied_items;
             let _ = state.store.add_events(chat_id, &events);
             }
         }
@@ -1040,6 +992,77 @@ fn run_turn(
         "audioUrl": narration_audio,
     }))
 }
+
+/// Что нужно движку, чтобы применить объявления механики хода.
+pub(crate) struct Mechanics<'a> {
+    pub characters: &'a [du_core::StoryCharacter],
+    pub enemies: &'a [du_rpg::Enemy],
+    pub open_quests: &'a [du_rpg::Quest],
+    pub hero_id: Option<&'a str>,
+    /// Номер хода: по нему движок держит редкость заданий.
+    pub turn: i64,
+}
+
+/// Объявления механики (по схеме `turn::engine_schema`) — движку: он считает броски и урон,
+/// выдаёт предметы, заводит врагов и задания и сохраняет всё изменённое. Возвращает события
+/// и выданные предметы; события в журнал кладёт вызывающий. Один путь для хода рассказчика и
+/// для ведущего-агента (`gm_apply`).
+pub(crate) fn apply_mechanics(
+    state: &crate::state::Inner,
+    chat_id: &str,
+    settings: &du_core::StorySettings,
+    raw: &Value,
+    actors: &mut du_rpg::ActorMap,
+    context: &Mechanics,
+) -> (Vec<du_rpg::GameEvent>, Vec<du_rpg::Item>) {
+    let update = resolve_engine_update(raw, actors, context.hero_id);
+    let opts = ApplyOptions {
+        hero_id: context.hero_id.map(str::to_string),
+        random_events: settings.random_events,
+        quests: context.open_quests.to_vec(),
+        turn: context.turn,
+        // Журнал приключения пишется на языке игры, а не по-русски при любом языке.
+        journal: du_prompts::prompts_for(settings.language).journal.clone(),
+    };
+    let applied = apply_game_update(&update, actors, &opts);
+
+    // Сохраняем всё, что изменил ход.
+    for id in &applied.changed {
+        if let Some(actor) = actors.get(id) {
+            if context.characters.iter().any(|character| &character.id == id) {
+                let _ = state.store.save_character_rpg(id, &actor.rpg);
+            }
+        }
+    }
+    let mut roster = context.enemies.to_vec();
+    roster.extend(applied.spawned_enemies.clone());
+    for enemy in roster.iter_mut() {
+        if let Some(actor) = actors.get(&enemy.id) {
+            enemy.rpg = actor.rpg.clone();
+        }
+    }
+    let _ = state.store.set_combatants(chat_id, &roster);
+    let _ = state.store.add_items(chat_id, &applied.items);
+
+    // Задания: новые кладём предложенными — решение за игроком; закрытые меняют состояние там,
+    // где лежали.
+    let now = now_iso();
+    let offered: Vec<du_rpg::Quest> = applied
+        .quests_offered
+        .into_iter()
+        .map(|mut quest| {
+            quest.created_at = now.clone();
+            quest.updated_at = now.clone();
+            quest
+        })
+        .collect();
+    let _ = state.store.put_quests(chat_id, &offered);
+    for (quest_id, status) in &applied.quests_closed {
+        let _ = state.store.set_quest_status(chat_id, quest_id, *status, &now);
+    }
+    (applied.events, applied.items)
+}
+
 
 /// Сколько токенов дать нарратору под ответ выбранной длины.
 fn max_tokens_for(settings: &du_core::StorySettings) -> u32 {

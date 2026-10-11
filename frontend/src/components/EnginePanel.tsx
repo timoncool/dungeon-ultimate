@@ -42,6 +42,7 @@ type Runtime = {
   cloudTtsProvider: string;
   googleTtsModel: string;
   googleTtsVoice: string;
+  narratorProvider: string;
 };
 
 type Setup = { components: Array<{ id: string; present: boolean }> };
@@ -77,7 +78,7 @@ type Stage = {
 /// Где считается стадия. Три положения вместо двух: раньше «на карте» означало и карту, и
 /// процессор — игрок не понимал, чем именно считается ход, и жаловался, что «одно на
 /// процессоре, другое на карте».
-type Where = "gpu" | "cpu" | "cloud";
+type Where = "gpu" | "cpu" | "cloud" | "agent";
 
 function stages(panel: PanelText): Stage[] {
   return [
@@ -477,18 +478,31 @@ export default function EnginePanel() {
             const list = models[stage.kind] ?? [];
             const chosen = String(runtime[stage.model] ?? "");
             // Что выбрано сейчас: облако важнее устройства, оно отменяет локальный счёт.
-            const chosenWhere: Where = inCloud
-              ? "cloud"
-              : (String(runtime[stage.backend] || runtime.localBackend || "auto") === "cpu"
-                  ? "cpu"
-                  : "gpu");
+            const byAgent = stage.key === "narrator" && runtime.narratorProvider === "agent";
+            const chosenWhere: Where = byAgent
+              ? "agent"
+              : inCloud
+                ? "cloud"
+                : (String(runtime[stage.backend] || runtime.localBackend || "auto") === "cpu"
+                    ? "cpu"
+                    : "gpu");
             const setWhere = (where: Where) => {
+              if (where === "agent") {
+                patch("narratorProvider", "agent");
+                return;
+              }
               if (where === "cloud") {
-                patch(stage.on, true);
+                const next = { [stage.on]: true, ...(stage.key === "narrator" ? { narratorProvider: "" } : {}) } as Partial<Runtime>;
+                setRuntime((current) => (current ? { ...current, ...next } : current));
+                void save(next);
                 return;
               }
               // Одним PUT: два раздельных запроса на один файл настроек могут затереть друг друга.
-              const next = { [stage.on]: false, [stage.backend]: where } as Partial<Runtime>;
+              const next = {
+                [stage.on]: false,
+                [stage.backend]: where,
+                ...(stage.key === "narrator" ? { narratorProvider: "" } : {}),
+              } as Partial<Runtime>;
               setRuntime((current) => (current ? { ...current, ...next } : current));
               void save(next);
             };
@@ -498,7 +512,7 @@ export default function EnginePanel() {
                   <span className="truncate text-sm text-stone-200">{stage.title}</span>
                   {/* Три положения в одну строку: перенос читался бы как отдельные кнопки. */}
                   <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
-                    {whereOptions(panel).filter(
+                    {[...whereOptions(panel), ...(stage.key === "narrator" ? [{ value: "agent" as Where, label: panel.byAgent }] : [])].filter(
                       (option) => option.value !== "cpu" || stage.cpu,
                     ).map((option) => (
                       <button
@@ -517,7 +531,9 @@ export default function EnginePanel() {
                     ))}
                   </div>
                 </div>
-                {inCloud ? (
+                {byAgent ? (
+                  <p className="text-xs leading-relaxed text-stone-500">{panel.narratorAgentNote}</p>
+                ) : inCloud ? (
                   <>
                     {stage.key === "tts" && (
                       <Row label={panel.ttsProvider}>

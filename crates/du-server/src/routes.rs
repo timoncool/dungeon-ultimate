@@ -99,8 +99,8 @@ pub async fn try_tools(
     Json(body): Json<TryTools>,
 ) -> ApiResult<Json<Value>> {
     let runtime = crate::runtime::load(&state.root);
-    if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
-        return Err(ApiError::bad_request("проверка идёт через облако: включи его для рассказчика"));
+    if crate::narrator::writer(&runtime) == crate::narrator::Writer::Local {
+        return Err(ApiError::bad_request("проверка идёт через облако или агента: включи одно из них для рассказчика"));
     }
     let messages = vec![
         json!({ "role": "system", "content":
@@ -115,24 +115,9 @@ pub async fn try_tools(
         let state = state.clone();
         let chat_id = body.chat_id.clone();
         move || {
-            let caps = crate::model_caps::caps(
-                &runtime.openrouter_narrator_model,
-                &runtime.openrouter_key,
-            );
-            let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
-                (true, false) => du_llm::Reasoning::Off,
-                (true, true) => du_llm::Reasoning::Hide,
-                _ => du_llm::Reasoning::AsIs,
-            };
-            let client = du_llm::ChatClient::new(
-                "https://openrouter.ai/api/v1",
-                std::time::Duration::from_secs(300),
-            )
-            .map_err(|error| error.to_string())?
-            .with_api_key(Some(runtime.openrouter_key.clone()))
-            .with_model(Some(runtime.openrouter_narrator_model.clone()))
-            .with_reasoning(reasoning)
-            .with_tools(crate::game_tools::all());
+            let client = crate::narrator::remote_client(&runtime, std::time::Duration::from_secs(300))?
+                .ok_or("рассказчик на своей карте")?
+                .with_tools(crate::game_tools::all());
             crate::game_tools::converse(
                 &state.0,
                 &chat_id,
@@ -189,7 +174,11 @@ pub async fn where_it_runs(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "gpuPresent": crate::backend::gpu_present(),
         "stages": {
-            "narrator": decide(Stage::Narrator, crate::cloud::Stage::Narrator, &runtime.openrouter_narrator_model),
+            "narrator": if crate::narrator::writer(&runtime) == crate::narrator::Writer::Agent {
+                json!({ "where": "agent", "detail": "MCP" })
+            } else {
+                decide(Stage::Narrator, crate::cloud::Stage::Narrator, &runtime.openrouter_narrator_model)
+            },
             "image": decide(Stage::Image, crate::cloud::Stage::Image, &runtime.openrouter_image_model),
             "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, crate::cloud::tts_model(&runtime)),
             "asr": decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model),

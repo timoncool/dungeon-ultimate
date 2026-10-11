@@ -41,6 +41,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 nvml-wrapper = "0.13"
 sysinfo = { workspace = true }
 async-stream = "0.3"
+tower = { version = "0.5", features = ["util"] }
 
 [dev-dependencies]
 tempfile = "3"

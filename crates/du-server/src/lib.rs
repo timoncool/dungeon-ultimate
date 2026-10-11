@@ -4,6 +4,7 @@
 //! на карте одновременно оказаться не могут. Прежде порядок держал клиент, и одного
 //! совпадения хватало, чтобы карта встала.
 
+pub mod activity;
 pub mod assist;
 pub mod backend;
 pub mod bytes;
@@ -17,10 +18,13 @@ pub mod credentials;
 pub mod google_tts;
 pub mod runtime;
 pub mod game_tools;
+pub mod gm;
 pub mod gpu;
 pub mod hub;
 pub mod hw;
 pub mod jobs;
+pub mod mcp;
+pub mod narrator;
 mod model_caps;
 pub mod resolve;
 pub mod release;
@@ -86,6 +90,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/runtime", get(routes::runtime_get).put(routes::runtime_put))
         .route("/api/google/key", axum::routing::put(routes::google_key_put))
         .route("/api/ui-language", post(ui_lang::report))
+        .route("/api/activity", get(activity::list))
+        .route("/api/mcp/status", get(mcp::status))
+        .route("/api/chats/{chat_id}/gm/{tool}", post(gm::tool))
+        .route("/api/chats/{chat_id}/narrate", post(gm::narrate))
+        .route("/api/chats/{chat_id}/apply", post(gm::apply))
+        .route("/mcp", post(mcp::handle))
+        .route("/mcp/window", get(mcp::window_events))
+        .route("/mcp/window/result", post(mcp::window_result))
+        .route("/mcp/window/focus", post(mcp::window_focus))
+        .route("/agent/v1/chat/completions", post(mcp::agent_completions))
         .route("/api/hw", get(routes::hardware))
         .route("/api/setup/status", get(routes::setup_status))
         .route("/api/setup/download", post(routes::setup_download))
@@ -133,10 +147,14 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
     runtime.block_on(async move {
         let state = AppState::new(root)?;
         hub::start(root);
+        activity::start(root);
+        narrator::set_port(port);
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = tokio::net::TcpListener::bind(address).await?;
         tracing::info!("сервер слушает http://{address}");
-        axum::serve(listener, router(state)).await?;
+        let app = router(state);
+        mcp::install(app.clone());
+        axum::serve(listener, app).await?;
         Ok::<_, anyhow::Error>(())
     })
 }
