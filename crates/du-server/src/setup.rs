@@ -928,7 +928,8 @@ fn download_file(
     }
 
     drop(file);
-    let _ = std::fs::remove_file(&done_file);
+    drop(done);
+    // Манифест докачки живёт до конца сверки: прерванная сверка не должна стоить всей закачки.
     verify_sha256(&part, spec, &abort)?;
     std::fs::rename(&part, &target).map_err(|error| format!("финализация: {error}"))?;
     let _ = std::fs::remove_file(&done_file);
@@ -993,6 +994,10 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
                 None => return Err(format!("запись архива ведёт за каталог назначения: {name}")),
             },
             Extract::ZipDlls if !leaf.to_ascii_lowercase().ends_with(".dll") => continue,
+            // Имя с диском («C:x.dll») заменило бы каталог назначения при join.
+            _ if !matches!(Path::new(&leaf).components().collect::<Vec<_>>()[..], [std::path::Component::Normal(_)]) => {
+                return Err(format!("запись архива ведёт за каталог назначения: {name}"));
+            }
             _ => dir.join(&leaf),
         };
         if let Some(parent) = out.parent() {

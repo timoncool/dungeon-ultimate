@@ -550,7 +550,7 @@ fn questions() -> std::sync::MutexGuard<'static, Vec<Question>> {
 /// Агент, звавший сервер не раньше этого срока, считается подключённым.
 const AGENT_PRESENT: Duration = Duration::from_secs(600);
 /// Сколько вопрос ждёт ответа агента.
-const AGENT_ANSWER: Duration = Duration::from_secs(900);
+pub const AGENT_ANSWER: Duration = Duration::from_secs(900);
 
 fn seen(what: &str) {
     *agent().last_call.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), what.to_string()));
@@ -576,22 +576,23 @@ async fn ask_agent(mut question: Value) -> Result<Value, String> {
     question["id"] = json!(id);
     let (sender, receiver) = tokio::sync::oneshot::channel();
     questions().push(Question { question, answer: sender });
-    match tokio::time::timeout(AGENT_ANSWER, receiver).await {
-        Ok(Ok(answer)) => Ok(answer),
-        Ok(Err(_)) => Err("вопрос агенту снят: ход прерван".into()),
-        Err(_) => {
-            questions().retain(|question| question.question["id"] != id.as_str());
-            Err(format!("агент не ответил за {} минут", AGENT_ANSWER.as_secs() / 60))
+    let deadline = tokio::time::Instant::now() + AGENT_ANSWER;
+    let mut receiver = receiver;
+    let outcome = loop {
+        match tokio::time::timeout(Duration::from_millis(500), &mut receiver).await {
+            Ok(Ok(answer)) => break Ok(answer),
+            Ok(Err(_)) => break Err("вопрос агенту снят".to_string()),
+            Err(_) if crate::narrator::waiting_job_aborted() => break Err("вопрос агенту снят: ход прерван".to_string()),
+            Err(_) if tokio::time::Instant::now() >= deadline => {
+                break Err(format!("агент не ответил за {} минут", AGENT_ANSWER.as_secs() / 60))
+            }
+            Err(_) => {}
         }
+    };
+    if outcome.is_err() {
+        questions().retain(|question| question.question["id"] != id.as_str());
     }
-}
-
-/// «Прервать» снимает открытые вопросы рассказчика: задача ждёт ответа агента в блокирующем
-/// запросе и флага отмены до ответа не видит. Вопросы к задаче не привязаны, а в очереди к карте
-/// одна задача, поэтому снимаются все.
-pub fn withdraw_questions() -> usize {
-    let withdrawn = std::mem::take(&mut *questions());
-    withdrawn.len()
+    outcome
 }
 
 async fn wait_for_questions(args: &Value) -> Value {

@@ -100,6 +100,13 @@ pub fn start(root: &Path) {
     });
 }
 
+/// Язык окна — хабу: по нему лента выбирает новости, и он уходит в отчёт.
+pub fn set_ui_lang(lang: &str) {
+    if let Some(hub) = HUB.get().and_then(Option::as_ref) {
+        hub.set_ui_lang(lang);
+    }
+}
+
 /// Отчёт за день уходит при закрытии игры, а не при следующем запуске; не дольше нескольких секунд.
 pub fn flush_on_exit() {
     let Some(hub) = HUB.get().and_then(Option::as_ref).cloned() else { return };

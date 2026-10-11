@@ -149,10 +149,6 @@ pub async fn stop_job(
     Path(job): Path<String>,
 ) -> ApiResult<Json<Value>> {
     state.queue.abandon(&job).await;
-    let withdrawn = crate::mcp::withdraw_questions();
-    if withdrawn > 0 {
-        tracing::info!("задача {job} прервана, снято вопросов агенту: {withdrawn}");
-    }
     Ok(Json(json!({ "ok": true })))
 }
 
