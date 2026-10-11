@@ -1,0 +1,168 @@
+import type { Language } from "@/lib/types";
+
+// Названия и описания того, что докачивает «Что скачать», — на языке окна и простыми словами.
+// Ключ — id компонента на сервере (crates/du-server/src/setup.rs).
+
+export type ComponentText = { title: string; note: string };
+
+const RU: Record<string, ComponentText> = {
+  "image-engine": { title: "Программа для картинок", note: "рисует кадры на видеокарте" },
+  "image-dit": { title: "Художник", note: "сама модель, которая рисует сцены" },
+  "image-encoder": { title: "Переводчик для художника", note: "объясняет художнику, что рисовать" },
+  "image-vae": { title: "Проявка картинки", note: "превращает набросок модели в готовый кадр" },
+  "image-edit": { title: "Память облика", note: "герой и места выглядят одинаково от кадра к кадру" },
+  "narrator-engine": { title: "Программа рассказчика", note: "пишет текст на видеокарте" },
+  narrator: { title: "Рассказчик", note: "ведёт историю и играет за мир" },
+  "voice-engine": { title: "Программа озвучки", note: "читает текст вслух" },
+  "voice-model": { title: "Голос", note: "модель, которая говорит" },
+  "voice-pack": { title: "Набор голосов", note: "готовые голоса для рассказчика и персонажей" },
+  asr: { title: "Parakeet", note: "понимает речь на 25 европейских языках, быстро" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "то же, но точнее" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "понимает почти все языки мира, быстро" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "самый точный Whisper, медленнее" },
+  "whisper-medium": { title: "Whisper medium", note: "средний по скорости и точности" },
+  "whisper-small": { title: "Whisper small", note: "лёгкий" },
+  "whisper-base": { title: "Whisper base", note: "очень лёгкий" },
+  "whisper-tiny": { title: "Whisper tiny", note: "самый лёгкий, для слабого компьютера" },
+  "whisper-cuda": { title: "Whisper на видеокарте", note: "без этого Whisper работает только на процессоре" },
+};
+
+const EN: Record<string, ComponentText> = {
+  "image-engine": { title: "Picture program", note: "draws the frames on the graphics card" },
+  "image-dit": { title: "The artist", note: "the model that draws the scenes" },
+  "image-encoder": { title: "The artist's translator", note: "tells the artist what to draw" },
+  "image-vae": { title: "Picture developer", note: "turns the model's sketch into the finished frame" },
+  "image-edit": { title: "Look keeper", note: "the hero and places look the same from frame to frame" },
+  "narrator-engine": { title: "Narrator program", note: "writes the text on the graphics card" },
+  narrator: { title: "The narrator", note: "tells the story and plays the world" },
+  "voice-engine": { title: "Voice program", note: "reads the text aloud" },
+  "voice-model": { title: "The voice", note: "the model that speaks" },
+  "voice-pack": { title: "Voice set", note: "ready voices for the narrator and characters" },
+  asr: { title: "Parakeet", note: "understands speech in 25 European languages, fast" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "the same, more precise" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "understands almost every language, fast" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "the most precise Whisper, slower" },
+  "whisper-medium": { title: "Whisper medium", note: "middle speed and precision" },
+  "whisper-small": { title: "Whisper small", note: "light" },
+  "whisper-base": { title: "Whisper base", note: "very light" },
+  "whisper-tiny": { title: "Whisper tiny", note: "the lightest, for a weak computer" },
+  "whisper-cuda": { title: "Whisper on the graphics card", note: "without it Whisper runs on the processor only" },
+};
+
+const ES: Record<string, ComponentText> = {
+  "image-engine": { title: "Programa de imágenes", note: "dibuja las escenas en la tarjeta gráfica" },
+  "image-dit": { title: "El artista", note: "el modelo que dibuja las escenas" },
+  "image-encoder": { title: "Traductor del artista", note: "le explica al artista qué dibujar" },
+  "image-vae": { title: "Revelado", note: "convierte el boceto del modelo en la imagen final" },
+  "image-edit": { title: "Memoria del aspecto", note: "el héroe y los lugares se ven igual de una escena a otra" },
+  "narrator-engine": { title: "Programa del narrador", note: "escribe el texto en la tarjeta gráfica" },
+  narrator: { title: "El narrador", note: "cuenta la historia y juega por el mundo" },
+  "voice-engine": { title: "Programa de voz", note: "lee el texto en voz alta" },
+  "voice-model": { title: "La voz", note: "el modelo que habla" },
+  "voice-pack": { title: "Juego de voces", note: "voces listas para el narrador y los personajes" },
+  asr: { title: "Parakeet", note: "entiende la voz en 25 idiomas europeos, rápido" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "lo mismo, más preciso" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "entiende casi todos los idiomas, rápido" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "el Whisper más preciso, más lento" },
+  "whisper-medium": { title: "Whisper medium", note: "velocidad y precisión medias" },
+  "whisper-small": { title: "Whisper small", note: "ligero" },
+  "whisper-base": { title: "Whisper base", note: "muy ligero" },
+  "whisper-tiny": { title: "Whisper tiny", note: "el más ligero, para un equipo modesto" },
+  "whisper-cuda": { title: "Whisper en la tarjeta gráfica", note: "sin esto Whisper solo funciona en el procesador" },
+};
+
+const FR: Record<string, ComponentText> = {
+  "image-engine": { title: "Programme d’images", note: "dessine les scènes sur la carte graphique" },
+  "image-dit": { title: "L’artiste", note: "le modèle qui dessine les scènes" },
+  "image-encoder": { title: "Traducteur de l’artiste", note: "explique à l’artiste quoi dessiner" },
+  "image-vae": { title: "Développement", note: "transforme l’esquisse du modèle en image finie" },
+  "image-edit": { title: "Mémoire de l’apparence", note: "le héros et les lieux restent les mêmes d’une image à l’autre" },
+  "narrator-engine": { title: "Programme du narrateur", note: "écrit le texte sur la carte graphique" },
+  narrator: { title: "Le narrateur", note: "raconte l’histoire et joue le monde" },
+  "voice-engine": { title: "Programme de voix", note: "lit le texte à voix haute" },
+  "voice-model": { title: "La voix", note: "le modèle qui parle" },
+  "voice-pack": { title: "Jeu de voix", note: "des voix prêtes pour le narrateur et les personnages" },
+  asr: { title: "Parakeet", note: "comprend la parole en 25 langues européennes, rapide" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "pareil, plus précis" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "comprend presque toutes les langues, rapide" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "le Whisper le plus précis, plus lent" },
+  "whisper-medium": { title: "Whisper medium", note: "vitesse et précision moyennes" },
+  "whisper-small": { title: "Whisper small", note: "léger" },
+  "whisper-base": { title: "Whisper base", note: "très léger" },
+  "whisper-tiny": { title: "Whisper tiny", note: "le plus léger, pour un ordinateur modeste" },
+  "whisper-cuda": { title: "Whisper sur la carte graphique", note: "sans cela Whisper ne tourne que sur le processeur" },
+};
+
+const DE: Record<string, ComponentText> = {
+  "image-engine": { title: "Bildprogramm", note: "zeichnet die Szenen auf der Grafikkarte" },
+  "image-dit": { title: "Der Zeichner", note: "das Modell, das die Szenen malt" },
+  "image-encoder": { title: "Übersetzer des Zeichners", note: "sagt dem Zeichner, was er malen soll" },
+  "image-vae": { title: "Entwickler", note: "macht aus der Skizze des Modells das fertige Bild" },
+  "image-edit": { title: "Aussehen merken", note: "Held und Orte sehen von Bild zu Bild gleich aus" },
+  "narrator-engine": { title: "Erzähler-Programm", note: "schreibt den Text auf der Grafikkarte" },
+  narrator: { title: "Der Erzähler", note: "erzählt die Geschichte und spielt die Welt" },
+  "voice-engine": { title: "Sprachprogramm", note: "liest den Text vor" },
+  "voice-model": { title: "Die Stimme", note: "das Modell, das spricht" },
+  "voice-pack": { title: "Stimmen-Set", note: "fertige Stimmen für Erzähler und Figuren" },
+  asr: { title: "Parakeet", note: "versteht Sprache in 25 europäischen Sprachen, schnell" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "dasselbe, genauer" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "versteht fast alle Sprachen, schnell" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "das genaueste Whisper, langsamer" },
+  "whisper-medium": { title: "Whisper medium", note: "mittlere Geschwindigkeit und Genauigkeit" },
+  "whisper-small": { title: "Whisper small", note: "leicht" },
+  "whisper-base": { title: "Whisper base", note: "sehr leicht" },
+  "whisper-tiny": { title: "Whisper tiny", note: "das leichteste, für schwache Rechner" },
+  "whisper-cuda": { title: "Whisper auf der Grafikkarte", note: "ohne das läuft Whisper nur auf dem Prozessor" },
+};
+
+const ZH: Record<string, ComponentText> = {
+  "image-engine": { title: "画图程序", note: "在显卡上画出画面" },
+  "image-dit": { title: "画师", note: "负责画场景的模型" },
+  "image-encoder": { title: "画师的翻译", note: "告诉画师要画什么" },
+  "image-vae": { title: "显影", note: "把模型的草稿变成成品画面" },
+  "image-edit": { title: "外貌记忆", note: "主角和地点每幅画看起来都一样" },
+  "narrator-engine": { title: "讲述者程序", note: "在显卡上写文字" },
+  narrator: { title: "讲述者", note: "讲故事并扮演整个世界" },
+  "voice-engine": { title: "配音程序", note: "把文字读出来" },
+  "voice-model": { title: "声音", note: "负责说话的模型" },
+  "voice-pack": { title: "声音包", note: "讲述者和角色的现成声音" },
+  asr: { title: "Parakeet", note: "能听懂 25 种欧洲语言，速度快" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "同上，更准" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "几乎能听懂所有语言，速度快" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "最准的 Whisper，较慢" },
+  "whisper-medium": { title: "Whisper medium", note: "速度和准确度中等" },
+  "whisper-small": { title: "Whisper small", note: "轻量" },
+  "whisper-base": { title: "Whisper base", note: "很轻" },
+  "whisper-tiny": { title: "Whisper tiny", note: "最轻，适合配置低的电脑" },
+  "whisper-cuda": { title: "显卡版 Whisper", note: "没有它，Whisper 只能用处理器" },
+};
+
+const JA: Record<string, ComponentText> = {
+  "image-engine": { title: "画像プログラム", note: "グラフィックカードで場面を描く" },
+  "image-dit": { title: "絵師", note: "場面を描くモデル" },
+  "image-encoder": { title: "絵師の通訳", note: "何を描くかを絵師に伝える" },
+  "image-vae": { title: "現像", note: "モデルの下書きを完成した絵にする" },
+  "image-edit": { title: "見た目の記憶", note: "主人公や場所が毎回同じ姿で描かれる" },
+  "narrator-engine": { title: "語り手プログラム", note: "グラフィックカードで文章を書く" },
+  narrator: { title: "語り手", note: "物語を進め、世界を演じる" },
+  "voice-engine": { title: "音声プログラム", note: "文章を読み上げる" },
+  "voice-model": { title: "声", note: "話すモデル" },
+  "voice-pack": { title: "声のセット", note: "語り手とキャラクター用の声" },
+  asr: { title: "Parakeet", note: "ヨーロッパの25言語を聞き取る、速い" },
+  "asr-ultra": { title: "Parakeet Ultra", note: "同じく、より正確" },
+  "whisper-large-v3-turbo": { title: "Whisper large-v3 turbo", note: "ほぼすべての言語がわかる、速い" },
+  "whisper-large-v3": { title: "Whisper large-v3", note: "いちばん正確な Whisper、遅め" },
+  "whisper-medium": { title: "Whisper medium", note: "速さも正確さも中くらい" },
+  "whisper-small": { title: "Whisper small", note: "軽い" },
+  "whisper-base": { title: "Whisper base", note: "とても軽い" },
+  "whisper-tiny": { title: "Whisper tiny", note: "いちばん軽い、非力なPC向け" },
+  "whisper-cuda": { title: "グラフィックカード版 Whisper", note: "これがないと Whisper はプロセッサーでしか動かない" },
+};
+
+const BY_LANGUAGE: Record<Language, Record<string, ComponentText>> = { ru: RU, en: EN, es: ES, fr: FR, de: DE, zh: ZH, ja: JA };
+
+export function componentText(language: Language | undefined, id: string): ComponentText | undefined {
+  return BY_LANGUAGE[language ?? "ru"]?.[id];
+}
+
+export const COMPONENT_IDS = Object.keys(RU);

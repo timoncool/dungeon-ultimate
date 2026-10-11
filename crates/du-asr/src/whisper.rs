@@ -289,17 +289,6 @@ impl WhisperAsr {
         }
         let out = cmd.output().map_err(|e| AsrError::Whisper(format!("не запустился: {e}")))?;
         if !out.status.success() {
-            // АВТО-ФОЛБЭК cuda -> cpu: дефолт девайса теперь cuda (быстрее в разы на NVIDIA), но на
-            // машине без CUDA/либ сабпроцесс падает — повторяем ОДИН раз на cpu с безопасным int8
-            // (float16 на CPU роняет CTranslate2 — гард #41). device=="cpu" сюда не зайдёт (нет рекурсии).
-            if self.device == "cuda" {
-                let mut fb = self.clone();
-                fb.device = "cpu".into();
-                if matches!(fb.compute.as_str(), "float16" | "bfloat16" | "int8_float16" | "int8_bfloat16") {
-                    fb.compute = "int8".into();
-                }
-                return fb.run_words(wav, lang, threads);
-            }
             let stderr = String::from_utf8_lossy(&out.stderr);
             let stdout = String::from_utf8_lossy(&out.stdout);
             let mut tail: Vec<&str> = stderr.lines().chain(stdout.lines()).rev().take(10).collect();

@@ -14,7 +14,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # bundled: своя сборка SQLite, чтобы не зависеть от системной библиотеки на машине юзера.
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

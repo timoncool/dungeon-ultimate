@@ -148,6 +148,21 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 | Cloud | OpenRouter, per-stage, with live model and voice catalogues |
 | Storage | SQLite; saves from the previous version open unchanged |
 
+## Anonymous statistics and news
+
+The game asks the author's server for news at start and then every hour. The request carries no id, so news arrive whatever you choose below: new items appear in **News** in the sidebar or as a strip across the top of the window.
+
+**What to download** has a checkbox **Send anonymous statistics**, checked by default, next to **What is sent** (the exact report of today). While it is checked, the game sends the day's report a minute after start, every six hours, two minutes after work ends and when it closes (a later report of the same day replaces the earlier one):
+
+- a random install id made on this computer, not tied to the hardware or an account; unchecking the box deletes it;
+- the game and its version, the OS name and version, the window language;
+- the graphics card as vendor, a video memory bucket (up to 8, 12, 16, 24+ GB) and whether CUDA works;
+- how many turns, frames, voicings and speech recognitions finished or failed that day;
+- the models each stage ran on (narrator, pictures, voice, recognition), with how many times they were used;
+- why something failed, as one line with paths, names, links and anything in quotes removed on this computer before it leaves; the server keeps these reasons 30 days.
+
+Never: your stories, pictures, voices, characters, file names or paths, anything personal. The server keeps the country Cloudflare reports for the connection, not the IP address. `DO_NOT_TRACK=1` or `STUDIO_TELEMETRY=0` in the environment turns statistics off entirely: no id exists and nothing is counted.
+
 ## Other projects by [timoncool](https://github.com/timoncool)
 
 | Project | Description |

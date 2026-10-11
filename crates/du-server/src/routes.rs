@@ -37,6 +37,17 @@ impl ApiError {
     }
 }
 
+impl ApiError {
+    pub fn message(&self) -> &str {
+        &self.1
+    }
+}
+
+/// Исход работы — в хаб: удача или сбой с причиной.
+pub(crate) fn report<T>(work: crate::hub::Work, result: &ApiResult<T>) {
+    crate::hub::ended(work, result.as_ref().map(|_| ()).map_err(ApiError::message));
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.0, Json(json!({ "error": self.1 }))).into_response()
@@ -88,8 +99,8 @@ pub async fn try_tools(
     Json(body): Json<TryTools>,
 ) -> ApiResult<Json<Value>> {
     let runtime = crate::runtime::load(&state.root);
-    if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) {
-        return Err(ApiError::bad_request("проверка идёт через облако: включи его для рассказчика"));
+    if crate::narrator::writer(&runtime) == crate::narrator::Writer::Local {
+        return Err(ApiError::bad_request("проверка идёт через облако или агента: включи одно из них для рассказчика"));
     }
     let messages = vec![
         json!({ "role": "system", "content":
@@ -104,24 +115,9 @@ pub async fn try_tools(
         let state = state.clone();
         let chat_id = body.chat_id.clone();
         move || {
-            let caps = crate::model_caps::caps(
-                &runtime.openrouter_narrator_model,
-                &runtime.openrouter_key,
-            );
-            let reasoning = match (caps.reasoning, caps.reasoning_mandatory) {
-                (true, false) => du_llm::Reasoning::Off,
-                (true, true) => du_llm::Reasoning::Hide,
-                _ => du_llm::Reasoning::AsIs,
-            };
-            let client = du_llm::ChatClient::new(
-                "https://openrouter.ai/api/v1",
-                std::time::Duration::from_secs(300),
-            )
-            .map_err(|error| error.to_string())?
-            .with_api_key(Some(runtime.openrouter_key.clone()))
-            .with_model(Some(runtime.openrouter_narrator_model.clone()))
-            .with_reasoning(reasoning)
-            .with_tools(crate::game_tools::all());
+            let client = crate::narrator::remote_client(&runtime, std::time::Duration::from_secs(300))?
+                .ok_or("рассказчик на своей карте")?
+                .with_tools(crate::game_tools::all());
             crate::game_tools::converse(
                 &state.0,
                 &chat_id,
@@ -178,10 +174,20 @@ pub async fn where_it_runs(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "gpuPresent": crate::backend::gpu_present(),
         "stages": {
-            "narrator": decide(Stage::Narrator, crate::cloud::Stage::Narrator, &runtime.openrouter_narrator_model),
+            "narrator": if crate::narrator::writer(&runtime) == crate::narrator::Writer::Agent {
+                json!({ "where": "agent", "detail": "MCP" })
+            } else {
+                decide(Stage::Narrator, crate::cloud::Stage::Narrator, &runtime.openrouter_narrator_model)
+            },
             "image": decide(Stage::Image, crate::cloud::Stage::Image, &runtime.openrouter_image_model),
-            "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, &runtime.openrouter_tts_model),
-            "asr": decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model),
+            "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, crate::cloud::tts_model(&runtime)),
+            // Parakeet собран без CUDA-провайдера и всегда считает на процессоре; на карту уходит
+            // только Whisper.
+            "asr": if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr) && runtime.asr_engine != "whisper" {
+                json!({ "where": "cpu", "detail": "Parakeet" })
+            } else {
+                decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model)
+            },
         }
     }))
 }
@@ -225,7 +231,13 @@ pub struct ImageBody {
     pub references: Vec<Attachment>,
 }
 
-pub async fn create_image(
+pub async fn create_image(state: State<AppState>, body: Json<ImageBody>) -> ApiResult<Json<GeneratedImage>> {
+    let result = create_image_inner(state, body).await;
+    report(crate::hub::Work::Image, &result);
+    result
+}
+
+async fn create_image_inner(
     State(state): State<AppState>,
     Json(body): Json<ImageBody>,
 ) -> ApiResult<Json<GeneratedImage>> {
@@ -433,12 +445,9 @@ fn record_continuity(
 /// `/generated/../../секрет` читался бы локальным движком и уходил бы в облако data-url'ом.
 fn reference_path(state: &AppState, reference: &Attachment) -> Option<std::path::PathBuf> {
     let relative = reference.url.trim_start_matches('/');
-    let (root, name) = if let Some(name) = relative.strip_prefix("generated/") {
-        (&state.generated, name)
-    } else if let Some(name) = relative.strip_prefix("uploads/") {
-        (&state.uploads, name)
-    } else {
-        return None;
+    let (root, name) = match relative.strip_prefix("generated/") {
+        Some(name) => (&state.generated, name),
+        None => (&state.uploads, relative.strip_prefix("uploads/")?),
     };
     if !crate::chats::is_plain_file_name(name) {
         return None;
@@ -472,7 +481,7 @@ pub fn read_png(path: &std::path::Path) -> Result<RawImage, String> {
     buffer.truncate(info.buffer_size());
     let data = match info.color_type {
         png::ColorType::Rgb => buffer,
-        png::ColorType::Rgba => buffer.chunks_exact(4).flat_map(|px| px[..3].to_vec()).collect(),
+        png::ColorType::Rgba => buffer.as_chunks::<4>().0.iter().flat_map(|px| px[..3].to_vec()).collect(),
         other => return Err(format!("не поддержанный цвет PNG: {other:?}")),
     };
     Ok(RawImage { width: info.width, height: info.height, channels: 3, data })
@@ -516,8 +525,18 @@ pub async fn setup_download(
         .spawn_detached(Box::new(move |progress, abort| {
             // Флаг отмены — из очереди: «Прервать» обязан останавливать и закачку,
             // а не только отцеплять браузер.
+            // Пустой список — всё нужное, чего нет: необязательные варианты сами не качаются.
+            let wanted: Vec<String> = if body.ids.is_empty() {
+                crate::setup::status(&inner.root)
+                    .into_iter()
+                    .filter(|status| !status.present && status.component.requirement != crate::setup::Requirement::Optional)
+                    .map(|status| status.component.id.to_string())
+                    .collect()
+            } else {
+                body.ids.clone()
+            };
             for component in crate::setup::manifest() {
-                if !body.ids.is_empty() && !body.ids.iter().any(|id| id == component.id) {
+                if !wanted.iter().any(|id| id == component.id) {
                     continue;
                 }
                 let title = component.title;
@@ -539,6 +558,11 @@ pub async fn setup_download(
                     return Err(format!("{title}: {error}"));
                 }
                 tracing::info!("компонент «{title}» готов");
+                let mut runtime = crate::runtime::load(&inner.root);
+                if crate::setup::select_variant(&mut runtime, component.id) {
+                    crate::runtime::save(&inner.root, &runtime)?;
+                    tracing::info!("распознавание переключено на «{title}»");
+                }
             }
             Ok(json!({ "ok": true }))
         }))
@@ -553,7 +577,28 @@ pub async fn runtime_get(State(state): State<AppState>) -> Json<Value> {
     // Ключ наружу не отдаём: интерфейсу достаточно знать, задан он или нет.
     let has_key = !runtime.openrouter_key.trim().is_empty();
     runtime.openrouter_key = String::new();
-    Json(json!({ "runtime": runtime, "openrouterKeySet": has_key }))
+    let google = crate::credentials::google_api_key(&state.root).map(|(_, source)| source);
+    Json(json!({
+        "runtime": runtime,
+        "openrouterKeySet": has_key,
+        "googleKeySet": google.is_some(),
+        "googleKeySource": google,
+        "googleTtsModels": crate::google_tts::MODELS,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct GoogleKey {
+    /// Новый ключ; пусто или null — стереть сохранённый.
+    #[serde(default)]
+    key: Option<String>,
+}
+
+/// Сохранить или стереть ключ Google для озвучки Gemini. Значение назад не отдаётся.
+pub async fn google_key_put(State(state): State<AppState>, Json(body): Json<GoogleKey>) -> ApiResult<Json<Value>> {
+    let source = crate::credentials::store_google_api_key(&state.root, body.key.as_deref())
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({ "googleKeySet": source.is_some(), "googleKeySource": source })))
 }
 
 pub async fn runtime_put(
@@ -576,11 +621,12 @@ pub async fn runtime_put(
     let mut next = crate::runtime::sanitize(parsed);
     // Сменил модель озвучки — голос от прежней у новой не существует, и синтез падал бы на
     // каждой реплике. Если голос не из её набора, подставляем подходящий сами.
-    let voices = crate::voice_catalog::suitable(&next.openrouter_tts_model, true, None);
+    let voices = crate::voice_catalog::suitable(crate::cloud::tts_model(&next), true, None);
     if !voices.is_empty()
-        && !voices.iter().any(|voice| voice.name.eq_ignore_ascii_case(next.openrouter_tts_voice.trim()))
+        && !voices.iter().any(|voice| voice.name.eq_ignore_ascii_case(crate::cloud::tts_voice(&next).trim()))
     {
-        next.openrouter_tts_voice = voices[0].name.clone();
+        let first = voices[0].name.clone();
+        crate::cloud::set_tts_voice(&mut next, &first);
     }
     // Пустой ключ в запросе означает «не менять»: интерфейс его не получает и вернуть не может.
     if next.openrouter_key.trim().is_empty() {
@@ -660,7 +706,13 @@ pub async fn cloud_model_list(
 
 /// Нарисовать иконку предмета и привязать её к нему. Портрет потом переиспользуется как
 /// референс, чтобы знакомая вещь выглядела в сценах одинаково.
-pub async fn item_image(
+pub async fn item_image(state: State<AppState>, path: Path<(String, String)>) -> ApiResult<Json<Value>> {
+    let result = item_image_inner(state, path).await;
+    report(crate::hub::Work::Image, &result);
+    result
+}
+
+async fn item_image_inner(
     State(state): State<AppState>,
     Path((chat_id, item_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {

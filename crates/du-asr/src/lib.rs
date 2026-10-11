@@ -22,7 +22,7 @@ pub use window::{
     detect_active_spans, merge_windows, plan_windows, speech_envelope, Window, WindowConfig,
 };
 
-use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
+use parakeet_rs::sortformer::{DiarizationConfig, Sortformer, StreamingProfile};
 use parakeet_rs::{ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
 
 
@@ -71,15 +71,16 @@ pub use segment::{segment_words, Segment, Word, SEG_MAX_GAP, SEG_MAX_DUR};
 /// Целевая частота parakeet-rs.
 pub const TARGET_SR: u32 = 16_000;
 
-/// Гарантировать, что ort (load-dynamic) грузит ПРАВИЛЬНУЮ onnxruntime.dll (1.24.2, под которую собран
-/// ort rc.12). Без явного ORT_DYLIB_PATH ort ищет DLL по системному PATH и цепляет
+/// Гарантировать, что ort (load-dynamic) грузит ПРАВИЛЬНУЮ onnxruntime (1.28.2, под которую собран
+/// ort rc.13 с api-28). Без явного ORT_DYLIB_PATH ort ищет DLL по системному PATH и цепляет
 /// C:\Windows\System32\onnxruntime.dll (1.17, поставляется с Windows) — рассинхрон OrtApi даёт ДЕДЛОК
 /// при создании сессии (процесс висит с 0% CPU, ни модель, ни диск не грузятся). Поэтому если
-/// ORT_DYLIB_PATH не задан пользователем, выставляем его на встроенную 1.24.2-DLL до первого касания ort.
+/// ORT_DYLIB_PATH не задан пользователем, выставляем его на встроенную 1.28.2 до первого касания ort.
 ///
-/// Поиск (первый существующий): env DUB_ASR_ORT_DYLIB -> <models_root>/runtime/onnxruntime-win-x64-1.24.2/
-/// lib/onnxruntime.dll -> та же DLL рядом с бинарём (портативная раскладка). models_root: env
-/// DUBENGINE_MODELS_ROOT, иначе <exe_dir>/models или <exe_dir>/../../models (dev-раскладка target/…).
+/// Поиск (первый существующий): env DUB_ASR_ORT_DYLIB -> <models_root>/runtime/onnxruntime-win-x64-1.28.2/
+/// lib/onnxruntime.dll. models_root: env DUBENGINE_MODELS_ROOT, иначе <exe_dir>/models или
+/// <exe_dir>/../../models (dev-раскладка target/…), иначе <cwd>/models. Библиотеку рядом с бинарём и
+/// прежнюю плоскую `models/asr/onnxruntime.dll` не берём: там может лежать 1.24 от прошлой версии.
 fn ensure_ort_dylib() {
     use std::sync::Once;
     static ONCE: Once = Once::new();
@@ -92,7 +93,6 @@ fn ensure_ort_dylib() {
         if let Some(p) = std::env::var_os("DUB_ASR_ORT_DYLIB") {
             cands.push(PathBuf::from(p));
         }
-        // корни для поиска models/
         let mut roots: Vec<PathBuf> = Vec::new();
         if let Some(m) = std::env::var_os("DUBENGINE_MODELS_ROOT") {
             roots.push(PathBuf::from(m));
@@ -100,42 +100,27 @@ fn ensure_ort_dylib() {
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 roots.push(dir.join("models"));
-                // dev-раскладка: target/release/examples/asr.exe -> ../../../models
                 if let Some(p2) = dir.parent().and_then(|d| d.parent()).and_then(|d| d.parent()) {
                     roots.push(p2.join("models"));
                 }
                 if let Some(p1) = dir.parent().and_then(|d| d.parent()) {
                     roots.push(p1.join("models"));
                 }
-                // DLL рядом с бинарём (портативная упаковка)
-                cands.push(dir.join("onnxruntime.dll"));
             }
         }
         if let Ok(cwd) = std::env::current_dir() {
             roots.push(cwd.join("models"));
         }
-        for r in &roots {
-            // Наша раскладка: архив onnxruntime распаковывается плоско рядом с весами
-            // распознавания. Без этого кандидата загрузчик не находил библиотеку, уходил в
-            // системную и вешал запрос намертво — ни ответа, ни ошибки в логе.
-            cands.push(r.join("asr").join("onnxruntime.dll"));
-            // GPU-сборка (cuda13) ПРИОРИТЕТНЕЕ: она суперсет — умеет и CPU-провайдер, и CUDA-EP. Если
-            // скачана, грузим её, чтобы переключение backend gpu<->cpu работало БЕЗ рестарта (dll
-            // фиксируется в процессе при первом касании ort; выбор провайдера — уже в exec_config).
-            // GPU-сборка распаковывается в папку onnxruntime-win-x64-gpu-1.24.2 (БЕЗ _cuda13, хотя zip
-            // называется gpu_cuda13); держим оба варианта имени на случай иной раскладки.
-            cands.push(r.join("runtime").join("onnxruntime-win-x64-gpu-1.24.2").join("lib").join("onnxruntime.dll"));
-            cands.push(r.join("runtime").join("onnxruntime-win-x64-gpu_cuda13-1.24.2").join("lib").join("onnxruntime.dll"));
-            cands.push(r.join("runtime").join("onnxruntime-win-x64-1.24.2").join("lib").join("onnxruntime.dll"));
+        cands.extend(roots.iter().map(|r| du_core::runtime::ort_library(r)));
+        if let Some(found) = cands.iter().find(|c| c.is_file()) {
+            std::env::set_var("ORT_DYLIB_PATH", found);
+            return;
         }
-        for c in cands {
-            if c.is_file() {
-                std::env::set_var("ORT_DYLIB_PATH", &c);
-                return;
-            }
+        // Ничего не нашли: указываем ожидаемый путь, чтобы ort упал с «нет файла», а не взял
+        // системную библиотеку чужой версии и не повис.
+        if let Some(expected) = roots.first().map(|r| du_core::runtime::ort_library(r)) {
+            std::env::set_var("ORT_DYLIB_PATH", expected);
         }
-        // Ничего не нашли — оставляем как есть; ort даст явную ошибку загрузки (лучше дедлока не станет,
-        // но хотя бы не молча). Диагностику берёт на себя вызывающий по AsrError.
     });
 }
 
@@ -454,8 +439,9 @@ impl AsrEngine for Asr {
     }
 }
 
-/// Диаризация: Sortformer v2 -> реплики [(start,end,speaker)] в секундах, speaker перенумерован 0..k-1.
-/// sortformer_onnx — путь к diar_streaming_sortformer_4spk-v2.onnx.
+/// Диаризация: Nemotron 3 Diarization (Streaming Sortformer v3) -> реплики [(start,end,speaker)] в секундах,
+/// speaker перенумерован 0..k-1. sortformer_onnx — путь к nemotron3_diar_v3.onnx: Sortformer v2
+/// parakeet-rs 0.4 не грузит. Файл известен целиком, поэтому профиль стриминга — `offline()`.
 pub fn diarize(
     wav: impl AsRef<Path>,
     sortformer_onnx: impl AsRef<Path>,
@@ -465,9 +451,11 @@ pub fn diarize(
     let mut sf = Sortformer::with_config(
         sortformer_onnx.as_ref(),
         Some(exec_config()),
-        DiarizationConfig::callhome(),
+        DiarizationConfig::default(),
     )
     .map_err(|e| AsrError::Parakeet(e.to_string()))?;
+    sf.set_profile(StreamingProfile::offline())
+        .map_err(|e| AsrError::Parakeet(e.to_string()))?;
     // ДЛИННЫЙ файл — оконная диаризация: окна DIAR_WIN с перекрытием, спикеры соседних окон
     // сшиваются по пересечению реплик в оверлапе (страховка от роста памяти/деградации на часах).
     let total = audio.len() as f64 / sr as f64;

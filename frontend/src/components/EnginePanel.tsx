@@ -18,6 +18,8 @@ type Runtime = {
   ttsBackend: string;
   asrBackend: string;
   asrEngine: string;
+  asrModel: string;
+  whisperModel: string;
   narratorCtx: number;
   narratorGpuLayers: number;
   imageSteps: number;
@@ -37,7 +39,24 @@ type Runtime = {
   openrouterTtsVoice: string;
   openrouterAsrOn: boolean;
   openrouterAsrModel: string;
+  cloudTtsProvider: string;
+  googleTtsModel: string;
+  googleTtsVoice: string;
+  narratorProvider: string;
 };
+
+type Setup = { components: Array<{ id: string; present: boolean }> };
+
+/// Варианты распознавания — те же компоненты, что качает «Что скачать».
+const ASR_VARIANTS: Array<{ id: string; engine: string; model: string }> = [
+  { id: "asr", engine: "parakeet", model: "int8" },
+  { id: "asr-ultra", engine: "parakeet", model: "ultra" },
+  ...["large-v3-turbo", "large-v3", "medium", "small", "base", "tiny"].map((model) => ({
+    id: `whisper-${model}`,
+    engine: "whisper",
+    model,
+  })),
+];
 
 type CloudVoice = { name: string; gender: string; age: string; ru: boolean };
 
@@ -59,7 +78,7 @@ type Stage = {
 /// Где считается стадия. Три положения вместо двух: раньше «на карте» означало и карту, и
 /// процессор — игрок не понимал, чем именно считается ход, и жаловался, что «одно на
 /// процессоре, другое на карте».
-type Where = "gpu" | "cpu" | "cloud";
+type Where = "gpu" | "cpu" | "cloud" | "agent";
 
 function stages(panel: PanelText): Stage[] {
   return [
@@ -164,18 +183,46 @@ export default function EnginePanel() {
   const [models, setModels] = useState<Record<string, string[]>>({});
   const [voices, setVoices] = useState<CloudVoice[]>([]);
   const [keyDraft, setKeyDraft] = useState("");
+  const [googleKeySet, setGoogleKeySet] = useState(false);
+  const [googleKeyFromEnv, setGoogleKeyFromEnv] = useState(false);
+  const [googleModels, setGoogleModels] = useState<string[]>([]);
+  const [googleKeyDraft, setGoogleKeyDraft] = useState("");
+  const [installed, setInstalled] = useState<Set<string>>(new Set());
+  const readRuntime = useCallback((data: {
+    runtime: Runtime;
+    openrouterKeySet?: boolean;
+    googleKeySet?: boolean;
+    googleKeySource?: string | null;
+    googleTtsModels?: string[];
+  }) => {
+    setRuntime(data.runtime);
+    setKeySet(Boolean(data.openrouterKeySet));
+    setGoogleKeySet(Boolean(data.googleKeySet));
+    setGoogleKeyFromEnv(data.googleKeySource === "environment");
+    setGoogleModels(data.googleTtsModels ?? []);
+  }, []);
 
   useEffect(() => {
     void (async () => {
       try {
-        const data = await (await fetch("/api/runtime")).json();
-        setRuntime(data.runtime);
-        setKeySet(Boolean(data.openrouterKeySet));
+        readRuntime(await (await fetch("/api/runtime")).json());
       } catch {
         setNote(panel.settingsUnreadable);
       }
     })();
-  }, []);
+  }, [readRuntime]);
+
+  useEffect(() => {
+    if (!open) return;
+    void (async () => {
+      try {
+        const data = (await (await fetch("/api/setup/status")).json()) as Setup;
+        setInstalled(new Set(data.components.filter((c) => c.present).map((c) => c.id)));
+      } catch {
+        setInstalled(new Set());
+      }
+    })();
+  }, [open]);
 
   // Списки моделей тянем только когда панель открыта: это сетевой запрос к провайдеру.
   // Что уже запрошено, помним в ref: зависимость от `models` перезапускала эффект на
@@ -199,9 +246,11 @@ export default function EnginePanel() {
     }
   }, [open, keySet, panel]);
 
-  const ttsModel = runtime?.openrouterTtsModel ?? "";
+  const byGoogle = runtime?.cloudTtsProvider === "google";
+  const ttsModel = (byGoogle ? runtime?.googleTtsModel : runtime?.openrouterTtsModel) ?? "";
+  const ttsKeySet = byGoogle ? googleKeySet : keySet;
   useEffect(() => {
-    if (!open || !keySet || !ttsModel) return;
+    if (!open || !ttsKeySet || !ttsModel) return;
     void (async () => {
       try {
         const data = await (await fetch(`/api/cloud/voices?model=${encodeURIComponent(ttsModel)}`)).json();
@@ -210,7 +259,7 @@ export default function EnginePanel() {
         setVoices([]);
       }
     })();
-  }, [open, keySet, ttsModel]);
+  }, [open, ttsKeySet, ttsModel]);
 
   const save = useCallback(async (patch: Partial<Runtime>) => {
     setSaving(true);
@@ -222,9 +271,7 @@ export default function EnginePanel() {
         body: JSON.stringify(patch),
       });
       if (!response.ok) throw new Error(await response.text());
-      const data = await (await fetch("/api/runtime")).json();
-      setRuntime(data.runtime);
-      setKeySet(Boolean(data.openrouterKeySet));
+      readRuntime(await (await fetch("/api/runtime")).json());
       // Перезапуск не нужен: сервер перечитывает настройки на каждом запуске модели.
       setNote(panel.saved);
     } catch (error) {
@@ -240,7 +287,26 @@ export default function EnginePanel() {
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [readRuntime]);
+
+  const saveGoogleKey = useCallback(async (key: string | null) => {
+    setSaving(true);
+    setNote("");
+    try {
+      const response = await fetch("/api/google/key", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      readRuntime(await (await fetch("/api/runtime")).json());
+      setNote(panel.saved);
+    } catch (error) {
+      setNote(panel.notSaved.replace("{error}", error instanceof Error ? error.message : String(error)));
+    } finally {
+      setSaving(false);
+    }
+  }, [readRuntime]);
 
   const patch = useCallback(
     (key: keyof Runtime, value: string | number | boolean) => {
@@ -412,18 +478,31 @@ export default function EnginePanel() {
             const list = models[stage.kind] ?? [];
             const chosen = String(runtime[stage.model] ?? "");
             // Что выбрано сейчас: облако важнее устройства, оно отменяет локальный счёт.
-            const chosenWhere: Where = inCloud
-              ? "cloud"
-              : (String(runtime[stage.backend] || runtime.localBackend || "auto") === "cpu"
-                  ? "cpu"
-                  : "gpu");
+            const byAgent = stage.key === "narrator" && runtime.narratorProvider === "agent";
+            const chosenWhere: Where = byAgent
+              ? "agent"
+              : inCloud
+                ? "cloud"
+                : (String(runtime[stage.backend] || runtime.localBackend || "auto") === "cpu"
+                    ? "cpu"
+                    : "gpu");
             const setWhere = (where: Where) => {
+              if (where === "agent") {
+                patch("narratorProvider", "agent");
+                return;
+              }
               if (where === "cloud") {
-                patch(stage.on, true);
+                const next = { [stage.on]: true, ...(stage.key === "narrator" ? { narratorProvider: "" } : {}) } as Partial<Runtime>;
+                setRuntime((current) => (current ? { ...current, ...next } : current));
+                void save(next);
                 return;
               }
               // Одним PUT: два раздельных запроса на один файл настроек могут затереть друг друга.
-              const next = { [stage.on]: false, [stage.backend]: where } as Partial<Runtime>;
+              const next = {
+                [stage.on]: false,
+                [stage.backend]: where,
+                ...(stage.key === "narrator" ? { narratorProvider: "" } : {}),
+              } as Partial<Runtime>;
               setRuntime((current) => (current ? { ...current, ...next } : current));
               void save(next);
             };
@@ -433,13 +512,13 @@ export default function EnginePanel() {
                   <span className="truncate text-sm text-stone-200">{stage.title}</span>
                   {/* Три положения в одну строку: перенос читался бы как отдельные кнопки. */}
                   <div className="flex shrink-0 overflow-hidden rounded border border-stone-800">
-                    {whereOptions(panel).filter(
+                    {[...whereOptions(panel), ...(stage.key === "narrator" ? [{ value: "agent" as Where, label: panel.byAgent }] : [])].filter(
                       (option) => option.value !== "cpu" || stage.cpu,
                     ).map((option) => (
                       <button
                         key={option.value}
                         type="button"
-                        disabled={option.value === "cloud" && !keySet}
+                        disabled={option.value === "cloud" && !keySet && !(stage.key === "tts" && googleKeySet)}
                         onClick={() => setWhere(option.value)}
                         className={`whitespace-nowrap px-2 py-1 text-xs ${
                           chosenWhere === option.value
@@ -452,8 +531,62 @@ export default function EnginePanel() {
                     ))}
                   </div>
                 </div>
-                {inCloud ? (
+                {byAgent ? (
+                  <p className="text-xs leading-relaxed text-stone-500">{panel.narratorAgentNote}</p>
+                ) : inCloud ? (
                   <>
+                    {stage.key === "tts" && (
+                      <Row label={panel.ttsProvider}>
+                        <select
+                          value={byGoogle ? "google" : "openrouter"}
+                          onChange={(event) => patch("cloudTtsProvider", event.target.value)}
+                          className={box}
+                        >
+                          <option value="openrouter">{panel.ttsByOpenRouter}</option>
+                          <option value="google">{panel.ttsByGoogle}</option>
+                        </select>
+                      </Row>
+                    )}
+                    {stage.key === "tts" && byGoogle && (
+                      <div className="space-y-2">
+                        <p className="text-xs leading-relaxed text-stone-500">
+                          {panel.googleKeyHint.replace(
+                            "{state}",
+                            googleKeyFromEnv ? panel.googleKeyFromEnv : googleKeySet ? panel.keySet : panel.keyMissing,
+                          )}
+                        </p>
+                        {!googleKeyFromEnv && (
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              value={googleKeyDraft}
+                              placeholder={googleKeySet ? panel.replaceKey : "AIza…"}
+                              onChange={(event) => setGoogleKeyDraft(event.target.value)}
+                              className={box}
+                            />
+                            <button
+                              type="button"
+                              disabled={!googleKeyDraft.trim() || saving}
+                              onClick={() => {
+                                void saveGoogleKey(googleKeyDraft.trim());
+                                setGoogleKeyDraft("");
+                              }}
+                              className="shrink-0 rounded border border-stone-700 px-3 text-sm text-stone-200 hover:border-amber-700/60 disabled:cursor-not-allowed disabled:text-stone-600"
+                            >{panel.save}</button>
+                          </div>
+                        )}
+                        <select
+                          value={runtime.googleTtsModel}
+                          onChange={(event) => patch("googleTtsModel", event.target.value)}
+                          className={box}
+                        >
+                          {googleModels.map((id) => (
+                            <option key={id} value={id}>{id}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {!(stage.key === "tts" && byGoogle) && (
                     <select
                       value={chosen}
                       onChange={(event) => patch(stage.model, event.target.value)}
@@ -466,11 +599,12 @@ export default function EnginePanel() {
                         </option>
                       ))}
                     </select>
+                    )}
                     {stage.key === "tts" && (
                       <Row label={ui.voice} hint={panel.voicesRussianMarked}>
                         <select
-                          value={runtime.openrouterTtsVoice}
-                          onChange={(event) => patch("openrouterTtsVoice", event.target.value)}
+                          value={byGoogle ? runtime.googleTtsVoice : runtime.openrouterTtsVoice}
+                          onChange={(event) => patch(byGoogle ? "googleTtsVoice" : "openrouterTtsVoice", event.target.value)}
                           className={box}
                         >
                           {voices.map((voice) => (
@@ -487,14 +621,37 @@ export default function EnginePanel() {
                   <p className="text-xs text-stone-600">
                     {stage.key === "asr" && (
                       <span className="mb-1 block">
-                        <select
-                          value={runtime.asrEngine || "parakeet"}
-                          onChange={(event) => patch("asrEngine", event.target.value)}
-                          className={box}
-                        >
-                          <option value="parakeet">{panel.asrParakeet}</option>
-                          <option value="whisper">{panel.asrWhisper}</option>
-                        </select>
+                        <Row label={panel.asrVariant}>
+                          <select
+                            value={
+                              ASR_VARIANTS.find((variant) =>
+                                variant.engine === (runtime.asrEngine || "parakeet") &&
+                                variant.model === (variant.engine === "whisper" ? runtime.whisperModel : runtime.asrModel || "int8"),
+                              )?.id ?? "asr"
+                            }
+                            onChange={(event) => {
+                              const variant = ASR_VARIANTS.find((v) => v.id === event.target.value);
+                              if (!variant) return;
+                              const next = (variant.engine === "whisper"
+                                ? { asrEngine: "whisper", whisperModel: variant.model }
+                                : { asrEngine: "parakeet", asrModel: variant.model }) as Partial<Runtime>;
+                              setRuntime((current) => (current ? { ...current, ...next } : current));
+                              void save(next);
+                            }}
+                            className={box}
+                          >
+                            {ASR_VARIANTS.map((variant) => (
+                              <option key={variant.id} value={variant.id}>
+                                {variant.id === "asr"
+                                  ? panel.asrParakeet
+                                  : variant.id === "asr-ultra"
+                                    ? panel.asrUltra
+                                    : panel.asrWhisperModel.replace("{model}", variant.model)}
+                                {installed.has(variant.id) ? "" : panel.notDownloaded}
+                              </option>
+                            ))}
+                          </select>
+                        </Row>
                       </span>
                     )}
                     {stage.key === "narrator" && chosenWhere === "cpu" && (

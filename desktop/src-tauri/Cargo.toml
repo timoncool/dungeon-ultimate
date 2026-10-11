@@ -1,6 +1,6 @@
 [package]
 name = "dungeon-ultimate-desktop"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 description = "Оболочка Dungeon Ultimate: поднимает сервер на 127.0.0.1 и открывает окно"
 
@@ -13,7 +13,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"    # нативный диалог «Обновить? [Обновить] [Позже]»
 tauri-plugin-updater = "2"   # авто-обновление: подписанный установщик с GitHub-релиза, в один клик
 tauri-plugin-opener = "2"    # открыть страницу релиза (портатив) — замена устаревшего shell.open
@@ -21,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # axum-бэкенд встроен В ЭТОТ ЖЕ процесс (один exe, без dub-server.exe-сайдкара): serve_blocking с фонового потока.
 du-server = { path = "../../crates/du-server" }
+du-core = { path = "../../crates/du-core" }
 
 # Оболочка исключена из корневого воркспейса (свой Cargo.lock), поэтому корневой
 # [profile.release] на неё не действует — дублируем, иначе установщик собирается без LTO.

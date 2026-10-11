@@ -92,6 +92,11 @@ const BookReader = lazy(() => import("./components/BookReader"));
 import ResourceMonitor from "./components/ResourceMonitor";
 import EnginePanel from "./components/EnginePanel";
 import SetupPanel from "./components/SetupPanel";
+import HubNews from "./components/HubNews";
+import { HubBars } from "./components/HubBars";
+import { reportUiLanguage } from "./lib/studioHub";
+import ActivityPanel from "./components/ActivityPanel";
+import { CHANGED, PLAY, startBridge, useBridgeCommand } from "./lib/mcpBridge";
 import { UiTextProvider, useUi, useUiLanguage } from "./lib/ui-text-context";
 import { uiText, type UiText } from "./lib/ui-text";
 import { settingsText, type SettingsText } from "./lib/ui-text-settings";
@@ -256,6 +261,8 @@ type DesktopPanel =
   | "voice"
   | "engines"
   | "setup"
+  | "news"
+  | "activity"
   | "localData"
   | "support";
 type LocalTextStatus = { ok: boolean; installedModels: string[] };
@@ -297,6 +304,8 @@ const DESKTOP_PANEL_ORDER: DesktopPanel[] = [
   "engines",
   "textModel",
   "setup",
+  "news",
+  "activity",
   "localData",
   "support",
 ];
@@ -476,6 +485,9 @@ export default function Home() {
   // Подписи интерфейса. В самом Home контекст ещё не создан — берём словарь напрямую.
   const ui = uiText(settings.language);
   const settings_ = settingsText(settings.language);
+  useEffect(() => {
+    reportUiLanguage(settings.language ?? "ru");
+  }, [settings.language]);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -717,6 +729,62 @@ export default function Home() {
     setSuggestedActions([]);
     setDiceQueue([]);
   }, [applyDefaultSettings]);
+
+  // Мост MCP: агент видит окно и работает с ним. Что он поменял — окно перечитывает, его
+  // озвучку — проигрывает.
+  const selectedChatRef = useRef(selectedChatId);
+  selectedChatRef.current = selectedChatId;
+  useEffect(() => {
+    startBridge();
+    const onChanged = () => {
+      void refreshChats().catch((e: Error) => console.warn("[mcp] the stories were not read again:", e.message));
+      if (selectedChatRef.current) void loadChat(selectedChatRef.current);
+    };
+    const onPlay = (event: Event) => {
+      const detail = (event as CustomEvent<{ url: string; chatId?: string }>).detail;
+      if (!detail.chatId || detail.chatId === selectedChatRef.current) void enqueueClip(detail.url);
+    };
+    window.addEventListener(CHANGED, onChanged);
+    window.addEventListener(PLAY, onPlay);
+    return () => {
+      window.removeEventListener(CHANGED, onChanged);
+      window.removeEventListener(PLAY, onPlay);
+    };
+  }, [refreshChats, loadChat]);
+
+  useBridgeCommand("navigate", async (args) => {
+    const to = String(args.to ?? "");
+    if (to === "chat") {
+      const chatId = String(args.chat_id ?? "");
+      if (!chatId) throw new Error("chat_id is required to open a story");
+      await loadChat(chatId);
+      return { text: `Opened story ${chatId}.` };
+    }
+    if (to === "book") {
+      setBookMode(true);
+      return { text: "Opened the book view." };
+    }
+    if (to === "feed") {
+      setBookMode(false);
+      return { text: "Opened the feed view." };
+    }
+    if (to === "new") {
+      setNewStoryOpen(true);
+      return { text: "Opened the new-story dialog." };
+    }
+    if ((DESKTOP_PANEL_ORDER as string[]).includes(to)) {
+      setActiveDesktopPanel(to as DesktopPanel);
+      return { text: `Opened the ${to} panel.` };
+    }
+    throw new Error(`Unknown place "${to}": chat (with chat_id), book, feed, new or a panel: ${DESKTOP_PANEL_ORDER.join(", ")}.`);
+  });
+
+  useBridgeCommand("play", async (args) => {
+    const url = String(args.url ?? "");
+    if (!url) throw new Error("url is required");
+    void enqueueClip(url);
+    return { text: `Playing ${url}.` };
+  });
 
   const equipItem = useCallback(
     async (itemId: string, equipped: boolean) => {
@@ -2403,6 +2471,14 @@ export default function Home() {
       return <SetupPanel key={panel} />;
     }
 
+    if (panel === "news") {
+      return <HubNews key={panel} />;
+    }
+
+    if (panel === "activity") {
+      return <ActivityPanel key={panel} />;
+    }
+
     if (panel === "localData") {
       return (
         <LocalDataPanel
@@ -2442,6 +2518,7 @@ export default function Home() {
         />
       )}
       <section className="mx-auto flex h-dvh min-h-0 w-full max-w-[1700px] flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4 2xl:px-12">
+        <HubBars />
         <UpdateNotice />
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
           <div className="flex min-w-0 items-center gap-3">

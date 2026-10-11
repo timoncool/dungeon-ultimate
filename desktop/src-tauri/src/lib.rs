@@ -45,8 +45,17 @@ fn resolve_repo_root() -> PathBuf {
     exe_dir
 }
 
-/// Занять свободный TCP-порт на 127.0.0.1 (ядро выдаёт порт 0 -> читаем реальный, отпускаем).
-fn pick_free_port() -> std::io::Result<u16> {
+/// Порт MCP и окна по умолчанию — постоянный, как у студий (YuE2 8791, Dub 8793): по нему агент
+/// подключается к игре. `DU_PORT` его меняет. Занят — берётся свободный, и панель «Активность»
+/// показывает фактический адрес MCP.
+const DEFAULT_PORT: u16 = 8795;
+
+fn pick_port() -> std::io::Result<u16> {
+    let wanted = std::env::var("DU_PORT").ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_PORT);
+    if TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, wanted)).is_ok() {
+        return Ok(wanted);
+    }
+    eprintln!("[ERROR] порт {wanted} занят — игра слушает другой; адрес MCP показан в панели «Активность»");
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;
     Ok(listener.local_addr()?.port())
 }
@@ -64,25 +73,12 @@ fn wait_until_ready(port: u16, timeout: Duration) -> bool {
     false
 }
 
-/// Прописать ORT_DYLIB_PATH (onnxruntime 1.24) в окружение ПРОЦЕССА до старта сервера (dub-asr трогает ort
-/// лениво; PATH под движок/инструменты добавит augment_path_for_tools внутри serve_blocking).
+/// Прописать ORT_DYLIB_PATH (onnxruntime 1.28.2) в окружение ПРОЦЕССА до старта сервера (du-asr трогает ort
+/// лениво; PATH под движок/инструменты добавит augment_path_for_tools внутри serve_blocking). Библиотеки ещё
+/// нет — путь всё равно ставится: ort упадёт с «нет файла», а не возьмёт системную чужой версии.
 fn setup_server_env(repo_root: &PathBuf) {
     if std::env::var_os("ORT_DYLIB_PATH").is_none() {
-        let rt = repo_root.join("models").join("runtime");
-        for cand in [
-            // GPU-сборка (cuda13) приоритетнее — суперсет CPU+CUDA; переключение backend без рестарта.
-            rt.join("onnxruntime-win-x64-gpu-1.24.2").join("lib").join("onnxruntime.dll"),
-            rt.join("onnxruntime-win-x64-gpu_cuda13-1.24.2").join("lib").join("onnxruntime.dll"),
-            rt.join("onnxruntime-win-x64-1.24.2").join("lib").join("onnxruntime.dll"),
-            app_root_dir().join("onnxruntime.dll"),
-            rt.join("onnxruntime-1.24.dll"),
-            rt.join("onnxruntime.dll"),
-        ] {
-            if cand.is_file() {
-                std::env::set_var("ORT_DYLIB_PATH", cand);
-                break;
-            }
-        }
+        std::env::set_var("ORT_DYLIB_PATH", du_core::runtime::ort_library(&repo_root.join("models")));
     }
 }
 
@@ -122,6 +118,13 @@ fn hide_console_window() {
 /// каталог, из которого прямо сейчас запущена игра, нельзя — предлагаем открыть страницу.
 const RELEASES_URL: &str = "https://github.com/timoncool/dungeon-ultimate/releases/latest";
 
+fn open_in_browser(app: &tauri::AppHandle, url: &tauri::Url) {
+    use tauri_plugin_opener::OpenerExt;
+    if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+        eprintln!("[ERROR] ссылка {url} не открылась в браузере: {e}");
+    }
+}
+
 fn spawn_update_check(app: tauri::AppHandle) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
     use tauri_plugin_updater::UpdaterExt;
@@ -132,12 +135,23 @@ fn spawn_update_check(app: tauri::AppHandle) {
             _ => return,
         };
         let version = update.version.clone();
+        // Окно сообщает свой язык вскоре после загрузки: вопрос ждёт его.
+        let _ = tauri::async_runtime::spawn_blocking(|| {
+            for _ in 0..100 {
+                if du_server::ui_lang::reported() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        })
+        .await;
+        use du_server::ui_lang::text;
         let yes = app
             .dialog()
-            .message(format!("Вышла версия {version}. Обновить сейчас? Игра перезапустится."))
-            .title("Обновление Dungeon Ultimate")
+            .message(text("update-install-now", &[("version", &version)]))
+            .title(text("update-title", &[]))
             .kind(MessageDialogKind::Info)
-            .buttons(MessageDialogButtons::OkCancelCustom("Обновить".into(), "Позже".into()))
+            .buttons(MessageDialogButtons::OkCancelCustom(text("update-button-install", &[]), text("update-button-later", &[])))
             .blocking_show();
         if !yes {
             return;
@@ -149,11 +163,10 @@ fn spawn_update_check(app: tauri::AppHandle) {
                 use tauri_plugin_opener::OpenerExt;
                 let open = app
                     .dialog()
-                    .message(format!("Не удалось обновить: {error}
-Открыть страницу загрузки?"))
-                    .title("Обновление Dungeon Ultimate")
+                    .message(text("update-failed", &[("error", &error.to_string())]))
+                    .title(text("update-title", &[]))
                     .kind(MessageDialogKind::Error)
-                    .buttons(MessageDialogButtons::OkCancelCustom("Открыть".into(), "Позже".into()))
+                    .buttons(MessageDialogButtons::OkCancelCustom(text("update-button-open", &[]), text("update-button-later", &[])))
                     .blocking_show();
                 if open {
                     let _ = app.opener().open_url(RELEASES_URL, None::<&str>);
@@ -175,7 +188,7 @@ pub fn run() {
     }
 
     let repo_root = resolve_repo_root();
-    let port = pick_free_port().unwrap_or(8765);
+    let port = pick_port().expect("нет свободного порта на 127.0.0.1");
     setup_server_env(&repo_root);
 
     // axum-бэкенд поднимается В ЭТОМ ЖЕ процессе на фоновом потоке — ОДИН exe, без сервер.exe-сайдкара.
@@ -195,14 +208,16 @@ pub fn run() {
     let url = format!("http://127.0.0.1:{port}/");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
+        // Скрипт ссылок плагина отвечает на клик через IPC, которого у страницы с http://127.0.0.1 нет;
+        // без него клик доходит до on_new_window и уходит в браузер.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             // Иконка бандла для GUI-окна: без явной установки окно оставалось пустым в ALT+TAB/панели задач
             // (иконка висела на консольном окне). Ставим её на само GUI-окно.
             let icon = app.default_window_icon().cloned();
+            let (for_tabs, for_links) = (app.handle().clone(), app.handle().clone());
             let win = WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -222,6 +237,19 @@ pub fn run() {
                 "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
                  --autoplay-policy=no-user-gesture-required",
             )
+            // WebView2 молча глотает target="_blank" и window.open, если у окна нет обработчика новых окон.
+            .on_new_window(move |target, _features| {
+                open_in_browser(&for_tabs, &target);
+                tauri::webview::NewWindowResponse::Deny
+            })
+            .on_navigation(move |target| {
+                let own = target.host_str() == Some("127.0.0.1") && target.port() == Some(port);
+                if own || !matches!(target.scheme(), "http" | "https") {
+                    return true;
+                }
+                open_in_browser(&for_links, target);
+                false
+            })
             .build()?;
             // Иконка окна (ALT+TAB/таскбар) — ПОСЛЕ создания: не паникуем, если не выйдет, окно рабочее.
             if let Some(ic) = icon {
@@ -231,6 +259,11 @@ pub fn run() {
             spawn_update_check(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("ошибка запуска Tauri");
+        .build(tauri::generate_context!())
+        .expect("ошибка запуска Tauri")
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                du_server::hub::flush_on_exit();
+            }
+        });
 }

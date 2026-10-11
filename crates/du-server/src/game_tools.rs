@@ -748,7 +748,7 @@ fn voice_pool(state: &crate::state::Inner, chat_id: &str) -> Vec<VoiceInfo> {
             .flatten()
             .map(|chat| chat.summary.settings.language == du_core::Language::Ru)
             .unwrap_or(true);
-        crate::voice_catalog::suitable(&runtime.openrouter_tts_model, russian, None)
+        crate::voice_catalog::suitable(crate::cloud::tts_model(&runtime), russian, None)
             .into_iter()
             .map(|voice| VoiceInfo { name: voice.name.clone(), gender: voice.gender.clone(), age: voice.age.clone() })
             .collect()
@@ -850,7 +850,7 @@ fn character_add(state: &crate::state::Inner, chat_id: &str, arguments: &Value) 
     let voice = crate::dialogue::auto_voice_for_character(
         characters.len(),
         &choose_from,
-        &runtime.openrouter_tts_voice,
+        crate::cloud::tts_voice(&runtime),
         match gender {
             "female" => Some(crate::dialogue::Gender::Female),
             "male" => Some(crate::dialogue::Gender::Male),

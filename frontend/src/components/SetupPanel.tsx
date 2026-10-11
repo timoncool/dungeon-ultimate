@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Download, Loader2, Check } from "lucide-react";
-import { useUi } from "@/lib/ui-text-context";
+import { ChevronRight, Download, Loader2, Check, X } from "lucide-react";
+import { useUi, useUiLanguage } from "@/lib/ui-text-context";
 import { panelText } from "@/lib/ui-text-panels";
-import { useUiLanguage } from "@/lib/ui-text-context";
+import { componentText } from "@/lib/ui-text-components";
+import { hubChanged, setTelemetry, telemetryPreview, useHubState } from "@/lib/studioHub";
 
 // Первый запуск: докачка того, чего нет на диске.
 //
 // В установщик веса не кладутся — он распух бы на десятки гигабайт. Приложение ставится
-// пустым и добирает недостающее само, показывая, что качается и сколько осталось.
+// пустым и добирает недостающее само, показывая, что качается и сколько осталось. Варианты
+// одной стадии (распознавание речи) — одна группа: выбирается один, скачанный засчитывается.
 
 type Component = {
   id: string;
@@ -16,23 +18,41 @@ type Component = {
   /// Насколько нужен: required держит первый запуск, recommended — заметно улучшает,
   /// optional — дело вкуса.
   requirement: "required" | "recommended" | "optional";
+  /// Группа взаимозаменяемых вариантов; пусто — компонент сам по себе.
+  variantOf: string;
   present: boolean;
   haveBytes: number;
+  selected: boolean;
   files: Array<{ bytes: number }>;
 };
 
 const gb = (bytes: number, unit: string) => `${(bytes / 1024 ** 3).toFixed(1)} ${unit}`;
 const size = (component: Component) => component.files.reduce((sum, file) => sum + file.bytes, 0);
+const missingBytes = (component: Component) => Math.max(0, size(component) - component.haveBytes);
 
 export default function SetupPanel() {
-  const panel = panelText(useUiLanguage());
+  const language = useUiLanguage();
+  const panel = panelText(language);
   const ui = useUi();
+  const hub = useHubState(language);
   const [components, setComponents] = useState<Component[] | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [progress, setProgress] = useState<{ title: string; have: number; total: number } | null>(null);
+  /// Выбранный вариант в группе; null — ещё не трогали, берём выбранный в настройках.
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState<string | null>(null);
   const poll = useRef<number | null>(null);
+
+  const title = useCallback(
+    (component: Component) => componentText(language, component.id)?.title ?? component.title,
+    [language],
+  );
+  const describe = useCallback(
+    (component: Component) => componentText(language, component.id)?.note ?? component.note,
+    [language],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -43,7 +63,7 @@ export default function SetupPanel() {
       setNote(panel.componentsUnreadable);
       return [];
     }
-  }, []);
+  }, [panel]);
 
   useEffect(() => {
     void (async () => {
@@ -55,8 +75,27 @@ export default function SetupPanel() {
 
   useEffect(() => () => { if (poll.current) window.clearInterval(poll.current); }, []);
 
+  // Галочка статистики на экране — выбор увиден: с этого момента хаб может отправлять отчёт.
+  useEffect(() => {
+    if (open && hub && !hub.telemetry.acknowledged && !hub.telemetry.disabledByEnv) {
+      setTelemetry(hub.telemetry.enabled, true)
+        .then(hubChanged)
+        .catch((e: Error) => console.warn("[hub] the statistics choice was not saved:", e.message));
+    }
+  }, [open, hub]);
+
+  const acknowledge = useCallback(() => {
+    if (hub && !hub.telemetry.acknowledged) {
+      setTelemetry(hub.telemetry.enabled, true)
+        .then(hubChanged)
+        .catch((e: Error) => console.warn("[hub] the statistics choice was not saved:", e.message));
+    }
+  }, [hub]);
+
   const download = useCallback(
     async (ids: string[]) => {
+      if (!ids.length) return;
+      acknowledge();
       setBusy(true);
       setNote("");
       try {
@@ -77,7 +116,7 @@ export default function SetupPanel() {
           const have = watched.reduce((sum, component) => sum + component.haveBytes, 0);
           const total = watched.reduce((sum, component) => sum + size(component), 0);
           const pending = watched.find((component) => !component.present);
-          setProgress({ title: pending ? pending.title : panel.ready, have, total });
+          setProgress({ title: pending ? title(pending) : panel.ready, have, total });
           if (!pending) {
             if (poll.current) window.clearInterval(poll.current);
             setProgress(null);
@@ -89,14 +128,94 @@ export default function SetupPanel() {
         setBusy(false);
       }
     },
-    [refresh],
+    [refresh, acknowledge, panel, title],
   );
+
+  /// Выбрать уже скачанный вариант: только настройка, без закачки.
+  const choose = useCallback(async (component: Component) => {
+    const body =
+      component.id === "asr"
+        ? { asrEngine: "parakeet", asrModel: "int8" }
+        : component.id === "asr-ultra"
+          ? { asrEngine: "parakeet", asrModel: "ultra" }
+          : { asrEngine: "whisper", whisperModel: component.id.replace(/^whisper-/, "") };
+    try {
+      const response = await fetch("/api/runtime", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await refresh();
+    } catch (error) {
+      setNote(panel.notSaved.replace("{error}", error instanceof Error ? error.message : String(error)));
+    }
+  }, [refresh, panel]);
 
   if (!components) return null;
 
-  const missing = components.filter((component) => !component.present);
-  const missingRequired = missing.filter((component) => component.requirement === "required");
-  const totalMissing = missing.reduce((sum, component) => sum + size(component) - component.haveBytes, 0);
+  const groups = [...new Set(components.filter((c) => c.variantOf).map((c) => c.variantOf))];
+  const chosenIn = (group: string): Component | undefined => {
+    const members = components.filter((c) => c.variantOf === group);
+    const id = picked[group];
+    return (
+      members.find((c) => c.id === id) ??
+      members.find((c) => c.selected) ??
+      members.find((c) => c.requirement !== "optional") ??
+      members[0]
+    );
+  };
+  const covered = (group: string) => components.some((c) => c.variantOf === group && c.present);
+  const singles = components.filter((c) => !c.variantOf);
+  const missingRequired = singles.filter((c) => c.requirement === "required" && !c.present);
+  // Что ещё нужно для игры: обязательное и выбранный вариант стадии, которую ещё нечем считать.
+  const owedGroups = groups
+    .filter((group) => !covered(group))
+    .map(chosenIn)
+    .filter((c): c is Component => Boolean(c) && c!.requirement !== "optional");
+  const pickedDownloads = groups
+    .map(chosenIn)
+    .filter((c): c is Component => Boolean(c) && !c!.present && picked[c!.variantOf] === c!.id);
+  const toDownload = [...missingRequired, ...owedGroups, ...pickedDownloads].filter(
+    (c, index, list) => list.findIndex((other) => other.id === c.id) === index,
+  );
+  const owed = [...missingRequired, ...owedGroups];
+  const missing = components.filter((component) => !component.present && (!component.variantOf || !covered(component.variantOf)));
+  const totalMissing = missing.reduce((sum, component) => sum + missingBytes(component), 0);
+  const telemetryOn = hub?.telemetry.enabled ?? true;
+
+  const row = (component: Component) => (
+    <li key={component.id} className="flex items-start gap-2 rounded border border-stone-800 bg-stone-950 px-3 py-2">
+      <span className="mt-0.5 shrink-0">
+        {component.present ? (
+          <Check className="size-4 text-amber-200" aria-hidden="true" />
+        ) : (
+          <span className="block size-4 rounded-full border border-stone-700" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="truncate text-sm text-stone-200">{title(component)}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-stone-500">{gb(size(component), panel.gbUnit)}</span>
+        </span>
+        <span className="block text-[11px] leading-relaxed text-stone-600">
+          {describe(component)}
+          {component.requirement === "required"
+            ? panel.requiredNote
+            : component.requirement === "recommended"
+              ? panel.recommendedNote
+              : panel.optionalNote}
+        </span>
+      </span>
+      {!component.present && !busy && (
+        <button
+          type="button"
+          onClick={() => void download([component.id])}
+          className="shrink-0 self-center rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:border-amber-700/60 hover:text-amber-200"
+        >{panel.download}</button>
+      )}
+    </li>
+  );
 
   return (
     <section className="space-y-2.5">
@@ -112,11 +231,11 @@ export default function SetupPanel() {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-stone-300">{ui.whatToDownload}</span>
           <span className="block truncate text-xs text-stone-500">
-            {missing.length === 0
-              ? ui.everythingInPlace
-              : missingRequired.length > 0
-                ? panel.missingRequiredCount.replace("{n}", String(missingRequired.length))
-                : panel.optionalAvailableCount.replace("{n}", String(missing.length))}
+            {owed.length === 0
+              ? missing.length === 0
+                ? ui.everythingInPlace
+                : panel.optionalAvailableCount.replace("{n}", String(missing.length))
+              : panel.missingRequiredCount.replace("{n}", String(owed.length))}
           </span>
         </span>
         {busy ? (
@@ -131,18 +250,21 @@ export default function SetupPanel() {
 
       {open && (
         <div className="space-y-3">
-          {missing.length > 0 && (
+          {toDownload.length > 0 && (
             <button
               type="button"
-              disabled={busy || missingRequired.length === 0}
-              onClick={() => void download(missingRequired.map((c) => c.id))}
+              disabled={busy}
+              onClick={() => void download(toDownload.map((c) => c.id))}
               className="flex w-full items-center justify-center gap-2 rounded bg-amber-200 px-3 py-2 text-sm font-medium text-stone-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-stone-800 disabled:text-stone-500"
             >
               <Download className="size-4" aria-hidden="true" />
-              {missingRequired.length > 0
-                ? panel.downloadRequired.replace("{size}", gb(missingRequired.reduce((s, c) => s + size(c) - c.haveBytes, 0), panel.gbUnit))
-                : panel.allRequiredPresent}
+              {panel.downloadSelected.replace("{size}", gb(toDownload.reduce((s, c) => s + missingBytes(c), 0), panel.gbUnit))}
             </button>
+          )}
+          {owed.length > 0 && !busy && (
+            <p className="text-xs leading-relaxed text-stone-300">
+              {panel.stillNeeded.replace("{list}", owed.map(title).join(", "))}
+            </p>
           )}
 
           {progress && (
@@ -162,48 +284,101 @@ export default function SetupPanel() {
             </div>
           )}
 
-          <ul className="space-y-1.5">
-            {components.map((component) => (
-              <li
-                key={component.id}
-                className="flex items-start gap-2 rounded border border-stone-800 bg-stone-950 px-3 py-2"
-              >
-                <span className="mt-0.5 shrink-0">
-                  {component.present ? (
-                    <Check className="size-4 text-amber-200" aria-hidden="true" />
-                  ) : (
-                    <span className="block size-4 rounded-full border border-stone-700" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm text-stone-200">{component.title}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-stone-500">{gb(size(component), panel.gbUnit)}</span>
-                  </span>
-                  <span className="block text-[11px] leading-relaxed text-stone-600">
-                    {component.note}
-                    {component.requirement === "required"
-                      ? panel.requiredNote
-                      : component.requirement === "recommended"
-                        ? panel.recommendedNote
-                        : panel.optionalNote}
-                  </span>
-                </span>
-                {!component.present && !busy && (
-                  <button
-                    type="button"
-                    onClick={() => void download([component.id])}
-                    className="shrink-0 self-center rounded border border-stone-700 px-2 py-1 text-xs text-stone-300 hover:border-amber-700/60 hover:text-amber-200"
-                  >{panel.download}</button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <ul className="space-y-1.5">{singles.map(row)}</ul>
+
+          {groups.map((group) => {
+            const members = components.filter((c) => c.variantOf === group);
+            const chosen = chosenIn(group);
+            return (
+              <div key={group} className="rounded border border-stone-800 bg-stone-950 px-3 py-2">
+                <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                  <span className="text-sm text-stone-200">{group === "asr" ? panel.variantGroupAsr : group}</span>
+                  <span className="text-[10px] uppercase tracking-wide text-amber-200/80">{panel.pickOneVariant}</span>
+                </div>
+                <div className="space-y-0.5">
+                  {members.map((component) => (
+                    <label
+                      key={component.id}
+                      className={`flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-stone-900 ${chosen?.id === component.id ? "bg-stone-900" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name={`variant-${group}`}
+                        checked={chosen?.id === component.id}
+                        disabled={busy}
+                        onChange={() => {
+                          setPicked((current) => ({ ...current, [group]: component.id }));
+                          if (component.present) void choose(component);
+                        }}
+                        className="mt-1 size-3.5 shrink-0 accent-amber-200"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-sm text-stone-200">
+                            {title(component)}
+                            {component.requirement !== "optional" && !covered(group) && (
+                              <span className="ml-1.5 text-[10px] uppercase text-amber-200/70">{panel.defaultWord}</span>
+                            )}
+                            {component.present && <span className="ml-1.5 text-[10px] text-amber-200">{panel.installedWord}</span>}
+                          </span>
+                          <span className="shrink-0 text-[11px] tabular-nums text-stone-500">{gb(size(component), panel.gbUnit)}</span>
+                        </span>
+                        <span className="block text-[11px] leading-relaxed text-stone-600">{describe(component)}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
 
           {missing.length > 0 && (
             <p className="text-[11px] leading-relaxed text-stone-600">
               {panel.resumableNote.replace("{size}", gb(totalMissing, panel.gbUnit))}
             </p>
+          )}
+
+          {hub && !hub.telemetry.disabledByEnv && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-400">
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-amber-200"
+                  checked={telemetryOn}
+                  onChange={(event) => {
+                    setTelemetry(event.target.checked, true)
+                      .then(hubChanged)
+                      .catch((e: Error) => console.warn("[hub] the statistics choice was not saved:", e.message));
+                  }}
+                />
+                {panel.hubCheckbox}
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  telemetryPreview()
+                    .then((data) => setPreview(data.enabled ? JSON.stringify(data.report, null, 2) : ""))
+                    .catch((e: Error) => setNote(e.message));
+                }}
+                className="underline underline-offset-2 hover:text-stone-200"
+              >{panel.hubWhat}</button>
+            </div>
+          )}
+          {preview !== null && (
+            <div className="rounded border border-stone-800 bg-stone-950 px-3 py-2">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-sm text-stone-200">{panel.hubPreviewTitle}</span>
+                <button type="button" onClick={() => setPreview(null)} aria-label={panel.hubClose} className="text-stone-500 hover:text-stone-200">
+                  <X className="size-4" />
+                </button>
+              </div>
+              <p className="text-[11px] leading-relaxed text-stone-500">{panel.hubPreviewNote}</p>
+              {preview ? (
+                <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap text-[10px] leading-snug text-stone-400">{preview}</pre>
+              ) : (
+                <p className="mt-2 text-xs text-stone-400">{panel.hubPreviewOff}</p>
+              )}
+            </div>
           )}
           {note && <p className="text-xs leading-relaxed text-stone-500">{note}</p>}
         </div>

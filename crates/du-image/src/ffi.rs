@@ -16,9 +16,10 @@ pub type sd_ctx_t = c_void;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SdLogLevel {
     Debug = 0,
-    Info = 1,
-    Warn = 2,
-    Error = 3,
+    Verbose = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
 }
 
 /// Совпадает с `enum ggml_type`.
@@ -34,7 +35,7 @@ pub enum SdType {
     Q5_K = 13,
     Q6_K = 14,
     /// Автовыбор: тип берётся из самого файла весов.
-    Count = 42,
+    Count = 45,
 }
 
 #[repr(C)]
@@ -72,7 +73,7 @@ pub enum Scheduler {
 pub enum Prediction {
     Eps = 0,
     V = 1,
-    Count = 7,
+    Count = 8,
 }
 
 #[repr(C)]
@@ -148,11 +149,11 @@ pub struct SdEmbedding {
 pub struct SdTilingParams {
     pub enabled: bool,
     pub temporal_tiling: bool,
-    pub tile_size_x: c_int,
-    pub tile_size_y: c_int,
+    pub tile_size_w: c_int,
+    pub tile_size_h: c_int,
     pub target_overlap: f32,
-    pub rel_size_x: f32,
-    pub rel_size_y: f32,
+    pub rel_size_w: f32,
+    pub rel_size_h: f32,
     pub extra_tiling_args: *const c_char,
 }
 
@@ -172,6 +173,7 @@ pub struct SdCtxParams {
     pub embeddings_connectors_path: *const c_char,
     pub vae_path: *const c_char,
     pub audio_vae_path: *const c_char,
+    pub audio_encoder_path: *const c_char,
     pub taesd_path: *const c_char,
     pub control_net_path: *const c_char,
     pub ip_adapter_path: *const c_char,
@@ -195,9 +197,10 @@ pub struct SdCtxParams {
     pub vae_conv_direct: bool,
     pub force_sdxl_vae_conv_scale: bool,
     pub vae_format: SdVaeFormat,
-    /// Бюджет VRAM в ГиБ для посегментного прохода («0» выключено, «-1» авто).
+    /// Бюджет VRAM в ГиБ на устройство («0» — свободная память без явного бюджета, отрицательное —
+    /// оставить столько свободным).
     pub max_vram: *const c_char,
-    pub stream_layers: bool,
+    pub disable_prefetch: bool,
     pub eager_load: bool,
     pub backend: *const c_char,
     pub params_backend: *const c_char,
@@ -205,6 +208,19 @@ pub struct SdCtxParams {
     pub auto_fit: bool,
     pub rpc_servers: *const c_char,
     pub model_args: *const c_char,
+    pub disable_segmented_compute: bool,
+    pub batched_cfg: bool,
+    pub linear_scale: f32,
+    pub attn_scale: f32,
+    pub tokenizer: *const c_char,
+    pub sage_attn: bool,
+    pub conditioning_cache_size: c_int,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SdImagePreprocessParams {
+    pub rules: *const c_char,
 }
 
 #[repr(C)]
@@ -341,6 +357,7 @@ pub struct SdImgGenParams {
     pub qwen_image_layers: c_int,
     pub circular_x: bool,
     pub circular_y: bool,
+    pub image_preprocess: SdImagePreprocessParams,
 }
 
 pub type SdLogCb = extern "C" fn(level: SdLogLevel, text: *const c_char, data: *mut c_void);

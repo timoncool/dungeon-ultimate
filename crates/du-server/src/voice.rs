@@ -32,18 +32,45 @@ fn whisper_bin(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Браузер пишет 16 кГц моно WAV — ровно то, что ждёт распознавание.
-pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+pub async fn transcribe(state: State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+    let result = transcribe_inner(state, body).await;
+    crate::routes::report(crate::hub::Work::Asr, &result);
+    result
+}
+
+async fn transcribe_inner(State(state): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
     if body.is_empty() {
         return Err(ApiError::bad_request("пустая запись"));
     }
     let runtime = crate::runtime::load(&state.root);
     let in_cloud = crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr);
-    let models = state.root.join("models").join("asr");
-    if !in_cloud && !models.join("vocab.txt").is_file() {
-        return Err(ApiError::internal(format!(
-            "нет модели распознавания в {} — либо скачайте её, либо включите облако",
-            models.display()
-        )));
+    let by_whisper = runtime.asr_engine.trim().eq_ignore_ascii_case("whisper");
+    let models = crate::setup::parakeet_dir(&state.root, &runtime);
+    let whisper_bin = whisper_bin(&state.root);
+    let whisper_models = state.root.join("models").join("whisper");
+    if !in_cloud {
+        // Выбранный вариант без файлов — ошибка с подсказкой, а не другой движок молча.
+        if by_whisper {
+            if !whisper_bin.is_file() {
+                return Err(ApiError::internal(format!(
+                    "выбран Whisper, но его программы нет в {} — скачайте вариант Whisper в «Что скачать» или выберите Parakeet",
+                    whisper_bin.display()
+                )));
+            }
+            let model_dir = whisper_models.join(format!("faster-whisper-{}", runtime.whisper_model));
+            if !model_dir.join("model.bin").is_file() {
+                return Err(ApiError::internal(format!(
+                    "выбран Whisper {}, но модели нет в {} — скачайте её в «Что скачать»",
+                    runtime.whisper_model,
+                    model_dir.display()
+                )));
+            }
+        } else if !models.join("vocab.txt").is_file() {
+            return Err(ApiError::internal(format!(
+                "нет модели распознавания в {} — либо скачайте её, либо включите облако",
+                models.display()
+            )));
+        }
     }
 
     // Файл кладём рядом с загрузками и убираем сразу после разбора.
@@ -60,22 +87,25 @@ pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult
                 let text = crate::cloud::transcribe(&root, &runtime, &path, "ru")?;
                 return Ok(json!({ "text": text }));
             }
-            // Распознавание тоже слушается общего выбора: движок читает его из окружения.
+            // Распознавание слушается общего выбора — для Whisper. Parakeet собран без
+            // CUDA-провайдера и считает на процессоре, о чём и говорит панель движков.
             let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
-            std::env::set_var("DUB_ASR_BACKEND", device.engine_name());
+            std::env::set_var("DUB_ASR_BACKEND", "cpu");
 
-            // Движков два, и выбирает игрок. Whisper — отдельная программа, поэтому берём
-            // его только когда он и правда установлен: иначе распознавание молча падало бы
-            // на машине, где его не скачали.
             use du_asr::AsrEngine as _;
-            let whisper_bin = whisper_bin(&root);
-            let by_whisper =
-                runtime.asr_engine.trim().eq_ignore_ascii_case("whisper") && whisper_bin.is_file();
             let segments = if by_whisper {
+                // Whisper на видеокарте требует библиотек CUDA 11 рядом с программой: без них он
+                // упал бы, а молча считать на процессоре нельзя.
+                if !device.is_cpu() && !whisper_cuda_present(&whisper_bin) {
+                    return Err(
+                        "Whisper должен считать на видеокарте, но библиотек CUDA для него нет — скачайте «Whisper на видеокарте» в «Что скачать» или переключите распознавание на процессор"
+                            .to_string(),
+                    );
+                }
                 du_asr::WhisperAsr::new(
-                    whisper_bin,
-                    root.join("models").join("whisper"),
-                    "large-v3",
+                    &whisper_bin,
+                    &whisper_models,
+                    runtime.whisper_model.clone(),
                     // На процессоре половинная точность не поддерживается — там int8.
                     if device.is_cpu() { "int8" } else { "float16" },
                     device.engine_name(),
@@ -101,6 +131,12 @@ pub async fn transcribe(State(state): State<AppState>, body: Bytes) -> ApiResult
         .map_err(ApiError::internal);
     let _ = std::fs::remove_file(&temp);
     Ok(Json(value?))
+}
+
+/// Лежат ли рядом с whisper-faster.exe библиотеки CUDA 11, которые он требует для видеокарты.
+fn whisper_cuda_present(bin: &std::path::Path) -> bool {
+    let dir = bin.parent().unwrap_or(std::path::Path::new("."));
+    dir.join("cublas64_11.dll").is_file() && dir.join("cudnn64_8.dll").is_file()
 }
 
 /// Голоса озвучки — по файлам эталонных клипов в каталоге голосов.
