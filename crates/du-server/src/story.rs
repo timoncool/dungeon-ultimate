@@ -90,7 +90,9 @@ pub async fn story(
     let job_id = state
         .queue
         .enqueue(Box::new(move |progress, abort| {
+            let watch = crate::narrator::watch(&abort);
             let result = run_turn(&inner, &chat_id, &input, &chat, progress, abort.clone());
+            drop(watch);
             // Прерванный игроком ход — не сбой и не удача: в отчёт надёжности он не идёт.
             if !abort.load(std::sync::atomic::Ordering::Relaxed) {
                 crate::hub::ended(crate::hub::Work::Turn, result.as_ref().map(|_| ()).map_err(String::as_str));
@@ -362,7 +364,7 @@ fn run_turn(
     // Открытые задания: взятые уходят в состояние хода, предложенные нужны, чтобы модель
     // не предлагала то же самое ещё раз.
     let quests = if settings.rpg_enabled {
-        state.store.list_quests(chat_id).unwrap_or_default()
+        state.store.list_quests(chat_id).map_err(|error| error.to_string())?
     } else {
         Vec::new()
     };

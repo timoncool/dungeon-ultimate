@@ -432,6 +432,28 @@ pub struct ComponentStatus {
     pub have_bytes: u64,
     /// Вариант стадии, выбранный сейчас в настройках.
     pub selected: bool,
+    /// Чем кончилась последняя закачка, если сорвалась: интерфейс снимает шкалу и говорит причину.
+    pub error: Option<String>,
+}
+
+/// Что идёт по сети прямо сейчас и чем сорвались прошлые закачки, по id компонента. Байты на
+/// диске не скажут ни того, ни другого: сервер без докачки пишет файл без манифеста частей.
+#[derive(Default)]
+struct Downloads {
+    live: std::collections::HashMap<&'static str, u64>,
+    failed: std::collections::HashMap<&'static str, String>,
+}
+
+/// Новая закачка начинается без старых сбоев: иначе первый же опрос окна принял бы прошлую
+/// ошибку за свежую.
+pub fn forget_failures(ids: &[String]) {
+    let mut downloads = downloads();
+    downloads.failed.retain(|id, _| !ids.iter().any(|wanted| wanted == id));
+}
+
+fn downloads() -> std::sync::MutexGuard<'static, Downloads> {
+    static DOWNLOADS: std::sync::OnceLock<Mutex<Downloads>> = std::sync::OnceLock::new();
+    DOWNLOADS.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Есть ли этот файл на диске уже в готовом виде.
@@ -456,7 +478,8 @@ fn file_present(root: &Path, file: &FileSpec) -> bool {
 /// требует своей метки, а метка прошлой ничего не засчитывает.
 fn stamp_path(root: &Path, file: &FileSpec) -> PathBuf {
     let name = Path::new(file.path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
-    root.join(file.extract_dir).join(format!(".{name}-{}.installed", &file.sha256[..12]))
+    let version = file.sha256.get(..12).unwrap_or(file.sha256);
+    root.join(file.extract_dir).join(format!(".{name}-{version}.installed"))
 }
 
 /// Потоковый SHA-256 файла блоками по 1 МиБ. None — остановлено флагом отмены: отмена не ждёт
@@ -517,9 +540,14 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
         .into_iter()
         .map(|component| {
             let present = component.files.iter().all(|file| file_present(root, file));
-            let have_bytes = component.files.iter().map(|file| file_have_bytes(root, file)).sum();
+            let on_disk: u64 = component.files.iter().map(|file| file_have_bytes(root, file)).sum();
+            let (live, error) = {
+                let downloads = downloads();
+                (downloads.live.get(component.id).copied(), downloads.failed.get(component.id).cloned())
+            };
+            let have_bytes = live.map_or(on_disk, |live| live.max(on_disk));
             let selected = variant_selected(&runtime, component.id);
-            ComponentStatus { component, present, have_bytes, selected }
+            ComponentStatus { component, present, have_bytes, selected, error }
         })
         .collect();
     // Стадия, уведённая в облако (или рассказчик — агенту), своих весов не требует: качать их
@@ -722,6 +750,27 @@ pub fn download_component(
     progress: &dyn Fn(u64, u64),
     abort: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    downloads().failed.remove(component.id);
+    let id = component.id;
+    let tracked = |have: u64, total: u64| {
+        downloads().live.insert(id, have);
+        progress(have, total);
+    };
+    let result = download_files(root, component, &tracked, abort);
+    let mut downloads = downloads();
+    downloads.live.remove(id);
+    if let Err(error) = &result {
+        downloads.failed.insert(id, error.clone());
+    }
+    result
+}
+
+fn download_files(
+    root: &Path,
+    component: &Component,
+    progress: &dyn Fn(u64, u64),
+    abort: Arc<AtomicBool>,
+) -> Result<(), String> {
     // Прогресс показываем по всему набору, а не по текущему файлу: игроку важно, сколько
     // осталось до рабочего движка, а не до конца одной из шести его частей.
     let expected: u64 = component.bytes();
@@ -879,7 +928,8 @@ fn download_file(
     }
 
     drop(file);
-    let _ = std::fs::remove_file(&done_file);
+    drop(done);
+    // Манифест докачки живёт до конца сверки: прерванная сверка не должна стоить всей закачки.
     verify_sha256(&part, spec, &abort)?;
     std::fs::rename(&part, &target).map_err(|error| format!("финализация: {error}"))?;
     let _ = std::fs::remove_file(&done_file);
@@ -944,6 +994,10 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
                 None => return Err(format!("запись архива ведёт за каталог назначения: {name}")),
             },
             Extract::ZipDlls if !leaf.to_ascii_lowercase().ends_with(".dll") => continue,
+            // Имя с диском («C:x.dll») заменило бы каталог назначения при join.
+            _ if !matches!(Path::new(&leaf).components().collect::<Vec<_>>()[..], [std::path::Component::Normal(_)]) => {
+                return Err(format!("запись архива ведёт за каталог назначения: {name}"));
+            }
             _ => dir.join(&leaf),
         };
         if let Some(parent) = out.parent() {

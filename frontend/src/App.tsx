@@ -734,10 +734,24 @@ export default function Home() {
   // озвучку — проигрывает.
   const selectedChatRef = useRef(selectedChatId);
   selectedChatRef.current = selectedChatId;
+  // Перечитать историю посреди своего хода значит стереть текст, который ещё печатается:
+  // такое перечитывание ждёт конца хода.
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const reloadAfterTurn = useRef(false);
+  useEffect(() => {
+    if (busy || !reloadAfterTurn.current) return;
+    reloadAfterTurn.current = false;
+    if (selectedChatRef.current) void loadChat(selectedChatRef.current);
+  }, [busy, loadChat]);
   useEffect(() => {
     startBridge();
     const onChanged = () => {
       void refreshChats().catch((e: Error) => console.warn("[mcp] the stories were not read again:", e.message));
+      if (busyRef.current) {
+        reloadAfterTurn.current = true;
+        return;
+      }
       if (selectedChatRef.current) void loadChat(selectedChatRef.current);
     };
     const onPlay = (event: Event) => {
@@ -3044,6 +3058,8 @@ export default function Home() {
                         onTranscript={(text) =>
                           setInput((current) => (current ? `${current} ${text}` : text))
                         }
+                        onError={setError}
+                        language={settings.language ?? "ru"}
                         disabled={busy || libraryLoading}
                       />
                     </div>
@@ -5141,9 +5157,13 @@ function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
 
 function MicButton({
   onTranscript,
+  onError,
+  language,
   disabled,
 }: {
   onTranscript: (text: string) => void;
+  onError: (message: string) => void;
+  language: string;
   disabled?: boolean;
 }) {
   const settings_ = settingsText(useUiLanguage());
@@ -5185,15 +5205,16 @@ function MicButton({
     const wav = encodeWav(downsampleBuffer(pcm, sampleRate, 16000), 16000);
     setBusy(true);
     try {
-      const response = await fetch("/api/asr", {
+      const response = await fetch(`/api/asr?language=${encodeURIComponent(language)}`, {
         method: "POST",
         headers: { "Content-Type": "audio/wav" },
         body: wav,
       });
-      const data = (await response.json()) as { text?: string };
-      if (response.ok && data.text) onTranscript(data.text);
-    } catch {
-      // voice input is optional
+      const data = (await response.json()) as { text?: string; error?: string };
+      if (!response.ok) throw new Error(data.error ?? response.statusText);
+      if (data.text) onTranscript(data.text);
+    } catch (asrError) {
+      onError(asrError instanceof Error ? asrError.message : String(asrError));
     } finally {
       setBusy(false);
     }

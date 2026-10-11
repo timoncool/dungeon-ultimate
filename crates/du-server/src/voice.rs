@@ -4,7 +4,7 @@
 //! ровно тогда, когда ход не идёт, но полагаться на это нельзя.
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::Json;
 use serde_json::{json, Value};
 
@@ -31,14 +31,20 @@ fn whisper_bin(root: &std::path::Path) -> std::path::PathBuf {
     dir.join("whisper-faster.exe")
 }
 
-/// Браузер пишет 16 кГц моно WAV — ровно то, что ждёт распознавание.
-pub async fn transcribe(state: State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
-    let result = transcribe_inner(state, body).await;
+#[derive(serde::Deserialize)]
+pub struct AsrQuery {
+    #[serde(default)]
+    language: du_core::Language,
+}
+
+/// Браузер пишет 16 кГц моно WAV — ровно то, что ждёт распознавание; язык — язык истории.
+pub async fn transcribe(state: State<AppState>, query: Query<AsrQuery>, body: Bytes) -> ApiResult<Json<Value>> {
+    let result = transcribe_inner(state, query.language, body).await;
     crate::routes::report(crate::hub::Work::Asr, &result);
     result
 }
 
-async fn transcribe_inner(State(state): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+async fn transcribe_inner(State(state): State<AppState>, language: du_core::Language, body: Bytes) -> ApiResult<Json<Value>> {
     if body.is_empty() {
         return Err(ApiError::bad_request("пустая запись"));
     }
@@ -79,12 +85,13 @@ async fn transcribe_inner(State(state): State<AppState>, body: Bytes) -> ApiResu
 
     let path = temp.clone();
     let root = state.root.clone();
+    let lang = language.iso_code();
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_, _| {
             if in_cloud {
                 // Облачный разбор карту не трогает вовсе.
-                let text = crate::cloud::transcribe(&root, &runtime, &path, "ru")?;
+                let text = crate::cloud::transcribe(&root, &runtime, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
             // Распознавание слушается общего выбора — для Whisper. Parakeet собран без
@@ -110,9 +117,9 @@ async fn transcribe_inner(State(state): State<AppState>, body: Bytes) -> ApiResu
                     if device.is_cpu() { "int8" } else { "float16" },
                     device.engine_name(),
                 )
-                .transcribe(&path, "ru")
+                .transcribe(&path, lang)
             } else {
-                du_asr::Asr::new(&models).transcribe(&path, "ru")
+                du_asr::Asr::new(&models).transcribe(&path, lang)
             }
             .map_err(|error| error.to_string())?;
             let text = segments
@@ -155,8 +162,18 @@ mod tests {
     async fn an_empty_recording_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let state = AppState::new(dir.path()).unwrap();
-        let result = transcribe(State(state), Bytes::new()).await;
+        let query = Query(AsrQuery { language: du_core::Language::Ru });
+        let result = transcribe(State(state), query, Bytes::new()).await;
         assert!(result.is_err(), "пустую запись разбирать нечего");
+    }
+
+    #[test]
+    fn speech_is_recognised_in_the_language_of_the_story() {
+        let uri = |query: &str| format!("http://127.0.0.1/api/asr{query}").parse::<axum::http::Uri>().unwrap();
+        let language = |query: &str| Query::<AsrQuery>::try_from_uri(&uri(query)).unwrap().0.language.iso_code();
+        assert_eq!(language("?language=en"), "en");
+        assert_eq!(language("?language=ja"), "ja");
+        assert_eq!(language(""), "ru", "без языка — язык игры по умолчанию");
     }
 
     #[tokio::test]

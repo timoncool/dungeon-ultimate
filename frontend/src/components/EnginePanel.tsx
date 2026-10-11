@@ -518,7 +518,7 @@ export default function EnginePanel() {
                       <button
                         key={option.value}
                         type="button"
-                        disabled={option.value === "cloud" && !keySet && !(stage.key === "tts" && googleKeySet)}
+                        disabled={option.value === "cloud" && !keySet && stage.key !== "tts"}
                         onClick={() => setWhere(option.value)}
                         className={`whitespace-nowrap px-2 py-1 text-xs ${
                           chosenWhere === option.value

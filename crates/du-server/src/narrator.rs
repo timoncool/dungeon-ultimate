@@ -6,6 +6,7 @@
 //! (`mcp::agent_completions`): клиент рассказчика его не отличает от llama-server.
 
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use du_llm::ChatClient;
@@ -13,6 +14,29 @@ use du_llm::ChatClient;
 use crate::runtime::Runtime;
 
 static PORT: AtomicU16 = AtomicU16::new(0);
+
+/// Флаги отмены задач, которые сейчас ждут рассказчика: вопрос агенту висит в блокирующем
+/// запросе, и задача видит «Прервать» только через вопрос, который снимается по её флагу.
+static WAITING: Mutex<Vec<crate::jobs::AbortFlag>> = Mutex::new(Vec::new());
+
+/// Пока жив страж, отмена задачи снимает её вопросы агенту.
+pub struct Watch(crate::jobs::AbortFlag);
+
+pub fn watch(abort: &crate::jobs::AbortFlag) -> Watch {
+    WAITING.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(abort.clone());
+    Watch(abort.clone())
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        WAITING.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).retain(|flag| !std::sync::Arc::ptr_eq(flag, &self.0));
+    }
+}
+
+/// Прервана ли задача, ждущая рассказчика.
+pub fn waiting_job_aborted() -> bool {
+    WAITING.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).iter().any(|flag| flag.load(Ordering::Relaxed))
+}
 
 /// Порт, на котором слушает сервер: по нему клиент рассказчика находит вход для агента.
 pub fn set_port(port: u16) {
@@ -44,12 +68,14 @@ pub fn writer(runtime: &Runtime) -> Writer {
 pub fn remote_client(runtime: &Runtime, timeout: Duration) -> Result<Option<ChatClient>, String> {
     match writer(runtime) {
         Writer::Local => Ok(None),
-        Writer::Agent => agent_client(timeout).map(Some),
+        Writer::Agent => agent_client().map(Some),
         Writer::Cloud => cloud_client(runtime, timeout).map(Some),
     }
 }
 
-fn agent_client(timeout: Duration) -> Result<ChatClient, String> {
+/// Ожидание агента ограничивает сам вопрос (`mcp::AGENT_ANSWER`): короткий срок вызывающего
+/// оборвал бы запрос, пока агент ещё пишет ответ.
+fn agent_client() -> Result<ChatClient, String> {
     if !crate::mcp::agent_present() {
         return Err(
             "рассказчик — агент, но агент не подключён к MCP игры: подключите его или выберите рассказчика на своей карте"
@@ -60,7 +86,8 @@ fn agent_client(timeout: Duration) -> Result<ChatClient, String> {
     if port == 0 {
         return Err("сервер ещё не знает свой порт".into());
     }
-    ChatClient::new(&format!("http://127.0.0.1:{port}/agent"), timeout).map_err(|error| error.to_string())
+    ChatClient::new(&format!("http://127.0.0.1:{port}/agent"), crate::mcp::AGENT_ANSWER + Duration::from_secs(30))
+        .map_err(|error| error.to_string())
 }
 
 fn cloud_client(runtime: &Runtime, timeout: Duration) -> Result<ChatClient, String> {

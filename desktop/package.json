@@ -1,6 +1,6 @@
 {
   "name": "dungeon-ultimate-desktop",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "private": true,
   "description": "Оболочка Dungeon Ultimate: поднимает встроенный сервер и открывает окно игры",
   "scripts": {

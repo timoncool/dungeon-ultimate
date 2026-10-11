@@ -22,6 +22,7 @@ pub async fn report(Json(body): Json<UiLanguage>) -> Json<Value> {
         if let Ok(mut slot) = LANG.write() {
             *slot = Some(lang.clone());
         }
+        crate::hub::set_ui_lang(&lang);
     }
     Json(json!({ "lang": lang, "known": known }))
 }

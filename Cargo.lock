@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "du-asr"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "du-core",
  "hound",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "du-core"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "du-db"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "chrono",
  "du-core",
@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "du-image"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "libloading 0.9.0",
  "png",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "du-llm"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "base64 0.23.1",
  "reqwest",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "du-prompts"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "du-core",
  "du-rpg",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "du-rpg"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "chrono",
  "getrandom 0.4.3",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "du-server"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "du-tts"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "libloading 0.9.0",
  "serde",

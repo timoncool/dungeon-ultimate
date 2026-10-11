@@ -72,13 +72,15 @@ pub async fn narrate(
     state.store.add_message(&chat_id, &message)?;
     crate::mcp::announce("chat");
 
+    let mut voice_job = None;
     if body.voice {
         let inner = state.0.clone();
         let settings = chat.summary.settings.clone();
         let key = format!("{chat_id}-gm-{}", message.id);
         let chat_for_play = chat_id.clone();
         // Озвучка — в общей очереди к карте: своя карта одна, и голос не должен пересечься с кадром.
-        let _ = state
+        let chat_for_log = chat_id.clone();
+        let job = state
             .queue
             .enqueue(Box::new(move |_, abort| {
                 let runtime = crate::runtime::load(&inner.root);
@@ -102,6 +104,7 @@ pub async fn narrate(
                         }
                         Err(error) => {
                             crate::hub::ended(crate::hub::Work::Tts, Err(&error));
+                            background_failed("gm_narrate voice", &chat_for_log, &error);
                             return Err(error);
                         }
                     }
@@ -110,6 +113,7 @@ pub async fn narrate(
                 Ok(json!({ "first": first }))
             }))
             .await;
+        voice_job = Some(job);
     }
 
     if body.draw {
@@ -125,13 +129,20 @@ pub async fn narrate(
                 .await;
                 if let Err(error) = answer {
                     tracing::warn!("кадр ведущего не нарисовался: {error}");
+                    background_failed("gm_narrate draw", &chat_for_image, &error);
                 }
                 crate::mcp::announce("chat");
             });
         }
     }
 
-    Ok(Json(json!({ "message": message, "voicing": body.voice, "drawing": body.draw })))
+    Ok(Json(json!({ "message": message, "voicing": body.voice, "voice_job": voice_job, "drawing": body.draw })))
+}
+
+/// Голос и кадр ведущего идут после ответа агенту: их сбой он видит в журнале активности.
+fn background_failed(what: &str, chat_id: &str, error: &str) {
+    crate::activity::record(what, &json!({ "chat_id": chat_id }), false, error);
+    crate::mcp::announce("activity");
 }
 
 #[derive(Deserialize)]
@@ -139,7 +150,8 @@ pub struct Apply {
     update: Value,
 }
 
-/// Механика хода от ведущего-агента: объявления — движку, тот считает и сохраняет.
+/// Механика хода от ведущего-агента: объявления — движку, тот считает и сохраняет. Идёт в общей
+/// очереди: идущий ход сохраняет тех же персонажей в конце и затёр бы изменения агента.
 pub async fn apply(
     State(state): State<AppState>,
     Path(chat_id): Path<String>,
@@ -147,7 +159,7 @@ pub async fn apply(
 ) -> ApiResult<Json<Value>> {
     let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found("чат не найден"))?;
     let inner = state.0.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
+    let (_, result) = state.queue.enqueue_awaitable(Box::new(move |_, _| {
         let characters = inner.store.list_characters(&chat_id).map_err(|e| e.to_string())?;
         let enemies = inner.store.combatants(&chat_id).map_err(|e| e.to_string())?;
         let mut rpg_states = Vec::new();
@@ -155,7 +167,7 @@ pub async fn apply(
             let state_of = inner.store.character_rpg(&chat_id, &character.id).map_err(|e| e.to_string())?.unwrap_or_default();
             rpg_states.push((character.id.clone(), state_of));
         }
-        let quests = inner.store.list_quests(&chat_id).unwrap_or_default();
+        let quests = inner.store.list_quests(&chat_id).map_err(|e| e.to_string())?;
         let open_quests: Vec<du_rpg::Quest> = quests.iter().filter(|quest| quest.status.is_open()).cloned().collect();
         let hero_id = characters.first().map(|character| character.id.clone());
         let mut actors = crate::turn::build_actors(&characters, &rpg_states, &enemies);
@@ -175,10 +187,9 @@ pub async fn apply(
         );
         inner.store.add_events(&chat_id, &events).map_err(|e| e.to_string())?;
         Ok(json!({ "events": events, "items": items }))
-    })
-    .await
-    .map_err(|_| ApiError::internal("задача пропала"))?
-    .map_err(ApiError::internal)?;
+    }))
+    .await;
+    let result = result.await.map_err(|_| ApiError::internal("задача пропала"))?.map_err(ApiError::internal)?;
     crate::mcp::announce("chat");
     Ok(Json(result))
 }

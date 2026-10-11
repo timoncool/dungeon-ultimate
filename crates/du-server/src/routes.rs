@@ -518,6 +518,7 @@ pub async fn setup_download(
     State(state): State<AppState>,
     Json(body): Json<SetupDownload>,
 ) -> ApiResult<Json<Value>> {
+    crate::setup::forget_failures(&body.ids);
     let inner = state.0.clone();
     // Закачка идёт МИМО очереди к видеокарте: это сеть, и ждать чужого кадра ей незачем.
     let job = state

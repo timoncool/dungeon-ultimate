@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode};
@@ -196,7 +196,7 @@ fn tools() -> &'static Vec<Tool> {
             tool("asr_transcribe", "Recognise speech in a 16 kHz mono WAV file on this computer with the selected recogniser.", object(json!({ "path": { "type": "string" } }), &["path"])),
             tool("image_create", "Draw a frame: prompt in English, chat_id and message_id attach it to a message and keep the scene's continuity; references are attachments. A graphics-card job behind any running turn.", object(json!({ "prompt": { "type": "string" }, "chat_id": { "type": "string" }, "message_id": { "type": "string" }, "settings": { "type": "object" }, "mode": { "type": "string" }, "aspect": { "type": "string" }, "seed": { "type": "integer" }, "references": { "type": "array", "items": { "type": "object" } } }), &["prompt"])),
             tool("story_turn", "Play a turn as the player: input is what the player does or says. The game's narrator (card, cloud or you, if you are the narrator) writes it, the engine applies the mechanics, the frame and the voice follow. Returns the job id; game_wait follows it. The window shows the result and plays the voice.", object(json!({ "chat_id": { "type": "string" }, "input": { "type": "string" } }), &["chat_id", "input"])),
-            tool("gm_narrate", "As the game master, write the narrator's message into a story yourself: it is saved as the narrator's turn, voiced in the window when voice is true (voices by the story's settings), and image_prompt (English) is stored as its frame request and drawn when draw is true.", object(json!({ "chat_id": { "type": "string" }, "text": { "type": "string" }, "voice": { "type": "boolean" }, "image_prompt": { "type": "string" }, "draw": { "type": "boolean" } }), &["chat_id", "text"])),
+            tool("gm_narrate", "As the game master, write the narrator's message into a story yourself: it is saved as the narrator's turn, voiced in the window when voice is true (voices by the story's settings), and image_prompt (English) is stored as its frame request and drawn when draw is true. Voice and frame run after the answer; a failure of either shows in activity_list.", object(json!({ "chat_id": { "type": "string" }, "text": { "type": "string" }, "voice": { "type": "boolean" }, "image_prompt": { "type": "string" }, "draw": { "type": "boolean" } }), &["chat_id", "text"])),
             tool("gm_apply", "As the game master, declare a turn's mechanics and let the engine compute them: update has the shape of the engine's schema (attacks, checks, hpDeltas, items, spawns, offerQuests, completeQuests, failQuests, xp); actors are named as in the story ('hero' or a name). Returns the events.", object(json!({ "chat_id": { "type": "string" }, "update": { "type": "object" } }), &["chat_id", "update"])),
             tool("gm_engine_schema", "The JSON schema of gm_apply's update.", nothing()),
             tool("gm_requests_wait", "When the player made you the game's narrator (runtime_set narratorProvider 'agent'), every narrator request of a turn waits here: the chat messages, the tools you may call and the JSON schema an answer must match. Returns the waiting requests as soon as there is one, or after seconds (30 by default, at most 55). Answer each with gm_request_answer; keep calling while the player plays.", object(json!({ "seconds": { "type": "integer" } }), &[])),
@@ -534,7 +534,7 @@ struct Question {
 
 struct Agent {
     questions: Mutex<Vec<Question>>,
-    last_call: Mutex<Option<(std::time::Instant, String)>>,
+    last_call: Mutex<Option<(Instant, String)>>,
     calls: AtomicU64,
 }
 
@@ -550,10 +550,10 @@ fn questions() -> std::sync::MutexGuard<'static, Vec<Question>> {
 /// Агент, звавший сервер не раньше этого срока, считается подключённым.
 const AGENT_PRESENT: Duration = Duration::from_secs(600);
 /// Сколько вопрос ждёт ответа агента.
-const AGENT_ANSWER: Duration = Duration::from_secs(900);
+pub const AGENT_ANSWER: Duration = Duration::from_secs(900);
 
 fn seen(what: &str) {
-    *agent().last_call.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((std::time::Instant::now(), what.to_string()));
+    *agent().last_call.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), what.to_string()));
     agent().calls.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -576,13 +576,23 @@ async fn ask_agent(mut question: Value) -> Result<Value, String> {
     question["id"] = json!(id);
     let (sender, receiver) = tokio::sync::oneshot::channel();
     questions().push(Question { question, answer: sender });
-    match tokio::time::timeout(AGENT_ANSWER, receiver).await {
-        Ok(Ok(answer)) => Ok(answer),
-        _ => {
-            questions().retain(|question| question.question["id"] != id.as_str());
-            Err(format!("агент не ответил за {} минут", AGENT_ANSWER.as_secs() / 60))
+    let deadline = tokio::time::Instant::now() + AGENT_ANSWER;
+    let mut receiver = receiver;
+    let outcome = loop {
+        match tokio::time::timeout(Duration::from_millis(500), &mut receiver).await {
+            Ok(Ok(answer)) => break Ok(answer),
+            Ok(Err(_)) => break Err("вопрос агенту снят".to_string()),
+            Err(_) if crate::narrator::waiting_job_aborted() => break Err("вопрос агенту снят: ход прерван".to_string()),
+            Err(_) if tokio::time::Instant::now() >= deadline => {
+                break Err(format!("агент не ответил за {} минут", AGENT_ANSWER.as_secs() / 60))
+            }
+            Err(_) => {}
         }
+    };
+    if outcome.is_err() {
+        questions().retain(|question| question.question["id"] != id.as_str());
     }
+    outcome
 }
 
 async fn wait_for_questions(args: &Value) -> Value {
@@ -617,7 +627,10 @@ fn answer_question(args: &Value) -> Result<String, String> {
 /// OpenAI-совместимый вход для клиента рассказчика, когда рассказчик — агент: запрос
 /// становится вопросом агенту, ответ — ответом модели (текст, JSON по схеме или вызовы
 /// инструментов), а поток — одним куском текста.
-pub async fn agent_completions(Json(request): Json<Value>) -> Response {
+pub async fn agent_completions(headers: HeaderMap, Json(request): Json<Value>) -> Response {
+    if !local_origin(&headers) {
+        return foreign_origin();
+    }
     let stream = request.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let schema = request
         .pointer("/response_format/json_schema/schema")
@@ -694,11 +707,30 @@ pub async fn status() -> Json<Value> {
 // ---------------------------------------------------------------- ход истории
 
 struct Turn {
+    started: Instant,
     events: Vec<Value>,
     prose: String,
     clips: Vec<String>,
     done: Option<Value>,
     error: Option<String>,
+}
+
+/// Сколько законченных ходов помнит `game_wait`: старые уходят, когда начинается новый.
+const KEEP_TURNS: usize = 16;
+
+fn remember_turn(id: String) {
+    let mut all = turns();
+    all.insert(id, Turn { started: Instant::now(), events: Vec::new(), prose: String::new(), clips: Vec::new(), done: None, error: None });
+    let mut finished: Vec<(Instant, String)> = all
+        .iter()
+        .filter(|(_, turn)| turn.done.is_some() || turn.error.is_some())
+        .map(|(id, turn)| (turn.started, id.clone()))
+        .collect();
+    finished.sort();
+    let surplus = finished.len().saturating_sub(KEEP_TURNS);
+    for (_, id) in finished.into_iter().take(surplus) {
+        all.remove(&id);
+    }
 }
 
 fn turns() -> std::sync::MutexGuard<'static, HashMap<String, Turn>> {
@@ -747,7 +779,7 @@ async fn start_turn(args: &Value) -> Result<Value, String> {
                 let data: Value = serde_json::from_str(data.trim()).unwrap_or(Value::Null);
                 if name == "job" {
                     let id = data["job"].as_str().unwrap_or_default().to_string();
-                    turns().insert(id.clone(), Turn { events: Vec::new(), prose: String::new(), clips: Vec::new(), done: None, error: None });
+                    remember_turn(id.clone());
                     if let Some(sender) = job_sender.take() {
                         let _ = sender.send(id.clone());
                     }
@@ -768,6 +800,13 @@ async fn start_turn(args: &Value) -> Result<Value, String> {
                     "done" => turn.done = Some(data.clone()),
                     "error" => turn.error = Some(data["error"].as_str().or(data["message"].as_str()).unwrap_or("ход сорвался").to_string()),
                     _ => turn.events.push(json!({ "event": name, "data": data })),
+                }
+            }
+        }
+        if let Some(id) = &job {
+            if let Some(turn) = turns().get_mut(id) {
+                if turn.done.is_none() && turn.error.is_none() {
+                    turn.error = Some("поток хода оборвался без конца".into());
                 }
             }
         }
