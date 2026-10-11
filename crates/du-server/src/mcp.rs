@@ -578,11 +578,20 @@ async fn ask_agent(mut question: Value) -> Result<Value, String> {
     questions().push(Question { question, answer: sender });
     match tokio::time::timeout(AGENT_ANSWER, receiver).await {
         Ok(Ok(answer)) => Ok(answer),
-        _ => {
+        Ok(Err(_)) => Err("вопрос агенту снят: ход прерван".into()),
+        Err(_) => {
             questions().retain(|question| question.question["id"] != id.as_str());
             Err(format!("агент не ответил за {} минут", AGENT_ANSWER.as_secs() / 60))
         }
     }
+}
+
+/// «Прервать» снимает открытые вопросы рассказчика: задача ждёт ответа агента в блокирующем
+/// запросе и флага отмены до ответа не видит. Вопросы к задаче не привязаны, а в очереди к карте
+/// одна задача, поэтому снимаются все.
+pub fn withdraw_questions() -> usize {
+    let withdrawn = std::mem::take(&mut *questions());
+    withdrawn.len()
 }
 
 async fn wait_for_questions(args: &Value) -> Value {
