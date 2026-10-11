@@ -72,13 +72,15 @@ pub async fn narrate(
     state.store.add_message(&chat_id, &message)?;
     crate::mcp::announce("chat");
 
+    let mut voice_job = None;
     if body.voice {
         let inner = state.0.clone();
         let settings = chat.summary.settings.clone();
         let key = format!("{chat_id}-gm-{}", message.id);
         let chat_for_play = chat_id.clone();
         // Озвучка — в общей очереди к карте: своя карта одна, и голос не должен пересечься с кадром.
-        let _ = state
+        let chat_for_log = chat_id.clone();
+        let job = state
             .queue
             .enqueue(Box::new(move |_, abort| {
                 let runtime = crate::runtime::load(&inner.root);
@@ -102,6 +104,7 @@ pub async fn narrate(
                         }
                         Err(error) => {
                             crate::hub::ended(crate::hub::Work::Tts, Err(&error));
+                            background_failed("gm_narrate voice", &chat_for_log, &error);
                             return Err(error);
                         }
                     }
@@ -110,6 +113,7 @@ pub async fn narrate(
                 Ok(json!({ "first": first }))
             }))
             .await;
+        voice_job = Some(job);
     }
 
     if body.draw {
@@ -125,13 +129,20 @@ pub async fn narrate(
                 .await;
                 if let Err(error) = answer {
                     tracing::warn!("кадр ведущего не нарисовался: {error}");
+                    background_failed("gm_narrate draw", &chat_for_image, &error);
                 }
                 crate::mcp::announce("chat");
             });
         }
     }
 
-    Ok(Json(json!({ "message": message, "voicing": body.voice, "drawing": body.draw })))
+    Ok(Json(json!({ "message": message, "voicing": body.voice, "voice_job": voice_job, "drawing": body.draw })))
+}
+
+/// Голос и кадр ведущего идут после ответа агенту: их сбой он видит в журнале активности.
+fn background_failed(what: &str, chat_id: &str, error: &str) {
+    crate::activity::record(what, &json!({ "chat_id": chat_id }), false, error);
+    crate::mcp::announce("activity");
 }
 
 #[derive(Deserialize)]

@@ -23,6 +23,8 @@ type Component = {
   present: boolean;
   haveBytes: number;
   selected: boolean;
+  /// Чем сорвалась последняя закачка; null — не срывалась.
+  error: string | null;
   files: Array<{ bytes: number }>;
 };
 
@@ -113,6 +115,14 @@ export default function SetupPanel() {
           // Пустой список — сбой чтения статуса, а не «всё скачано»: иначе разрыв связи
           // во время докачки выдал бы «готово» и спрятал бы прогресс.
           if (!watched.length) return;
+          const failed = watched.find((component) => component.error && !component.present);
+          if (failed) {
+            if (poll.current) window.clearInterval(poll.current);
+            setProgress(null);
+            setBusy(false);
+            setNote(panel.downloadFailed.replace("{error}", failed.error ?? ""));
+            return;
+          }
           const have = watched.reduce((sum, component) => sum + component.haveBytes, 0);
           const total = watched.reduce((sum, component) => sum + size(component), 0);
           const pending = watched.find((component) => !component.present);
@@ -167,19 +177,21 @@ export default function SetupPanel() {
   };
   const covered = (group: string) => components.some((c) => c.variantOf === group && c.present);
   const singles = components.filter((c) => !c.variantOf);
-  const missingRequired = singles.filter((c) => c.requirement === "required" && !c.present);
-  // Что ещё нужно для игры: обязательное и выбранный вариант стадии, которую ещё нечем считать.
-  const owedGroups = groups
+  // Кнопка, как в Dub, берёт всё недостающее, кроме необязательного: из группы вариантов — выбранный,
+  // если стадию ещё нечем считать.
+  const missingSingles = singles.filter((c) => c.requirement !== "optional" && !c.present);
+  const uncoveredGroups = groups
     .filter((group) => !covered(group))
     .map(chosenIn)
     .filter((c): c is Component => Boolean(c) && c!.requirement !== "optional");
   const pickedDownloads = groups
     .map(chosenIn)
     .filter((c): c is Component => Boolean(c) && !c!.present && picked[c!.variantOf] === c!.id);
-  const toDownload = [...missingRequired, ...owedGroups, ...pickedDownloads].filter(
+  const toDownload = [...missingSingles, ...uncoveredGroups, ...pickedDownloads].filter(
     (c, index, list) => list.findIndex((other) => other.id === c.id) === index,
   );
-  const owed = [...missingRequired, ...owedGroups];
+  // «Не хватает главного» и «Ещё нужно» — только обязательное: без рекомендованного игра идёт.
+  const owed = [...missingSingles, ...uncoveredGroups].filter((c) => c.requirement === "required");
   const missing = components.filter((component) => !component.present && (!component.variantOf || !covered(component.variantOf)));
   const totalMissing = missing.reduce((sum, component) => sum + missingBytes(component), 0);
   const telemetryOn = hub?.telemetry.enabled ?? true;

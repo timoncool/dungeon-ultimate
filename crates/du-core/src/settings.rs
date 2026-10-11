@@ -135,8 +135,8 @@ impl Language {
         }
     }
 
-    /// Код языка для движка озвучки.
-    pub fn tts_code(self) -> &'static str {
+    /// Код ISO 639-1: его ждут движок озвучки, Whisper и облачный разбор речи.
+    pub fn iso_code(self) -> &'static str {
         match self {
             Language::Ru => "ru",
             Language::En => "en",

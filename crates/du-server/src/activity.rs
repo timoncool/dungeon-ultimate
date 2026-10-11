@@ -52,8 +52,6 @@ pub fn record(tool: &str, args: &Value, ok: bool, summary: &str) {
     lines.push(line);
     let skip = lines.len().saturating_sub(KEEP);
     lines.drain(..skip);
-    drop(lines);
-    crate::mcp::announce("activity");
 }
 
 /// Длинные тексты в журнал не идут: хватит начала.
