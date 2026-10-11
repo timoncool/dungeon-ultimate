@@ -75,6 +75,13 @@ pub struct Runtime {
     pub openrouter_tts_voice: String,
     pub openrouter_asr_on: bool,
     pub openrouter_asr_model: String,
+    /// Кто озвучивает в облаке, когда облачная озвучка включена: `openrouter` или `google`
+    /// (Gemini напрямую, ключ — `GEMINI_API_KEY` или сохранённый в игре).
+    pub cloud_tts_provider: String,
+    /// Модель озвучки Gemini.
+    pub google_tts_model: String,
+    /// Голос рассказчика у Gemini; пусто — первый подходящий по языку истории.
+    pub google_tts_voice: String,
 }
 
 impl Default for Runtime {
@@ -110,6 +117,9 @@ impl Default for Runtime {
             openrouter_tts_voice: String::new(),
             openrouter_asr_on: false,
             openrouter_asr_model: String::new(),
+            cloud_tts_provider: "openrouter".to_string(),
+            google_tts_model: crate::google_tts::MODELS[0].to_string(),
+            google_tts_voice: String::new(),
         }
     }
 }

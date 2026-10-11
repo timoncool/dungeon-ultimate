@@ -44,9 +44,18 @@ pub fn models() -> Vec<String> {
     names
 }
 
+/// Модели Gemini, которые игра зовёт напрямую у Google, говорят теми же голосами, что и
+/// Gemini через OpenRouter: каталог у них общий (как `catalog_model` в Dub Studio).
+fn catalog_model(model: &str) -> &str {
+    match model.trim_start_matches("models/").trim_start_matches("google/") {
+        "gemini-3.8-flash-lite-tts" | "gemini-3.8-flash-tts" => "google/gemini-3.1-flash-tts-preview",
+        _ => model,
+    }
+}
+
 /// Голоса модели. None — модели нет в справочнике, тогда выбор голоса остаётся ручным.
 pub fn voices(model: &str) -> Option<&'static Vec<VoiceMeta>> {
-    catalog().get(model).map(|entry| &entry.voices)
+    catalog().get(catalog_model(model)).map(|entry| &entry.voices)
 }
 
 /// Пол голоса по его имени, из любой модели справочника: имена у провайдера не
@@ -74,7 +83,7 @@ pub fn age_of(name: &str) -> Option<&'static str> {
 
 /// Тянет ли модель русский — интерфейс должен предупредить до того, как игрок услышит кашу.
 pub fn supports_russian(model: &str) -> Option<bool> {
-    catalog().get(model).map(|entry| entry.supports_russian)
+    catalog().get(catalog_model(model)).map(|entry| entry.supports_russian)
 }
 
 /// Голоса, подходящие для языка игры и, если задан, пола персонажа.
@@ -100,6 +109,17 @@ pub fn suitable(model: &str, russian: bool, gender: Option<&str>) -> Vec<&'stati
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gemini_called_directly_has_its_voices_with_gender_and_russian() {
+        for model in crate::google_tts::MODELS {
+            let voices = voices(model).expect("голоса Gemini в каталоге");
+            assert!(voices.iter().any(|v| v.gender == "male" && v.ru));
+            assert!(voices.iter().any(|v| v.gender == "female" && v.ru));
+            assert_eq!(supports_russian(model), Some(true));
+            assert!(!suitable(model, true, Some("female")).is_empty());
+        }
+    }
 
     /// Модель, реально доступная у провайдера на момент пересборки справочника.
     const LIVE: &str = "openai/gpt-audio";

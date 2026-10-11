@@ -36,8 +36,35 @@ pub fn stage_enabled(runtime: &Runtime, stage: Stage) -> bool {
     }
 }
 
+/// Облачная озвучка идёт через Gemini напрямую, а не через OpenRouter.
+pub fn tts_by_google(runtime: &Runtime) -> bool {
+    runtime.cloud_tts_provider == "google"
+}
+
+/// Модель облачной озвучки у выбранного провайдера: по ней ищутся голоса в каталоге.
+pub fn tts_model(runtime: &Runtime) -> &str {
+    if tts_by_google(runtime) { &runtime.google_tts_model } else { &runtime.openrouter_tts_model }
+}
+
+/// Голос рассказчика у выбранного провайдера облачной озвучки.
+pub fn tts_voice(runtime: &Runtime) -> &str {
+    if tts_by_google(runtime) { &runtime.google_tts_voice } else { &runtime.openrouter_tts_voice }
+}
+
+/// Озвучить следующую фразу другим голосом того же провайдера.
+pub fn set_tts_voice(runtime: &mut Runtime, voice: &str) {
+    if tts_by_google(runtime) {
+        runtime.google_tts_voice = voice.to_string();
+    } else {
+        runtime.openrouter_tts_voice = voice.to_string();
+    }
+}
+
 /// Готова ли облачная стадия к вызову: есть ключ и выбрана модель.
 pub fn require(runtime: &Runtime, stage: Stage) -> Result<(), String> {
+    if stage == Stage::Tts && tts_by_google(runtime) {
+        return crate::google_tts::validate_model(&runtime.google_tts_model);
+    }
     let (name, model) = match stage {
         Stage::Narrator => ("рассказчик", &runtime.openrouter_narrator_model),
         Stage::Image => ("картинки", &runtime.openrouter_image_model),
@@ -110,6 +137,13 @@ const CLOUD_PCM_RATE: u32 = 24_000;
 /// Пробуем сайдкар, а на чат откатываемся: так работает любая выбранная модель.
 pub fn speak(root: &Path, runtime: &Runtime, text: &str, out: &Path) -> Result<(), String> {
     require(runtime, Stage::Tts)?;
+    if tts_by_google(runtime) {
+        let (key, _) = crate::credentials::google_api_key(root).ok_or(
+            "озвучка Google включена, но ключа нет — задайте ключ Google в настройках озвучки или GEMINI_API_KEY",
+        )?;
+        let voice = default_voice_for(&runtime.google_tts_model, &runtime.google_tts_voice);
+        return crate::google_tts::speak(&key, &runtime.google_tts_model, &voice, text, out);
+    }
     let voice = default_voice_for(&runtime.openrouter_tts_model, &runtime.openrouter_tts_voice);
     let payload = json!({
         "model": runtime.openrouter_tts_model,

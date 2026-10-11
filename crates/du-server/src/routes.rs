@@ -180,7 +180,7 @@ pub async fn where_it_runs(State(state): State<AppState>) -> Json<Value> {
         "stages": {
             "narrator": decide(Stage::Narrator, crate::cloud::Stage::Narrator, &runtime.openrouter_narrator_model),
             "image": decide(Stage::Image, crate::cloud::Stage::Image, &runtime.openrouter_image_model),
-            "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, &runtime.openrouter_tts_model),
+            "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, crate::cloud::tts_model(&runtime)),
             "asr": decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model),
         }
     }))
@@ -565,7 +565,28 @@ pub async fn runtime_get(State(state): State<AppState>) -> Json<Value> {
     // Ключ наружу не отдаём: интерфейсу достаточно знать, задан он или нет.
     let has_key = !runtime.openrouter_key.trim().is_empty();
     runtime.openrouter_key = String::new();
-    Json(json!({ "runtime": runtime, "openrouterKeySet": has_key }))
+    let google = crate::credentials::google_api_key(&state.root).map(|(_, source)| source);
+    Json(json!({
+        "runtime": runtime,
+        "openrouterKeySet": has_key,
+        "googleKeySet": google.is_some(),
+        "googleKeySource": google,
+        "googleTtsModels": crate::google_tts::MODELS,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct GoogleKey {
+    /// Новый ключ; пусто или null — стереть сохранённый.
+    #[serde(default)]
+    key: Option<String>,
+}
+
+/// Сохранить или стереть ключ Google для озвучки Gemini. Значение назад не отдаётся.
+pub async fn google_key_put(State(state): State<AppState>, Json(body): Json<GoogleKey>) -> ApiResult<Json<Value>> {
+    let source = crate::credentials::store_google_api_key(&state.root, body.key.as_deref())
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({ "googleKeySet": source.is_some(), "googleKeySource": source })))
 }
 
 pub async fn runtime_put(
@@ -588,11 +609,12 @@ pub async fn runtime_put(
     let mut next = crate::runtime::sanitize(parsed);
     // Сменил модель озвучки — голос от прежней у новой не существует, и синтез падал бы на
     // каждой реплике. Если голос не из её набора, подставляем подходящий сами.
-    let voices = crate::voice_catalog::suitable(&next.openrouter_tts_model, true, None);
+    let voices = crate::voice_catalog::suitable(crate::cloud::tts_model(&next), true, None);
     if !voices.is_empty()
-        && !voices.iter().any(|voice| voice.name.eq_ignore_ascii_case(next.openrouter_tts_voice.trim()))
+        && !voices.iter().any(|voice| voice.name.eq_ignore_ascii_case(crate::cloud::tts_voice(&next).trim()))
     {
-        next.openrouter_tts_voice = voices[0].name.clone();
+        let first = voices[0].name.clone();
+        crate::cloud::set_tts_voice(&mut next, &first);
     }
     // Пустой ключ в запросе означает «не менять»: интерфейс его не получает и вернуть не может.
     if next.openrouter_key.trim().is_empty() {

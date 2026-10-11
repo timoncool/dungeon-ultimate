@@ -75,6 +75,15 @@ export type PanelText = {
   // Распознавание речи
   asrParakeet: string;
   asrWhisper: string;
+  ttsProvider: string;
+  ttsByOpenRouter: string;
+  ttsByGoogle: string;
+  googleKeyHint: string;
+  googleKeyFromEnv: string;
+  asrVariant: string;
+  asrUltra: string;
+  asrWhisperModel: string;
+  notDownloaded: string;
   // Остатки текста из кода (ревью 2026-09)
   notSaved: string;
   cpuSlowNote: string;
@@ -159,6 +168,15 @@ const RU: PanelText = {
 
   asrParakeet: "Parakeet — быстрый, работает сразу",
   asrWhisper: "Whisper large-v3 — точнее, нужна докачка",
+  ttsProvider: "Кто озвучивает",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google — Gemini напрямую",
+  googleKeyHint: "Ключ Google AI Studio для голосов Gemini: {state}. Хранится в папке игры.",
+  googleKeyFromEnv: "задан переменной GEMINI_API_KEY",
+  asrVariant: "Чем распознавать речь",
+  asrUltra: "Parakeet Ultra — точнее на тех же 25 языках",
+  asrWhisperModel: "Whisper {model} — понимает почти все языки мира",
+  notDownloaded: " — не скачан",
   notSaved: "Не сохранилось: {error}",
   cpuSlowNote: "Очень медленно: около полутора минут на отрывок против секунд на карте. Замерено — 14 знаков в секунду.",
   computesWord: "считает",
@@ -242,6 +260,15 @@ const EN: PanelText = {
 
   asrParakeet: "Parakeet — fast, works right away",
   asrWhisper: "Whisper large-v3 — more precise, needs a download",
+  ttsProvider: "Who voices it",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google — Gemini directly",
+  googleKeyHint: "Google AI Studio key for Gemini voices: {state}. Kept in the game folder.",
+  googleKeyFromEnv: "set by the GEMINI_API_KEY variable",
+  asrVariant: "How speech is recognised",
+  asrUltra: "Parakeet Ultra — more precise on the same 25 languages",
+  asrWhisperModel: "Whisper {model} — understands almost every language",
+  notDownloaded: " — not downloaded",
   notSaved: "Not saved: {error}",
   cpuSlowNote: "Very slow: about a minute and a half per passage versus seconds on the GPU. Measured at 14 characters per second.",
   computesWord: "runs on",
@@ -325,6 +352,15 @@ const ES: PanelText = {
 
   asrParakeet: "Parakeet: rápido, funciona ya",
   asrWhisper: "Whisper large-v3: más preciso, hay que descargarlo",
+  ttsProvider: "Quién pone la voz",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google: Gemini directo",
+  googleKeyHint: "Clave de Google AI Studio para las voces de Gemini: {state}. Se guarda en la carpeta del juego.",
+  googleKeyFromEnv: "definida en la variable GEMINI_API_KEY",
+  asrVariant: "Cómo se reconoce la voz",
+  asrUltra: "Parakeet Ultra: más preciso en los mismos 25 idiomas",
+  asrWhisperModel: "Whisper {model}: entiende casi todos los idiomas",
+  notDownloaded: " (sin descargar)",
   notSaved: "No se guardó: {error}",
   cpuSlowNote: "Muy lento: cerca de minuto y medio por pasaje frente a segundos en la tarjeta gráfica. Medido: 14 caracteres por segundo.",
   computesWord: "calcula en",
@@ -408,6 +444,15 @@ const FR: PanelText = {
 
   asrParakeet: "Parakeet — rapide, marche tout de suite",
   asrWhisper: "Whisper large-v3 — plus précis, à télécharger",
+  ttsProvider: "Qui fait la voix",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google — Gemini en direct",
+  googleKeyHint: "Clé Google AI Studio pour les voix Gemini : {state}. Gardée dans le dossier du jeu.",
+  googleKeyFromEnv: "définie par la variable GEMINI_API_KEY",
+  asrVariant: "Comment la parole est reconnue",
+  asrUltra: "Parakeet Ultra — plus précis sur les mêmes 25 langues",
+  asrWhisperModel: "Whisper {model} — comprend presque toutes les langues",
+  notDownloaded: " — pas téléchargé",
   notSaved: "Non enregistré : {error}",
   cpuSlowNote: "Très lent : environ une minute et demie par passage contre quelques secondes sur la carte graphique. Mesuré : 14 caractères par seconde.",
   computesWord: "calcule sur",
@@ -491,6 +536,15 @@ const DE: PanelText = {
 
   asrParakeet: "Parakeet — schnell, läuft sofort",
   asrWhisper: "Whisper large-v3 — genauer, muss geladen werden",
+  ttsProvider: "Wer spricht",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google — Gemini direkt",
+  googleKeyHint: "Google-AI-Studio-Schlüssel für Gemini-Stimmen: {state}. Liegt im Spielordner.",
+  googleKeyFromEnv: "über die Variable GEMINI_API_KEY gesetzt",
+  asrVariant: "Womit Sprache erkannt wird",
+  asrUltra: "Parakeet Ultra — genauer bei denselben 25 Sprachen",
+  asrWhisperModel: "Whisper {model} — versteht fast alle Sprachen",
+  notDownloaded: " — nicht geladen",
   notSaved: "Nicht gespeichert: {error}",
   cpuSlowNote: "Sehr langsam: etwa anderthalb Minuten pro Abschnitt gegenüber Sekunden auf der Grafikkarte. Gemessen: 14 Zeichen pro Sekunde.",
   computesWord: "rechnet auf",
@@ -574,6 +628,15 @@ const ZH: PanelText = {
 
   asrParakeet: "Parakeet——快，装好即用",
   asrWhisper: "Whisper large-v3——更准，需要另外下载",
+  ttsProvider: "由谁配音",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google——直接调用 Gemini",
+  googleKeyHint: "Gemini 语音的 Google AI Studio 密钥：{state}。保存在游戏文件夹中。",
+  googleKeyFromEnv: "由环境变量 GEMINI_API_KEY 提供",
+  asrVariant: "用什么识别语音",
+  asrUltra: "Parakeet Ultra——同样 25 种语言，更准",
+  asrWhisperModel: "Whisper {model}——几乎能听懂所有语言",
+  notDownloaded: "（未下载）",
   notSaved: "未能保存：{error}",
   cpuSlowNote: "非常慢：每段约一分半钟，而显卡只需几秒。实测每秒 14 个字符。",
   computesWord: "运行于",
@@ -657,6 +720,15 @@ const JA: PanelText = {
 
   asrParakeet: "Parakeet——速い、すぐ動く",
   asrWhisper: "Whisper large-v3——正確、別途落とす必要あり",
+  ttsProvider: "誰が声を当てるか",
+  ttsByOpenRouter: "OpenRouter",
+  ttsByGoogle: "Google——Gemini を直接",
+  googleKeyHint: "Gemini の声に使う Google AI Studio キー：{state}。ゲームのフォルダーに保存。",
+  googleKeyFromEnv: "環境変数 GEMINI_API_KEY で設定済み",
+  asrVariant: "音声を何で認識するか",
+  asrUltra: "Parakeet Ultra——同じ25言語でより正確",
+  asrWhisperModel: "Whisper {model}——ほぼすべての言語がわかる",
+  notDownloaded: "（未ダウンロード）",
   notSaved: "保存できませんでした：{error}",
   cpuSlowNote: "とても遅い：1 段落に約 1 分半、GPU なら数秒です。実測で毎秒 14 文字。",
   computesWord: "処理先",

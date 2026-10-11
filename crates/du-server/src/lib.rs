@@ -13,6 +13,8 @@ mod chats;
 mod dialogue;
 pub mod cloud;
 pub mod cloud_models;
+pub mod credentials;
+pub mod google_tts;
 pub mod runtime;
 pub mod game_tools;
 pub mod gpu;
@@ -80,6 +82,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tools/try", post(routes::try_tools))
         .route("/api/jobs/{job}/stop", post(routes::stop_job))
         .route("/api/runtime", get(routes::runtime_get).put(routes::runtime_put))
+        .route("/api/google/key", axum::routing::put(routes::google_key_put))
         .route("/api/hw", get(routes::hardware))
         .route("/api/setup/status", get(routes::setup_status))
         .route("/api/setup/download", post(routes::setup_download))

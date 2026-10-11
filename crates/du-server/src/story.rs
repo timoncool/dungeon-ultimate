@@ -401,9 +401,9 @@ fn run_turn(
     // эталоном, в облаке — имя голоса модели. Смешивать нельзя: локальное имя провайдер не
     // знает и отвечает отказом, а голос модели не найдётся среди файлов на диске.
     let voice = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
-        let chosen = runtime.openrouter_tts_voice.trim();
+        let chosen = crate::cloud::tts_voice(&runtime).trim();
         if chosen.is_empty() {
-            crate::voice_catalog::suitable(&runtime.openrouter_tts_model, settings.language == du_core::Language::Ru, None)
+            crate::voice_catalog::suitable(crate::cloud::tts_model(&runtime), settings.language == du_core::Language::Ru, None)
                 .first()
                 .map(|voice| voice.name.clone())
                 .unwrap_or_default()
@@ -433,7 +433,7 @@ fn run_turn(
     // в облаке — голоса выбранной модели. Иначе персонажам достались бы имена, которых у
     // провайдера нет, и озвучка молча падала бы на каждой реплике.
     let voice_pool = if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
-        crate::voice_catalog::suitable(&runtime.openrouter_tts_model, settings.language == du_core::Language::Ru, None)
+        crate::voice_catalog::suitable(crate::cloud::tts_model(&runtime), settings.language == du_core::Language::Ru, None)
             .into_iter()
             .map(|voice| voice.name.clone())
             .collect()
@@ -525,7 +525,7 @@ fn run_turn(
                     let root = root.clone();
                     let generated = generated.clone();
                     let mut runtime_for_line = runtime_for_tts.clone();
-                    runtime_for_line.openrouter_tts_voice = line_voice.clone();
+                    crate::cloud::set_tts_voice(&mut runtime_for_line, &line_voice);
                     let key = key.clone();
                     flying.push(std::thread::spawn(move || {
                         let spoken = crate::tts::synthesize_with(
@@ -543,7 +543,7 @@ fn run_turn(
                 let spoken = if in_cloud {
                     // В облаке голос — это имя из набора модели, эталон не нужен.
                     let mut runtime_for_line = runtime_for_tts.clone();
-                    runtime_for_line.openrouter_tts_voice = line_voice.clone();
+                    crate::cloud::set_tts_voice(&mut runtime_for_line, &line_voice);
                     crate::tts::synthesize_with(
                         &root,
                         &generated,
