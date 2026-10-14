@@ -886,6 +886,10 @@ fn download_file(
         if let Some((source, app)) = found {
             let taken = studio_hub_client::neighbors::take_file(&source, &target, true, |staged| sha256_matches(staged, spec, &abort));
             if let Err(error) = &taken {
+                if abort.load(Ordering::SeqCst) {
+                    studio_hub_client::neighbors::reconsider(&source);
+                    return Err("отменено".into());
+                }
                 report_take_failure(&target, &app, error);
             }
             if taken.is_ok() {
