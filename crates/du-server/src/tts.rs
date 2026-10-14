@@ -59,6 +59,16 @@ fn voice_reference(root: &Path, voice: &str) -> Option<(PathBuf, Option<String>)
     Some((clip, transcript))
 }
 
+
+/// Голоса нет на диске: «Пак голосов» необязателен при установке, и без него локальная озвучка не звучит вовсе.
+fn no_voice(voice: &str) -> String {
+    if voice.trim().is_empty() {
+        "голосов для озвучки нет: поставьте «Пак голосов» в Настройках → Модели или добавьте свой голос".to_string()
+    } else {
+        format!("голоса «{voice}» нет на диске: поставьте «Пак голосов» в Настройках → Модели, добавьте этот голос или выберите другой")
+    }
+}
+
 /// Озвучить ОДНУ фразу уже загруженным движком и записать клип. Возвращает адрес клипа.
 pub fn speak_sentence(
     engine: &du_tts::AudiocppEngine,
@@ -93,7 +103,7 @@ pub fn prepared_reference(
     seconds: u32,
 ) -> Result<(std::path::PathBuf, Option<String>), String> {
     let (reference, transcript) = voice_reference(root, voice)
-        .ok_or_else(|| format!("нет эталонного клипа для голоса «{voice}»"))?;
+        .ok_or_else(|| no_voice(voice))?;
     Ok((ensure_wav_reference(&reference, seconds)?, transcript))
 }
 
@@ -222,7 +232,7 @@ pub fn synthesize_streaming(
     }
 
     let (reference, transcript) = voice_reference(root, voice)
-        .ok_or_else(|| format!("нет эталонного клипа для голоса «{voice}»"))?;
+        .ok_or_else(|| no_voice(voice))?;
     // Движку нужен WAV: паки лежат в mp3, поэтому клип один раз перегоняется и дальше
     // берётся готовым.
     let reference = ensure_wav_reference(&reference, runtime.tts_reference_seconds)?;

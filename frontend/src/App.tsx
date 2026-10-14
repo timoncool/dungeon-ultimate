@@ -1476,26 +1476,24 @@ export default function Home() {
     chunkIndex: number,
     chunkText: string,
     voice: string,
-  ): Promise<string | null> {
+  ): Promise<string> {
     // Fold a content hash of the chunk into the key so toggling multi-voice or
     // re-splitting changed text never replays stale audio. Keep the `<id>__c<i>`
     // prefix intact so saveEdit's prefix-clear still drops this message's chunks.
     const key = `${messageId}__c${chunkIndex}__${voice}__${hashText(chunkText)}`;
     const cached = audioCacheRef.current.get(key);
     if (cached) return cached;
-    try {
-      const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice, language: settings.language }),
-      });
-      if (!response.ok) return null;
-      const data = (await response.json()) as { url?: string };
-      if (data.url) audioCacheRef.current.set(key, data.url);
-      return data.url || null;
-    } catch {
-      return null;
-    }
+    const response = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice, language: settings.language }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+    // Голос, которого нет на диске, не появится к следующей фразе: первая же ошибка сервера
+    // останавливает озвучку хода и называется игроку, а не тонет в тишине на каждой фразе.
+    if (!response.ok || !data.url) throw new Error(data.error || `/api/tts ${response.status}`);
+    audioCacheRef.current.set(key, data.url);
+    return data.url;
   }
 
   function playUrl(audio: HTMLAudioElement, url: string): Promise<void> {
@@ -1572,15 +1570,26 @@ export default function Home() {
     }
     const audio = audioRef.current ?? new Audio();
     audioRef.current = audio;
-    let nextUrl = fetchChunkUrl(messageId, 0, chunks[0].text, chunks[0].voice);
+    let nextUrl: Promise<string | null> = fetchChunkUrl(messageId, 0, chunks[0].text, chunks[0].voice);
     for (let i = 0; i < chunks.length; i += 1) {
       if (speakSeqRef.current !== seq) return;
-      const url = await nextUrl;
+      let url: string | null;
+      try {
+        url = await nextUrl;
+      } catch (reason) {
+        if (speakSeqRef.current === seq) {
+          setError(settings_.voiceFailed.replace("{reason}", reason instanceof Error ? reason.message : String(reason)));
+          setSpeakingId("");
+        }
+        return;
+      }
       if (speakSeqRef.current !== seq) return;
       nextUrl =
         i + 1 < chunks.length
           ? fetchChunkUrl(messageId, i + 1, chunks[i + 1].text, chunks[i + 1].voice)
           : Promise.resolve(null);
+      // an unhandled rejection of the prefetch would be reported before the loop reaches it
+      nextUrl.catch(() => undefined);
       if (!url) continue;
       await playUrl(audio, url);
     }
