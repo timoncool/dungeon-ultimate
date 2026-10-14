@@ -54,6 +54,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { api } from "./lib/api";
 import { cn } from "./lib/cn";
 import { DEFAULT_STORY_SETTINGS, titleFromInput } from "./lib/defaults";
 import { LOCAL_TEXT_MODELS, type LocalTextModelId, type TextProvider } from "./lib/text-models";
@@ -6925,6 +6926,17 @@ function UpdateNotice() {
   );
 }
 
+/**
+ * GitHub's choice of forms (bug, idea, question) with what the game knows passed along: the keys are the `id`s of
+ * the text fields in `.github/ISSUE_TEMPLATE/*.yml`, and the chosen form fills a field from the query parameter of
+ * the same name.
+ */
+function issueReportUrl(version: string, gpu: string | null): string {
+  const query = new URLSearchParams({ version });
+  if (gpu) query.set("gpu", gpu);
+  return `https://github.com/timoncool/dungeon-ultimate/issues/new/choose?${query.toString()}`;
+}
+
 const DONATE = {
   card: "https://dalink.to/nerual_dreming",
   boosty: "https://boosty.to/neuro_art",
@@ -6971,6 +6983,13 @@ function CryptoRow({ coin, address }: { coin: string; address: string }) {
 function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
   const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
+  const [gpu, setGpu] = useState<string | null>(null);
+  useEffect(() => {
+    api.hwSnapshot()
+      .then((hw) => setGpu(hw.gpuName ? `${hw.gpuName}${hw.totalVram ? `, ${Math.round(hw.totalVram / 1024 ** 3)} GB` : ""}` : null))
+      .catch(() => setGpu(null));
+  }, []);
+  const reportUrl = issueReportUrl(__APP_VERSION__, gpu);
   return (
     <PanelSection
       icon={Heart}
@@ -7027,6 +7046,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           {[
             [settings_.neuroSoft, "https://t.me/neuroport"],
             ["GitHub", DONATE.github],
+            [settings_.reportIssue, reportUrl],
             ["Telegram", DONATE.telegram],
             [settings_.allWays, DONATE.all],
           ].map(([label, href]) => (

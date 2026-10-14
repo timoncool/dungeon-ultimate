@@ -164,6 +164,7 @@ export type SettingsText = {
   deleteThisStory: string;
   copyAddress: string;
   allWays: string;
+  reportIssue: string;
   byCard: string;
 
   // Кнопки хода и подсказки
@@ -444,6 +445,7 @@ const RU: SettingsText = {
   deleteThisStory: "Удалить эту историю?",
   copyAddress: "Скопировать адрес",
   allWays: "Все способы",
+  reportIssue: "Сообщить о проблеме",
   byCard: "💳 Картой",
 
   openStoryTools: "Открыть инструменты истории",
@@ -720,6 +722,7 @@ const EN: SettingsText = {
   deleteThisStory: "Delete this story?",
   copyAddress: "Copy the address",
   allWays: "All the ways",
+  reportIssue: "Report a problem",
   byCard: "💳 By card",
 
   openStoryTools: "Open the story tools",
@@ -996,6 +999,7 @@ const ES: SettingsText = {
   deleteThisStory: "¿Eliminar esta historia?",
   copyAddress: "Copiar la dirección",
   allWays: "Todas las formas",
+  reportIssue: "Informar de un problema",
   byCard: "💳 Con tarjeta",
 
   openStoryTools: "Abrir las herramientas de la historia",
@@ -1273,6 +1277,7 @@ const FR: SettingsText = {
   deleteThisStory: "Supprimer cette histoire ?",
   copyAddress: "Copier l'adresse",
   allWays: "Tous les moyens",
+  reportIssue: "Signaler un problème",
   byCard: "💳 Par carte",
 
   openStoryTools: "Ouvrir les outils de l'histoire",
@@ -1549,6 +1554,7 @@ const DE: SettingsText = {
   deleteThisStory: "Diese Geschichte löschen?",
   copyAddress: "Adresse kopieren",
   allWays: "Alle Möglichkeiten",
+  reportIssue: "Problem melden",
   byCard: "💳 Mit Karte",
 
   openStoryTools: "Story-Werkzeuge öffnen",
@@ -1825,6 +1831,7 @@ const ZH: SettingsText = {
   deleteThisStory: "删除这个故事？",
   copyAddress: "复制地址",
   allWays: "所有方式",
+  reportIssue: "报告问题",
   byCard: "💳 银行卡支付",
 
   openStoryTools: "打开故事工具",
@@ -2101,6 +2108,7 @@ const JA: SettingsText = {
   deleteThisStory: "この物語を削除する？",
   copyAddress: "アドレスをコピー",
   allWays: "すべての方法",
+  reportIssue: "問題を報告",
   byCard: "💳 カードで",
 
   openStoryTools: "物語ツールを開く",
