@@ -152,7 +152,8 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = tokio::net::TcpListener::bind(address).await?;
         tracing::info!("сервер слушает http://{address}");
-        let app = router(state);
+        // считается до того, как роутер возьмут MCP-инструменты: вызовы агента — тоже функции игры
+        let app = hub::track(router(state));
         mcp::install(app.clone());
         axum::serve(listener, app).await?;
         Ok::<_, anyhow::Error>(())

@@ -556,6 +556,9 @@ pub async fn setup_download(
                     crate::setup::download_component(&inner.root, &component, &report, abort.clone())
                 {
                     tracing::warn!("компонент «{title}» не скачался: {error}");
+                    if !abort.load(std::sync::atomic::Ordering::SeqCst) {
+                        crate::hub::setup_failed(&format!("{}: {error}", component.id));
+                    }
                     return Err(format!("{title}: {error}"));
                 }
                 tracing::info!("компонент «{title}» готов");
@@ -565,6 +568,7 @@ pub async fn setup_download(
                     tracing::info!("распознавание переключено на «{title}»");
                 }
             }
+            crate::hub::setup_ready();
             Ok(json!({ "ok": true }))
         }))
         .await;

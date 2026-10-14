@@ -121,6 +121,28 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> axum::Router<S> {
     HUB.get().and_then(Option::as_ref).map(studio_hub_client::Hub::router).unwrap_or_default()
 }
 
+/// Каждый вызов API игры считается по шаблону маршрута — какими возможностями пользуются; без хаба роутер как есть.
+pub fn track<S: Clone + Send + Sync + 'static>(router: axum::Router<S>) -> axum::Router<S> {
+    match HUB.get().and_then(Option::as_ref) {
+        Some(hub) => hub.track(router),
+        None => router,
+    }
+}
+
+/// Модели докачались — шаг между установкой и первым ходом.
+pub fn setup_ready() {
+    if let Some(hub) = HUB.get().and_then(Option::as_ref) {
+        hub.setup_ready();
+    }
+}
+
+/// Закачка моделей упала; причину обезличивает клиент хаба.
+pub fn setup_failed(reason: &str) {
+    if let Some(hub) = HUB.get().and_then(Option::as_ref) {
+        hub.setup_failed(reason);
+    }
+}
+
 /// Работа закончилась: считается `<вид>_done` или `<вид>_failed`. У сбоя остаётся причина, которую
 /// клиент хаба обезличивает, у удачи — на чём она шла.
 pub fn ended(work: Work, outcome: Result<(), &str>) {
