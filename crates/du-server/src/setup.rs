@@ -222,6 +222,9 @@ static COMPONENTS: &[Component] = &[
             variant_of: "",
             files: &[
                 FileSpec::plain("models/tts-engine/audiocpp_engine.dll", "https://github.com/timoncool/Higgs-Ultimate/releases/download/engine-0.2.3-turing/audiocpp_engine.dll", 129_390_080, "c3608613bd54bdd41c85cc90412d4add67b928b07b32be24f26d91cb9626f46d"),
+                // the engine imports cublas64_13.dll, which loads cudart64_13 and cublasLt64_13: without them beside it Windows refuses the DLL
+                FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cudart64_13.dll"),
+                FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cublas64_13.dll"),
             ],
         },
         Component {

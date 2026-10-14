@@ -36,6 +36,7 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "bundleVCRuntime": true,
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }
