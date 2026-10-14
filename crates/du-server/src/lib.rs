@@ -20,6 +20,7 @@ pub mod runtime;
 pub mod game_tools;
 pub mod gm;
 pub mod gpu;
+mod guard;
 pub mod hub;
 pub mod hw;
 pub mod jobs;
@@ -117,6 +118,8 @@ pub fn router(state: AppState) -> Router {
         // защищаться ему не от кого. Зато предел резал запись голоса на нескольких секундах
         // речи и картинки-референсы, отвечая «слишком большой запрос» вместо работы.
         .layer(axum::extract::DefaultBodyLimit::disable())
+        .layer(guard::cors())
+        .layer(axum::middleware::from_fn(guard::origin_guard))
         .with_state(state)
 }
 

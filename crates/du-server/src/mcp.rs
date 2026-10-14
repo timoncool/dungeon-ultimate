@@ -340,7 +340,7 @@ fn annotations(name: &str) -> Value {
 
 async fn call_route(call: Call) -> Result<(StatusCode, String), String> {
     let api = API.get().ok_or("the game is still starting")?.clone();
-    let builder = Request::builder().method(call.method).uri(&call.path);
+    let builder = Request::builder().method(call.method).uri(&call.path).header(header::HOST, "127.0.0.1");
     let request = match call.payload {
         Payload::None | Payload::Window { .. } | Payload::Composite(_) => builder.body(Body::empty()),
         Payload::Json(body) => builder.header(header::CONTENT_TYPE, "application/json").body(Body::from(body.to_string())),
@@ -420,20 +420,7 @@ impl Drop for Listening {
     }
 }
 
-/// Игрой управляют только её окно и агенты на этом компьютере: страница в браузере игрока или
-/// чужой домен, перепривязанный на этот компьютер, приходят со своим origin и получают отказ.
-fn local_origin(headers: &HeaderMap) -> bool {
-    let Some(origin) = headers.get(header::ORIGIN) else { return true };
-    let Ok(origin) = origin.to_str() else { return false };
-    let Some((scheme, rest)) = origin.split_once("://") else { return false };
-    let host = rest.split('/').next().unwrap_or_default();
-    let host = if host.starts_with('[') { host.split(']').next().map(|name| format!("{name}]")).unwrap_or_default() } else { host.split(':').next().unwrap_or_default().to_string() };
-    scheme == "tauri" || ["localhost", "127.0.0.1", "[::1]", "tauri.localhost"].contains(&host.as_str())
-}
-
-fn foreign_origin() -> Response {
-    (StatusCode::FORBIDDEN, "The game answers only its own window and agents on this computer.").into_response()
-}
+use crate::guard::{foreign_origin, local_origin};
 
 /// Поток команд, которые исполняет окно. Первое сообщение называет окно.
 pub async fn window_events(headers: HeaderMap) -> Response {
@@ -748,6 +735,7 @@ async fn start_turn(args: &Value) -> Result<Value, String> {
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/story")
+        .header(header::HOST, "127.0.0.1")
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "chatId": chat_id, "input": input }).to_string()))
         .map_err(|error| error.to_string())?;
