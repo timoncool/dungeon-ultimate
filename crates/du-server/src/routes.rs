@@ -557,7 +557,7 @@ pub async fn setup_download(
                 {
                     tracing::warn!("компонент «{title}» не скачался: {error}");
                     if !abort.load(std::sync::atomic::Ordering::SeqCst) {
-                        crate::hub::setup_failed(&format!("{}: {error}", component.id));
+                        crate::hub::setup_failed(crate::setup::failure_code(&error));
                     }
                     return Err(format!("{title}: {error}"));
                 }

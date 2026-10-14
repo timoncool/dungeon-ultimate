@@ -498,6 +498,21 @@ fn sha256_matches(path: &Path, spec: &FileSpec, abort: &AtomicBool) -> bool {
     sha256_file(path, abort).ok().flatten().is_some_and(|got| got == spec.sha256)
 }
 
+/// Причина сорвавшейся закачки кодом для хаба: одна причина — одна строка, без путей и текста окна.
+pub fn failure_code(error: &str) -> &'static str {
+    if error.contains("контрольная сумма") {
+        "hash_mismatch"
+    } else if error.contains("диапазон") || error.contains("не удалось узнать размер") {
+        "network"
+    } else if error.contains("архив") || error.contains("распаковка") {
+        "archive"
+    } else if ["запись", "создать", "открыть", "разметить", "финализация", "манифест", "метка", "прочитать"].iter().any(|word| error.contains(word)) {
+        "disk"
+    } else {
+        "other"
+    }
+}
+
 /// Взятое у соседей в этом запуске: id компонента → программа, для пометки в окне.
 fn lock_taken() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
     static TAKEN: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
@@ -518,7 +533,8 @@ fn link_from_neighbors(root: &Path) {
             }
             let Some(name) = target.file_name() else { continue };
             if let Some((source, app)) = studio_hub_client::neighbors::find_file(name, file.bytes, target.parent().and_then(Path::file_name)) {
-                match studio_hub_client::neighbors::take_file(&source, &target, false, |_| true) {
+                let checked = |staged: &Path| sha256_matches(staged, file, &AtomicBool::new(false));
+                match studio_hub_client::neighbors::take_file(&source, &target, false, checked) {
                     Ok(()) => took = Some(app),
                     Err(error) => report_take_failure(&target, &app, &error),
                 }
@@ -1090,6 +1106,16 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_failed_download_reaches_the_hub_as_a_code() {
+        use super::failure_code;
+        assert_eq!(failure_code("models/x.gguf: контрольная сумма не совпала (ждали a, получили b)"), "hash_mismatch");
+        assert_eq!(failure_code("диапазон 0-100 не дался за 5 попыток: timeout"), "network");
+        assert_eq!(failure_code("создать каталог: Отказано в доступе"), "disk");
+        assert_eq!(failure_code("это не архив: x.whl"), "archive");
+        assert_eq!(failure_code("что-то ещё"), "other");
+    }
 
     #[test]
     fn a_file_counts_only_at_its_exact_size() {
