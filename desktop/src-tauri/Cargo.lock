@@ -1196,7 +1196,7 @@ dependencies = [
 
 [[package]]
 name = "du-asr"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "du-core",
  "hound",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "du-core"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1217,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "du-db"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "chrono",
  "du-core",
@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "du-image"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "libloading 0.9.0",
  "serde",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "du-llm"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "base64 0.23.1",
  "reqwest",
@@ -1255,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "du-prompts"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "du-core",
  "du-rpg",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "du-rpg"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "chrono",
  "getrandom 0.4.3",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "du-server"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "du-tts"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "libloading 0.9.0",
  "serde",
@@ -1331,7 +1331,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dungeon-ultimate-desktop"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "du-core",
  "du-server",
