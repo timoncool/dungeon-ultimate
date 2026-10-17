@@ -230,6 +230,16 @@ pub fn run() {
             // Tauri v2 по умолчанию перехватывает OS-drop файлов -> HTML5 onDrop в дропзоне НЕ срабатывает
             // (юзеры жаловались «перетаскивание не работает»). Отключаем перехват -> webview сам ловит drop.
             .disable_drag_drop_handler()
+            // WebView2 оставляет запрос микрофона без ответа и без окна согласия: голосовой ввод своей страницы
+            // висел на getUserMedia
+            .on_permission_request(move |webview, kind| match kind {
+                tauri::webview::PermissionKind::Microphone
+                    if webview.url().is_ok_and(|url| url.host_str() == Some("127.0.0.1") && url.port() == Some(port)) =>
+                {
+                    tauri::webview::PermissionResponse::Allow
+                }
+                _ => tauri::webview::PermissionResponse::Default,
+            })
             // Озвучка играет САМА, без предварительного клика по странице: WebView2 иначе
             // отклоняет `audio.play()` — фразы синтезируются, а игрок сидит в тишине.
             // Стандартные аргументы wry перечисляем заново: своя строка их затирает.

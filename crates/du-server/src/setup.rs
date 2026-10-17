@@ -18,6 +18,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -437,6 +438,8 @@ pub struct ComponentStatus {
     pub selected: bool,
     /// Чем кончилась последняя закачка, если сорвалась: интерфейс снимает шкалу и говорит причину.
     pub error: Option<String>,
+    /// Программа (yue2, dub...), у которой компонент взят в этом запуске вместо закачки.
+    pub taken_from: Option<String>,
 }
 
 /// Что идёт по сети прямо сейчас и чем сорвались прошлые закачки, по id компонента. Байты на
@@ -475,6 +478,73 @@ fn file_present(root: &Path, file: &FileSpec) -> bool {
     let target = root.join(file.path);
     let Ok(meta) = std::fs::metadata(&target) else { return false };
     meta.is_file() && !part_path(&target).exists() && meta.len() == file.bytes
+}
+
+// ── Модели других программ timoncool на этом компьютере ─────────────────────
+
+/// Сказать один раз на файл, почему копию соседа взять не вышло: статус спрашивают каждую секунду.
+fn report_take_failure(target: &Path, app: &str, error: &std::io::Error) {
+    static SAID: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    let mut said = SAID.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !said.iter().any(|known| known == target) {
+        said.push(target.to_path_buf());
+        tracing::warn!("{} не взят у {app}: {error}", target.display());
+    }
+}
+
+/// Совпадает ли отпечаток файла с манифестом — без побочных действий `verify_sha256` (та стирает файл и манифест
+/// докачки настоящей закачки).
+fn sha256_matches(path: &Path, spec: &FileSpec, abort: &AtomicBool) -> bool {
+    sha256_file(path, abort).ok().flatten().is_some_and(|got| got == spec.sha256)
+}
+
+/// Причина сорвавшейся закачки кодом для хаба: одна причина — одна строка, без путей и текста окна.
+pub fn failure_code(error: &str) -> &'static str {
+    if error.contains("контрольная сумма") {
+        "hash_mismatch"
+    } else if error.contains("диапазон") || error.contains("не удалось узнать размер") {
+        "network"
+    } else if error.contains("архив") || error.contains("распаковка") {
+        "archive"
+    } else if ["запись", "создать", "открыть", "разметить", "финализация", "манифест", "метка", "прочитать"].iter().any(|word| error.contains(word)) {
+        "disk"
+    } else {
+        "other"
+    }
+}
+
+/// Взятое у соседей в этом запуске: id компонента → программа, для пометки в окне.
+fn lock_taken() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
+    static TAKEN: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
+    TAKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn link_from_neighbors(root: &Path) {
+    for component in manifest() {
+        // что сейчас качается, не трогаем: его файл «отсутствует» лишь потому, что рядом лежит .part
+        if downloads().live.contains_key(component.id) {
+            continue;
+        }
+        let mut took = None;
+        for file in component.files.iter().filter(|file| !file.is_archive() && !file_present(root, file)) {
+            let target = root.join(file.path);
+            if part_path(&target).exists() {
+                continue;
+            }
+            let Some(name) = target.file_name() else { continue };
+            if let Some((source, app)) = studio_hub_client::neighbors::find_file(name, file.bytes, target.parent().and_then(Path::file_name)) {
+                let checked = |staged: &Path| sha256_matches(staged, file, &AtomicBool::new(false));
+                match studio_hub_client::neighbors::take_file(&source, &target, false, checked) {
+                    Ok(()) => took = Some(app),
+                    Err(error) => report_take_failure(&target, &app, &error),
+                }
+            }
+        }
+        if let Some(app) = took {
+            tracing::info!("{} взят у {app}, без закачки", component.id);
+            lock_taken().insert(component.id.to_string(), app);
+        }
+    }
 }
 
 /// Метка распакованного архива: имя несёт начало его SHA-256, поэтому новая версия архива
@@ -539,10 +609,12 @@ fn file_have_bytes(root: &Path, file: &FileSpec) -> u64 {
 
 pub fn status(root: &Path) -> Vec<ComponentStatus> {
     let runtime = crate::runtime::load(root);
+    link_from_neighbors(root);
     let mut statuses: Vec<ComponentStatus> = manifest()
         .into_iter()
         .map(|component| {
             let present = component.files.iter().all(|file| file_present(root, file));
+            let taken_from = if present { lock_taken().get(component.id).cloned() } else { None };
             let on_disk: u64 = component.files.iter().map(|file| file_have_bytes(root, file)).sum();
             let (live, error) = {
                 let downloads = downloads();
@@ -550,7 +622,7 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
             };
             let have_bytes = live.map_or(on_disk, |live| live.max(on_disk));
             let selected = variant_selected(&runtime, component.id);
-            ComponentStatus { component, present, have_bytes, selected, error }
+            ComponentStatus { component, present, have_bytes, selected, error, taken_from }
         })
         .collect();
     // Стадия, уведённая в облако (или рассказчик — агенту), своих весов не требует: качать их
@@ -808,6 +880,29 @@ fn download_file(
         std::fs::create_dir_all(parent).map_err(|error| format!("создать каталог: {error}"))?;
     }
 
+    // у соседней программы файл уже есть: берём его, копией тоже, если она на другом диске, — и сверяем как закачку
+    if !spec.is_archive() {
+        let found = target.file_name().and_then(|name| studio_hub_client::neighbors::find_file(name, spec.bytes, None));
+        if let Some((source, app)) = found {
+            let taken = studio_hub_client::neighbors::take_file(&source, &target, true, |staged| sha256_matches(staged, spec, &abort));
+            if let Err(error) = &taken {
+                if abort.load(Ordering::SeqCst) {
+                    studio_hub_client::neighbors::reconsider(&source);
+                    return Err("отменено".into());
+                }
+                report_take_failure(&target, &app, error);
+            }
+            if taken.is_ok() {
+                tracing::info!("{title} взят у {app}, без закачки");
+                if let Some(component) = manifest().into_iter().find(|component| component.files.iter().any(|file| file.path == spec.path)) {
+                    lock_taken().insert(component.id.to_string(), app);
+                }
+                progress(spec.bytes, spec.bytes);
+                return Ok(());
+            }
+        }
+    }
+
     let agent = ureq::Agent::new_with_defaults();
     let (total, ranged) = probe_size(&agent, spec.url);
     if total == 0 {
@@ -1015,6 +1110,16 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_failed_download_reaches_the_hub_as_a_code() {
+        use super::failure_code;
+        assert_eq!(failure_code("models/x.gguf: контрольная сумма не совпала (ждали a, получили b)"), "hash_mismatch");
+        assert_eq!(failure_code("диапазон 0-100 не дался за 5 попыток: timeout"), "network");
+        assert_eq!(failure_code("создать каталог: Отказано в доступе"), "disk");
+        assert_eq!(failure_code("это не архив: x.whl"), "archive");
+        assert_eq!(failure_code("что-то ещё"), "other");
+    }
 
     #[test]
     fn a_file_counts_only_at_its_exact_size() {

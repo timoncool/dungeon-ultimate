@@ -164,6 +164,7 @@ export type SettingsText = {
   deleteThisStory: string;
   copyAddress: string;
   allWays: string;
+  reportIssue: string;
   byCard: string;
 
   // Кнопки хода и подсказки
@@ -241,6 +242,7 @@ export type SettingsText = {
   // Остатки текста из кода (ревью 2026-09): сообщения, кнопки, подсказки
   modelFolderOpenedAt: string;
   clipNotPlayed: string;
+  voiceFailed: string;
   narratorTimedOut: string;
   portraitOf: string;
   emptyStoryHint: string;
@@ -444,6 +446,7 @@ const RU: SettingsText = {
   deleteThisStory: "Удалить эту историю?",
   copyAddress: "Скопировать адрес",
   allWays: "Все способы",
+  reportIssue: "Сообщить о проблеме",
   byCard: "💳 Картой",
 
   openStoryTools: "Открыть инструменты истории",
@@ -518,6 +521,7 @@ const RU: SettingsText = {
   modelFolderFailed: "Не удалось открыть папку модели.",
   modelFolderOpenedAt: "Папка модели открыта: {path}",
   clipNotPlayed: "Клип не проигрался: {reason}",
+  voiceFailed: "Озвучка остановлена: {reason}",
   narratorTimedOut: "Рассказчик слишком долго отвечал. Модель ещё может работать в фоне; подожди немного, затем повтори или перезапусти локальную модель, если система под нагрузкой.",
   portraitOf: "{name} (портрет)",
   emptyStoryHint: "Начни историю и опиши, что ты делаешь — дальше рассказчик подхватит, со сценами и всем остальным.",
@@ -720,6 +724,7 @@ const EN: SettingsText = {
   deleteThisStory: "Delete this story?",
   copyAddress: "Copy the address",
   allWays: "All the ways",
+  reportIssue: "Report a problem",
   byCard: "💳 By card",
 
   openStoryTools: "Open the story tools",
@@ -794,6 +799,7 @@ const EN: SettingsText = {
   modelFolderFailed: "Could not open the model folder.",
   modelFolderOpenedAt: "Model folder opened: {path}",
   clipNotPlayed: "The clip did not play: {reason}",
+  voiceFailed: "Voicing stopped: {reason}",
   narratorTimedOut: "The narrator took too long to answer. The model may still be working in the background; wait a moment, then retry or restart the local model if the system is under load.",
   portraitOf: "{name} (portrait)",
   emptyStoryHint: "Start the story and describe what you do — the narrator picks it up from there, scenes and all.",
@@ -996,6 +1002,7 @@ const ES: SettingsText = {
   deleteThisStory: "¿Eliminar esta historia?",
   copyAddress: "Copiar la dirección",
   allWays: "Todas las formas",
+  reportIssue: "Informar de un problema",
   byCard: "💳 Con tarjeta",
 
   openStoryTools: "Abrir las herramientas de la historia",
@@ -1070,6 +1077,7 @@ const ES: SettingsText = {
   modelFolderFailed: "No se pudo abrir la carpeta del modelo.",
   modelFolderOpenedAt: "Carpeta del modelo abierta: {path}",
   clipNotPlayed: "El clip no se reprodujo: {reason}",
+  voiceFailed: "La voz se detuvo: {reason}",
   narratorTimedOut: "El narrador tardó demasiado en responder. Puede que el modelo siga trabajando en segundo plano; espera un momento y vuelve a intentarlo, o reinicia el modelo local si el sistema está sobrecargado.",
   portraitOf: "{name} (retrato)",
   emptyStoryHint: "Empieza la historia y describe lo que haces: el narrador seguirá desde ahí, con escenas y todo lo demás.",
@@ -1273,6 +1281,7 @@ const FR: SettingsText = {
   deleteThisStory: "Supprimer cette histoire ?",
   copyAddress: "Copier l'adresse",
   allWays: "Tous les moyens",
+  reportIssue: "Signaler un problème",
   byCard: "💳 Par carte",
 
   openStoryTools: "Ouvrir les outils de l'histoire",
@@ -1347,6 +1356,7 @@ const FR: SettingsText = {
   modelFolderFailed: "Impossible d'ouvrir le dossier du modèle.",
   modelFolderOpenedAt: "Dossier du modèle ouvert : {path}",
   clipNotPlayed: "Le clip n'a pas été lu : {reason}",
+  voiceFailed: "La voix s’est arrêtée : {reason}",
   narratorTimedOut: "Le narrateur a mis trop de temps à répondre. Le modèle travaille peut-être encore en arrière-plan ; patiente un instant, puis réessaie ou redémarre le modèle local si le système est surchargé.",
   portraitOf: "{name} (portrait)",
   emptyStoryHint: "Commence l'histoire et décris ce que tu fais : le narrateur prend le relais, scènes comprises.",
@@ -1549,6 +1559,7 @@ const DE: SettingsText = {
   deleteThisStory: "Diese Geschichte löschen?",
   copyAddress: "Adresse kopieren",
   allWays: "Alle Möglichkeiten",
+  reportIssue: "Problem melden",
   byCard: "💳 Mit Karte",
 
   openStoryTools: "Story-Werkzeuge öffnen",
@@ -1623,6 +1634,7 @@ const DE: SettingsText = {
   modelFolderFailed: "Der Modellordner konnte nicht geöffnet werden.",
   modelFolderOpenedAt: "Modellordner geöffnet: {path}",
   clipNotPlayed: "Der Clip wurde nicht abgespielt: {reason}",
+  voiceFailed: "Die Vertonung wurde angehalten: {reason}",
   narratorTimedOut: "Der Erzähler hat zu lange gebraucht. Das Modell arbeitet womöglich noch im Hintergrund; warte kurz, dann versuche es erneut oder starte das lokale Modell neu, wenn das System ausgelastet ist.",
   portraitOf: "{name} (Porträt)",
   emptyStoryHint: "Beginne die Geschichte und beschreibe, was du tust – der Erzähler übernimmt von dort, mit Szenen und allem.",
@@ -1825,6 +1837,7 @@ const ZH: SettingsText = {
   deleteThisStory: "删除这个故事？",
   copyAddress: "复制地址",
   allWays: "所有方式",
+  reportIssue: "报告问题",
   byCard: "💳 银行卡支付",
 
   openStoryTools: "打开故事工具",
@@ -1899,6 +1912,7 @@ const ZH: SettingsText = {
   modelFolderFailed: "无法打开模型文件夹。",
   modelFolderOpenedAt: "已打开模型文件夹：{path}",
   clipNotPlayed: "音频片段未能播放：{reason}",
+  voiceFailed: "配音已停止：{reason}",
   narratorTimedOut: "叙述者响应太久。模型可能仍在后台运行；稍等片刻后重试，若系统负载过高，请重启本地模型。",
   portraitOf: "{name}（肖像）",
   emptyStoryHint: "开始故事并描述你在做什么——接下来由叙述者接手，场景和其余一切都交给它。",
@@ -2101,6 +2115,7 @@ const JA: SettingsText = {
   deleteThisStory: "この物語を削除する？",
   copyAddress: "アドレスをコピー",
   allWays: "すべての方法",
+  reportIssue: "問題を報告",
   byCard: "💳 カードで",
 
   openStoryTools: "物語ツールを開く",
@@ -2175,6 +2190,7 @@ const JA: SettingsText = {
   modelFolderFailed: "モデルフォルダを開けなかった。",
   modelFolderOpenedAt: "モデルのフォルダを開きました：{path}",
   clipNotPlayed: "クリップを再生できませんでした：{reason}",
+  voiceFailed: "読み上げを停止しました: {reason}",
   narratorTimedOut: "語り手の応答に時間がかかりすぎました。モデルはまだバックグラウンドで動作している可能性があります。少し待ってから再試行するか、システムの負荷が高い場合はローカルモデルを再起動してください。",
   portraitOf: "{name}（肖像）",
   emptyStoryHint: "物語を始めて、自分が何をするか書いてください。あとは語り手が場面もろとも引き継ぎます。",

@@ -20,6 +20,7 @@ pub mod runtime;
 pub mod game_tools;
 pub mod gm;
 pub mod gpu;
+mod guard;
 pub mod hub;
 pub mod hw;
 pub mod jobs;
@@ -117,6 +118,8 @@ pub fn router(state: AppState) -> Router {
         // защищаться ему не от кого. Зато предел резал запись голоса на нескольких секундах
         // речи и картинки-референсы, отвечая «слишком большой запрос» вместо работы.
         .layer(axum::extract::DefaultBodyLimit::disable())
+        .layer(guard::cors())
+        .layer(axum::middleware::from_fn(guard::origin_guard))
         .with_state(state)
 }
 
@@ -152,7 +155,8 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = tokio::net::TcpListener::bind(address).await?;
         tracing::info!("сервер слушает http://{address}");
-        let app = router(state);
+        // считается до того, как роутер возьмут MCP-инструменты: вызовы агента — тоже функции игры
+        let app = hub::track(router(state));
         mcp::install(app.clone());
         axum::serve(listener, app).await?;
         Ok::<_, anyhow::Error>(())
