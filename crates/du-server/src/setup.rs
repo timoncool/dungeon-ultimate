@@ -585,6 +585,74 @@ fn link_from_neighbors(root: &Path) {
             lock_taken().insert(component.id.to_string(), app);
         }
     }
+    // статус спрашивают каждую секунду, а пак сверяется по SHA-256 сотни файлов: не чаще раза в минуту, в такт тому,
+    // как studio-hub-client заново обходит папки соседей
+    static PACK_TRIED: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let due = {
+        let mut tried = PACK_TRIED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let due = tried.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(60));
+        if due {
+            *tried = Some(std::time::Instant::now());
+        }
+        due
+    };
+    if due && !downloads().live.contains_key("voice-pack") {
+        if let Some(app) = take_voice_pack(root) {
+            tracing::info!("voice-pack взят у {app}, без закачки");
+            lock_taken().insert("voice-pack".to_string(), app);
+        }
+    }
+}
+
+/// Файлы архива пака голосов: имя, размер и SHA-256 каждого (тот же пак, что у Dub Studio и Speech Studio).
+fn voice_pack_files() -> impl Iterator<Item = (&'static str, u64, &'static str)> {
+    include_str!("voice_pack.tsv").lines().filter_map(|line| {
+        let mut fields = line.split('\t');
+        Some((fields.next()?, fields.next()?.parse().ok()?, fields.next()?))
+    })
+}
+
+/// Пак голосов из папки `voices` соседней программы, где лежат все его файлы, каждый по SHA-256 (остальные голоса
+/// той папки не трогаются; обход соседей папку голосов пропускает, поэтому она смотрится прямо); пак засчитывается
+/// установленным меткой архива. Программа, у которой взят, или None.
+fn take_voice_pack(root: &Path) -> Option<String> {
+    let spec = COMPONENTS.iter().find(|component| component.id == "voice-pack")?.files.first()?;
+    if file_present(root, spec) {
+        return None;
+    }
+    let dir = root.join(spec.extract_dir);
+    let abort = AtomicBool::new(false);
+    let whole = |path: &Path, size: u64, sha256: &str| {
+        path.metadata().is_ok_and(|meta| meta.len() == size) && sha256_file(path, &abort).ok().flatten().is_some_and(|got| got == sha256)
+    };
+    let missing: Vec<_> = voice_pack_files().filter(|(name, size, sha256)| !whole(&dir.join(name), *size, sha256)).collect();
+    if missing.is_empty() {
+        std::fs::write(stamp_path(root, spec), spec.url).ok();
+        return None;
+    }
+    for neighbor in studio_hub_client::neighbors::current() {
+        let Some(theirs) = ["voices", "models/voices"].iter().map(|folder| neighbor.data_dir.join(folder)).find(|folder| {
+            missing.iter().all(|(name, size, _)| folder.join(name).metadata().is_ok_and(|meta| meta.len() == *size))
+        }) else {
+            continue;
+        };
+        std::fs::create_dir_all(&dir).ok()?;
+        let taken = missing.iter().all(|(name, size, sha256)| {
+            let target = dir.join(name);
+            match studio_hub_client::neighbors::take_file(&theirs.join(name), &target, true, |staged| whole(staged, *size, sha256)) {
+                Ok(()) => true,
+                Err(error) => {
+                    report_take_failure(&target, &neighbor.app, &error);
+                    false
+                }
+            }
+        });
+        if taken {
+            std::fs::write(stamp_path(root, spec), spec.url).ok()?;
+            return Some(neighbor.app);
+        }
+    }
+    None
 }
 
 /// Метка распакованного архива: имя несёт начало его SHA-256, поэтому новая версия архива
@@ -1150,6 +1218,13 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_voice_pack_lists_every_file_of_its_archive() {
+        let files: Vec<_> = super::voice_pack_files().collect();
+        assert_eq!(files.len(), 100);
+        assert!(files.iter().all(|(name, size, sha)| !name.is_empty() && *size > 0 && sha.len() == 64));
+    }
 
     /// Parakeet и сборки transcribe.cpp ложатся туда, где их ищут `dub_tcpp` и голосовой ввод, по путям Dub Studio;
     /// распознавание на процессоре не тянет файлов CUDA.
