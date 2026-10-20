@@ -144,7 +144,7 @@ It is a heavily extended fork of [open-dungeon](https://github.com/newideas99/op
 | Text | llama.cpp sidecar (Gemma 4 12B uncensored, Q4_K_M) |
 | Images | stable-diffusion.cpp via FFI (Krea-2 Turbo Q4_K_M + abliterated Qwen3-VL encoder + Wan 2.1 VAE) |
 | Speech out | Higgs Audio v3 through its native engine, streaming per sentence |
-| Speech in | Parakeet-TDT-0.6B-v3 via ONNX Runtime |
+| Speech in | Parakeet-TDT-0.6B-v3 (GGUF Q8_0) on [transcribe.cpp](https://github.com/timoncool/transcribe.cpp), on the card or the processor; Whisper on faster-whisper |
 | Cloud | OpenRouter, per-stage, with live model and voice catalogues |
 | Storage | SQLite; saves from the previous version open unchanged |
 

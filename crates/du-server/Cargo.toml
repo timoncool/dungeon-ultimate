@@ -13,6 +13,8 @@ du-llm = { path = "../du-llm" }
 du-image = { path = "../du-image" }
 du-prompts = { path = "../du-prompts" }
 du-asr = { path = "../du-asr" }
+# Parakeet на transcribe.cpp — та же привязка, что у Dub Studio, Speech Studio и музыкальных студий
+dub-tcpp = { git = "https://github.com/timoncool/dub-studio", rev = "6fa3877dbf0d3084d6da1bff8191ef869072a9d4" }
 du-tts = { path = "../du-tts" }
 
 serde = { workspace = true }
