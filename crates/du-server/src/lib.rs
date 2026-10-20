@@ -38,6 +38,7 @@ pub mod story;
 pub mod tts;
 pub mod voice;
 pub mod voice_catalog;
+mod voice_clip;
 mod voice_tags;
 pub mod turn;
 pub mod ui_lang;
