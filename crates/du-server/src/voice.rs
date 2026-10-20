@@ -47,7 +47,16 @@ pub async fn transcribe(state: State<AppState>, query: Query<AsrQuery>, body: By
 /// Сборки transcribe.cpp под видеокарту нужны cuBLAS 13 и рантайм CUDA 13 рядом с ней; их приносит движок озвучки.
 const CUDA13_LIBRARIES: [&str; 3] = ["cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll"];
 
-/// Текст записи `wav` от Parakeet на transcribe.cpp: видеокарта или процессор — по выбору стадии распознавания.
+/// Где считает Parakeet: выбор игрока, а при «авто» — видеокарта, если «Parakeet на видеокарте» скачан целиком и карта
+/// есть.
+pub fn parakeet_device(runtime: &crate::runtime::Runtime, root: &std::path::Path) -> crate::backend::Backend {
+    use crate::backend::{stage_explicit, Backend, Stage};
+    stage_explicit(runtime, Stage::Asr).unwrap_or_else(|| {
+        if crate::setup::component_present(root, "asr-gpu") && crate::backend::gpu_present() { Backend::Gpu } else { Backend::Cpu }
+    })
+}
+
+/// Текст записи `wav` от Parakeet на transcribe.cpp: видеокарта или процессор — по [`parakeet_device`].
 /// На видеокарте модель выгружается сразу после разбора: карта нужна рассказчику и картинке.
 fn parakeet_text(
     models_root: &std::path::Path,
@@ -60,7 +69,11 @@ fn parakeet_text(
     let build = if device.is_cpu() { dub_tcpp::Build::Cpu } else { dub_tcpp::Build::Cuda };
     let engine_dir = dub_tcpp::engine_dir(models_root, build);
     if !engine_dir.join(dub_tcpp::LIBRARY).is_file() {
-        return Err(format!("нет движка распознавания в {} — скачайте Parakeet в «Что скачать»", engine_dir.display()));
+        return Err(if device.is_cpu() {
+            format!("нет движка распознавания в {} — скачайте Parakeet в «Что скачать»", engine_dir.display())
+        } else {
+            format!("распознавание выбрано на видеокарте, а сборки для неё нет в {} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор", engine_dir.display())
+        });
     }
     if build == dub_tcpp::Build::Cuda && cfg!(windows) {
         link_cuda13(&engine_dir, &models_root.join("tts-engine"))?;
@@ -81,16 +94,19 @@ fn parakeet_text(
 fn link_cuda13(engine_dir: &std::path::Path, source: &std::path::Path) -> Result<(), String> {
     for name in CUDA13_LIBRARIES {
         let target = engine_dir.join(name);
-        if target.is_file() {
+        let from = source.join(name);
+        let size = |path: &std::path::Path| std::fs::metadata(path).map(|meta| meta.len()).ok();
+        if target.is_file() && (!from.is_file() || size(&target) == size(&from)) {
             continue;
         }
-        let from = source.join(name);
         if !from.is_file() {
             return Err(format!(
-                "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {} — скачайте Parakeet заново в «Что скачать» или переключите распознавание на процессор",
+                "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
                 source.display()
             ));
         }
+        // устаревшая копия от прежнего cuBLAS движка озвучки уступает новой
+        std::fs::remove_file(&target).ok();
         if std::fs::hard_link(&from, &target).is_err() {
             std::fs::copy(&from, &target).map_err(|error| format!("скопировать {} к движку распознавания: {error}", from.display()))?;
         }
@@ -150,11 +166,12 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                 let text = crate::cloud::transcribe(&root, &runtime, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-            let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
             if !by_whisper {
-                let text = parakeet_text(&root.join("models"), parakeet, &parakeet_path, device, &path, lang)?;
+                let models_root = root.join("models");
+                let text = parakeet_text(&models_root, parakeet, &parakeet_path, parakeet_device(&runtime, &root), &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
+            let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
 
             use du_asr::AsrEngine as _;
             let segments = {

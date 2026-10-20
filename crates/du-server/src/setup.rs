@@ -142,8 +142,8 @@ impl Component {
 const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
 const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
 
-/// Сборки transcribe.cpp (видеокарта и процессор) в папках и с файлами Dub Studio: какую грузить, решает выбор
-/// стадии распознавания.
+/// Сборки transcribe.cpp (видеокарта и процессор) в папках и с файлами Dub Studio: процессорная идёт с моделью,
+/// видеокарточная — отдельным компонентом `asr-gpu`.
 const TCPP_CUDA: FileSpec = tcpp_engine(dub_tcpp::Build::Cuda, "models/transcribe-engine/transcribe_engine.dll");
 const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/transcribe_engine.dll");
 
@@ -280,10 +280,7 @@ static COMPONENTS: &[Component] = &[
             variant_of: "asr",
             files: &[
                 parakeet_gguf(&dub_tcpp::MODELS[0], "models/asr-gguf-parakeet-v3/parakeet-tdt-0.6b-v3-Q8_0.gguf"),
-                TCPP_CUDA,
                 TCPP_CPU,
-                CUDART13,
-                CUBLAS13,
             ],
         },
         Component {
@@ -294,10 +291,7 @@ static COMPONENTS: &[Component] = &[
             variant_of: "asr",
             files: &[
                 parakeet_gguf(&dub_tcpp::MODELS[1], "models/asr-gguf-parakeet-ultra/parakeet-ultra-Q8_0.gguf"),
-                TCPP_CUDA,
                 TCPP_CPU,
-                CUDART13,
-                CUBLAS13,
             ],
         },
         Component {
@@ -385,6 +379,14 @@ static COMPONENTS: &[Component] = &[
                 FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/tokenizer.json", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/tokenizer.json", 2_710_337, "297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd"),
                 FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/vocabulary.json", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/vocabulary.json", 1_068_114, "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"),
             ],
+        },
+        Component {
+            id: "asr-gpu",
+            title: "Parakeet на видеокарте",
+            note: "сборка transcribe.cpp под CUDA и её библиотеки; без неё Parakeet работает на процессоре",
+            requirement: Requirement::Optional,
+            variant_of: "",
+            files: &[TCPP_CUDA, CUDART13, CUBLAS13],
         },
         Component {
             id: "whisper-cuda",
@@ -502,6 +504,11 @@ fn downloads() -> std::sync::MutexGuard<'static, Downloads> {
 /// точном совпадении — так же старый файл прежней версии (другой движок голоса) считается
 /// недостающим и докачивается. Архив после распаковки удаляется: смотрим на маркер и на метку
 /// версии, которую распаковка кладёт рядом, — иначе движок прошлой версии считался бы новым.
+/// Скачан ли компонент `id` целиком: так же, как его видит экран «Что скачать».
+pub fn component_present(root: &Path, id: &str) -> bool {
+    COMPONENTS.iter().find(|component| component.id == id).is_some_and(|component| component.files.iter().all(|file| file_present(root, file)))
+}
+
 fn file_present(root: &Path, file: &FileSpec) -> bool {
     if file.is_archive() {
         let marker = root.join(file.marker);
@@ -1144,7 +1151,8 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
 
-    /// Parakeet и сборки transcribe.cpp ложатся туда, где их ищут `dub_tcpp` и голосовой ввод, по путям Dub Studio.
+    /// Parakeet и сборки transcribe.cpp ложатся туда, где их ищут `dub_tcpp` и голосовой ввод, по путям Dub Studio;
+    /// распознавание на процессоре не тянет файлов CUDA.
     #[test]
     fn parakeet_files_land_where_the_binding_looks() {
         use super::{parakeet_model, Extract, COMPONENTS};
@@ -1154,12 +1162,14 @@ mod tests {
             let model = parakeet_model(&runtime);
             let files = COMPONENTS.iter().find(|c| c.id == id).unwrap().files;
             assert!(files.iter().any(|f| std::path::Path::new(f.path) == dub_tcpp::model_path(models, model) && f.sha256 == model.download.sha256), "{id}");
-            for build in [dub_tcpp::Build::Cuda, dub_tcpp::Build::Cpu] {
-                let engine = dub_tcpp::engine_dir(models, build).join(dub_tcpp::LIBRARY);
-                assert!(files.iter().any(|f| std::path::Path::new(f.path) == engine && f.extract == Extract::None && f.sha256 == build.download().sha256), "{id} {build:?}");
-            }
-            assert!(files.iter().all(|f| !f.url.contains("onnx")), "{id}");
+            let engine = |build: dub_tcpp::Build| dub_tcpp::engine_dir(models, build).join(dub_tcpp::LIBRARY);
+            let has = |files: &[super::FileSpec], build: dub_tcpp::Build| files.iter().any(|f| std::path::Path::new(f.path) == engine(build) && f.extract == Extract::None && f.sha256 == build.download().sha256);
+            assert!(has(files, dub_tcpp::Build::Cpu) && !has(files, dub_tcpp::Build::Cuda), "{id}: the processor build comes with the model, the card's apart");
+            assert!(files.iter().all(|f| !f.url.contains("onnx") && !f.url.contains("nvidia")), "{id}");
         }
+        let gpu = COMPONENTS.iter().find(|c| c.id == "asr-gpu").unwrap();
+        assert!(gpu.files.iter().any(|f| std::path::Path::new(f.path) == dub_tcpp::engine_dir(models, dub_tcpp::Build::Cuda).join(dub_tcpp::LIBRARY)));
+        assert!(gpu.files.iter().any(|f| f.marker.ends_with("cublas64_13.dll")) && gpu.files.iter().any(|f| f.marker.ends_with("cudart64_13.dll")));
     }
 
     #[test]

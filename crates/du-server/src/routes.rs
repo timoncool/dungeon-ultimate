@@ -181,7 +181,12 @@ pub async fn where_it_runs(State(state): State<AppState>) -> Json<Value> {
             },
             "image": decide(Stage::Image, crate::cloud::Stage::Image, &runtime.openrouter_image_model),
             "tts": decide(Stage::Tts, crate::cloud::Stage::Tts, crate::cloud::tts_model(&runtime)),
-            "asr": decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model),
+            "asr": if !crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr) && runtime.asr_engine != "whisper" {
+                let device = crate::voice::parakeet_device(&runtime, &state.root);
+                json!({ "where": if device.is_cpu() { "cpu" } else { "gpu" }, "detail": "Parakeet" })
+            } else {
+                decide(Stage::Asr, crate::cloud::Stage::Asr, &runtime.openrouter_asr_model)
+            },
         }
     }))
 }
