@@ -24,6 +24,7 @@ const RU: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "лёгкий" },
   "whisper-base": { title: "Whisper base", note: "очень лёгкий" },
   "whisper-tiny": { title: "Whisper tiny", note: "самый лёгкий, для слабого компьютера" },
+  "asr-gpu": { title: "Parakeet на видеокарте", note: "без этого Parakeet работает на процессоре" },
   "whisper-cuda": { title: "Whisper на видеокарте", note: "без этого Whisper работает только на процессоре" },
 };
 
@@ -46,6 +47,7 @@ const EN: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "light" },
   "whisper-base": { title: "Whisper base", note: "very light" },
   "whisper-tiny": { title: "Whisper tiny", note: "the lightest, for a weak computer" },
+  "asr-gpu": { title: "Parakeet on the graphics card", note: "without it Parakeet runs on the processor" },
   "whisper-cuda": { title: "Whisper on the graphics card", note: "without it Whisper runs on the processor only" },
 };
 
@@ -68,6 +70,7 @@ const ES: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "ligero" },
   "whisper-base": { title: "Whisper base", note: "muy ligero" },
   "whisper-tiny": { title: "Whisper tiny", note: "el más ligero, para un equipo modesto" },
+  "asr-gpu": { title: "Parakeet en la tarjeta gráfica", note: "sin esto Parakeet funciona en el procesador" },
   "whisper-cuda": { title: "Whisper en la tarjeta gráfica", note: "sin esto Whisper solo funciona en el procesador" },
 };
 
@@ -90,6 +93,7 @@ const FR: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "léger" },
   "whisper-base": { title: "Whisper base", note: "très léger" },
   "whisper-tiny": { title: "Whisper tiny", note: "le plus léger, pour un ordinateur modeste" },
+  "asr-gpu": { title: "Parakeet sur la carte graphique", note: "sans cela Parakeet tourne sur le processeur" },
   "whisper-cuda": { title: "Whisper sur la carte graphique", note: "sans cela Whisper ne tourne que sur le processeur" },
 };
 
@@ -112,6 +116,7 @@ const DE: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "leicht" },
   "whisper-base": { title: "Whisper base", note: "sehr leicht" },
   "whisper-tiny": { title: "Whisper tiny", note: "das leichteste, für schwache Rechner" },
+  "asr-gpu": { title: "Parakeet auf der Grafikkarte", note: "ohne das läuft Parakeet auf dem Prozessor" },
   "whisper-cuda": { title: "Whisper auf der Grafikkarte", note: "ohne das läuft Whisper nur auf dem Prozessor" },
 };
 
@@ -134,6 +139,7 @@ const ZH: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "轻量" },
   "whisper-base": { title: "Whisper base", note: "很轻" },
   "whisper-tiny": { title: "Whisper tiny", note: "最轻，适合配置低的电脑" },
+  "asr-gpu": { title: "显卡版 Parakeet", note: "没有它，Parakeet 用处理器运行" },
   "whisper-cuda": { title: "显卡版 Whisper", note: "没有它，Whisper 只能用处理器" },
 };
 
@@ -156,6 +162,7 @@ const JA: Record<string, ComponentText> = {
   "whisper-small": { title: "Whisper small", note: "軽い" },
   "whisper-base": { title: "Whisper base", note: "とても軽い" },
   "whisper-tiny": { title: "Whisper tiny", note: "いちばん軽い、非力なPC向け" },
+  "asr-gpu": { title: "グラフィックカード版 Parakeet", note: "これがないと Parakeet はプロセッサーで動く" },
   "whisper-cuda": { title: "グラフィックカード版 Whisper", note: "これがないと Whisper はプロセッサーでしか動かない" },
 };
 

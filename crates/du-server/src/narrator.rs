@@ -73,6 +73,25 @@ pub fn remote_client(runtime: &Runtime, timeout: Duration) -> Result<Option<Chat
     }
 }
 
+/// Клиент OpenAI-совместимого сервера, который история назвала сама («Локальный сервер» в её настройках: llama.cpp,
+/// LM Studio, vLLM, Unsloth и т. п.); `None` — история считает своей моделью. Ключ и модель — если заданы.
+pub fn story_client(settings: &du_core::StorySettings, timeout: Duration) -> Result<Option<ChatClient>, String> {
+    if settings.text_provider != du_core::settings::TextProvider::Custom {
+        return Ok(None);
+    }
+    let url = settings.custom_base_url.trim();
+    if url.is_empty() {
+        return Err("в настройках истории выбран локальный сервер, но его адрес пуст: впишите адрес сервера".into());
+    }
+    let filled = |value: &str| Some(value.trim().to_string()).filter(|value| !value.is_empty());
+    Ok(Some(
+        ChatClient::new(url, timeout)
+            .map_err(|error| format!("локальный сервер {url}: {error}"))?
+            .with_api_key(filled(&settings.custom_api_key))
+            .with_model(filled(&settings.custom_model)),
+    ))
+}
+
 /// Ожидание агента ограничивает сам вопрос (`mcp::AGENT_ANSWER`): короткий срок вызывающего
 /// оборвал бы запрос, пока агент ещё пишет ответ.
 fn agent_client() -> Result<ChatClient, String> {
@@ -112,6 +131,16 @@ fn cloud_client(runtime: &Runtime, timeout: Duration) -> Result<ChatClient, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_story_on_a_local_server_names_its_own_client() {
+        let mut settings = du_core::StorySettings::default();
+        assert!(story_client(&settings, Duration::from_secs(1)).unwrap().is_none(), "its own model");
+        settings.text_provider = du_core::settings::TextProvider::Custom;
+        assert!(story_client(&settings, Duration::from_secs(1)).is_err(), "an empty address is said, not skipped");
+        settings.custom_base_url = "http://192.168.1.2:8888/v1".into();
+        assert!(story_client(&settings, Duration::from_secs(1)).unwrap().is_some());
+    }
 
     #[test]
     fn the_agent_wins_over_the_cloud_and_the_card() {

@@ -335,12 +335,18 @@ fn run_turn(
             } }));
             client
         }
-        None => {
-            progress(json!({ "stage": "загрузка модели" }));
-            let base_url = state.gpu.text_base_url().map_err(|error| error.to_string())?;
-            ChatClient::new(&base_url, std::time::Duration::from_secs(600))
-                .map_err(|error| error.to_string())?
-        }
+        None => match crate::narrator::story_client(settings, std::time::Duration::from_secs(600))? {
+            Some(client) => {
+                progress(json!({ "stage": "локальный сервер" }));
+                client
+            }
+            None => {
+                progress(json!({ "stage": "загрузка модели" }));
+                let base_url = state.gpu.text_base_url().map_err(|error| error.to_string())?;
+                ChatClient::new(&base_url, std::time::Duration::from_secs(600))
+                    .map_err(|error| error.to_string())?
+            }
+        },
     };
 
     // Состав хода и снимок ДО него: по снимку Повтор откатит последствия.

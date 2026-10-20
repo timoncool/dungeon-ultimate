@@ -148,16 +148,7 @@ fn ensure_wav_reference(source: &std::path::Path, seconds: u32) -> Result<std::p
     if prepared.is_file() {
         return Ok(prepared);
     }
-    let status = std::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(source)
-        .args(["-t", &seconds.to_string(), "-ac", "1", "-ar", "16000"])
-        .arg(&prepared)
-        .status()
-        .map_err(|error| format!("не запустить ffmpeg для эталона голоса: {error}"))?;
-    if !status.success() || !prepared.is_file() {
-        return Err(format!("не удалось подготовить эталон голоса из {}", source.display()));
-    }
+    crate::voice_clip::to_wav(source, seconds, &prepared).map_err(|error| format!("не удалось подготовить эталон голоса: {error}"))?;
     Ok(prepared)
 }
 

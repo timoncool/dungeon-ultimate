@@ -44,6 +44,76 @@ pub async fn transcribe(state: State<AppState>, query: Query<AsrQuery>, body: By
     result
 }
 
+/// Сборки transcribe.cpp под видеокарту нужны cuBLAS 13 и рантайм CUDA 13 рядом с ней; их приносит движок озвучки.
+const CUDA13_LIBRARIES: [&str; 3] = ["cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll"];
+
+/// Где считает Parakeet: выбор игрока, а при «авто» — видеокарта, если «Parakeet на видеокарте» скачан целиком и карта
+/// есть.
+pub fn parakeet_device(runtime: &crate::runtime::Runtime, root: &std::path::Path) -> crate::backend::Backend {
+    use crate::backend::{stage_explicit, Backend, Stage};
+    stage_explicit(runtime, Stage::Asr).unwrap_or_else(|| {
+        if crate::setup::component_present(root, "asr-gpu") && crate::backend::gpu_present() { Backend::Gpu } else { Backend::Cpu }
+    })
+}
+
+/// Текст записи `wav` от Parakeet на transcribe.cpp: видеокарта или процессор — по [`parakeet_device`].
+/// На видеокарте модель выгружается сразу после разбора: карта нужна рассказчику и картинке.
+fn parakeet_text(
+    models_root: &std::path::Path,
+    model: &'static dub_tcpp::Model,
+    model_path: &std::path::Path,
+    device: crate::backend::Backend,
+    wav: &std::path::Path,
+    lang: &str,
+) -> Result<String, String> {
+    let build = if device.is_cpu() { dub_tcpp::Build::Cpu } else { dub_tcpp::Build::Cuda };
+    let engine_dir = dub_tcpp::engine_dir(models_root, build);
+    if !engine_dir.join(dub_tcpp::LIBRARY).is_file() {
+        return Err(if device.is_cpu() {
+            format!("нет движка распознавания в {} — скачайте Parakeet в «Что скачать»", engine_dir.display())
+        } else {
+            format!("распознавание выбрано на видеокарте, а сборки для неё нет в {} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор", engine_dir.display())
+        });
+    }
+    if build == dub_tcpp::Build::Cuda && cfg!(windows) {
+        link_cuda13(&engine_dir, &models_root.join("tts-engine"))?;
+    }
+    let (pcm, _) = du_asr::load_wav_16k_mono(wav).map_err(|error| error.to_string())?;
+    let language = Some(lang).filter(|lang| dub_tcpp::knows(model, lang)).unwrap_or("");
+    let asr = dub_tcpp::shared(&engine_dir, model_path)?;
+    let heard = asr.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).words(&pcm, language);
+    drop(asr);
+    if build == dub_tcpp::Build::Cuda {
+        dub_tcpp::unload();
+    }
+    let words = heard.map_err(|error| format!("Parakeet не распознал запись: {error}"))?;
+    Ok(words.iter().map(|word| word.word.trim()).filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" "))
+}
+
+/// Положить [`CUDA13_LIBRARIES`] из `source` рядом со сборкой `engine_dir` (жёсткой ссылкой, иначе копией).
+fn link_cuda13(engine_dir: &std::path::Path, source: &std::path::Path) -> Result<(), String> {
+    for name in CUDA13_LIBRARIES {
+        let target = engine_dir.join(name);
+        let from = source.join(name);
+        let size = |path: &std::path::Path| std::fs::metadata(path).map(|meta| meta.len()).ok();
+        if target.is_file() && (!from.is_file() || size(&target) == size(&from)) {
+            continue;
+        }
+        if !from.is_file() {
+            return Err(format!(
+                "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
+                source.display()
+            ));
+        }
+        // устаревшая копия от прежнего cuBLAS движка озвучки уступает новой
+        std::fs::remove_file(&target).ok();
+        if std::fs::hard_link(&from, &target).is_err() {
+            std::fs::copy(&from, &target).map_err(|error| format!("скопировать {} к движку распознавания: {error}", from.display()))?;
+        }
+    }
+    Ok(())
+}
+
 async fn transcribe_inner(State(state): State<AppState>, language: du_core::Language, body: Bytes) -> ApiResult<Json<Value>> {
     if body.is_empty() {
         return Err(ApiError::bad_request("пустая запись"));
@@ -51,7 +121,9 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
     let runtime = crate::runtime::load(&state.root);
     let in_cloud = crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr);
     let by_whisper = runtime.asr_engine.trim().eq_ignore_ascii_case("whisper");
-    let models = crate::setup::parakeet_dir(&state.root, &runtime);
+    let models_root = state.root.join("models");
+    let parakeet = crate::setup::parakeet_model(&runtime);
+    let parakeet_path = dub_tcpp::model_path(&models_root, parakeet);
     let whisper_bin = whisper_bin(&state.root);
     let whisper_models = state.root.join("models").join("whisper");
     if !in_cloud {
@@ -71,10 +143,10 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                     model_dir.display()
                 )));
             }
-        } else if !models.join("vocab.txt").is_file() {
+        } else if !parakeet_path.is_file() {
             return Err(ApiError::internal(format!(
-                "нет модели распознавания в {} — либо скачайте её, либо включите облако",
-                models.display()
+                "нет модели распознавания {} — либо скачайте её в «Что скачать», либо включите облако",
+                parakeet_path.display()
             )));
         }
     }
@@ -94,13 +166,15 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                 let text = crate::cloud::transcribe(&root, &runtime, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-            // Распознавание слушается общего выбора — для Whisper. Parakeet собран без
-            // CUDA-провайдера и считает на процессоре, о чём и говорит панель движков.
+            if !by_whisper {
+                let models_root = root.join("models");
+                let text = parakeet_text(&models_root, parakeet, &parakeet_path, parakeet_device(&runtime, &root), &path, lang)?;
+                return Ok(json!({ "text": text }));
+            }
             let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
-            std::env::set_var("DUB_ASR_BACKEND", "cpu");
 
             use du_asr::AsrEngine as _;
-            let segments = if by_whisper {
+            let segments = {
                 // Whisper на видеокарте требует библиотек CUDA 11 рядом с программой: без них он
                 // упал бы, а молча считать на процессоре нельзя.
                 if !device.is_cpu() && !whisper_cuda_present(&whisper_bin) {
@@ -113,13 +187,11 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                     &whisper_bin,
                     &whisper_models,
                     runtime.whisper_model.clone(),
-                    // На процессоре половинная точность не поддерживается — там int8.
-                    if device.is_cpu() { "int8" } else { "float16" },
+                    // Веса int8 на обоих устройствах, на видеокарте активации в float16.
+                    if device.is_cpu() { "int8" } else { "int8_float16" },
                     device.engine_name(),
                 )
                 .transcribe(&path, lang)
-            } else {
-                du_asr::Asr::new(&models).transcribe(&path, lang)
             }
             .map_err(|error| error.to_string())?;
             let text = segments

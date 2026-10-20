@@ -38,8 +38,7 @@ pub enum Extract {
     /// Zip распаковывается ПЛОСКО в каталог назначения: паки приходят и с папкой внутри,
     /// и без неё, а раскладка должна получаться одинаковая.
     ZipFlat,
-    /// Zip распаковывается с сохранением поддерева: onnxruntime ищется ровно по
-    /// `onnxruntime-*/lib/…`.
+    /// Zip распаковывается с сохранением поддерева.
     ZipTree,
     /// Из zip берутся только библиотеки `.dll`, плоско: архивы NVIDIA несут ещё заголовки и
     /// `.lib`, которые рядом с программой не нужны.
@@ -138,6 +137,26 @@ impl Component {
 // Движок картинок обязан совпадать с `du_image::PINNED_COMMIT`, иначе загрузчик откажется работать
 // с чужой сборкой. Адреса стоят целиком, потому что срез файлов статический.
 
+/// Рантайм CUDA 13 и cuBLAS 13 из колёс NVIDIA: их импортируют движок озвучки и сборка transcribe.cpp под
+/// видеокарту, путь один, поэтому файлы качаются один раз на оба компонента.
+const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
+const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
+
+/// Сборки transcribe.cpp (видеокарта и процессор) в папках и с файлами Dub Studio: процессорная идёт с моделью,
+/// видеокарточная — отдельным компонентом `asr-gpu`.
+const TCPP_CUDA: FileSpec = tcpp_engine(dub_tcpp::Build::Cuda, "models/transcribe-engine/transcribe_engine.dll");
+const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/transcribe_engine.dll");
+
+const fn tcpp_engine(build: dub_tcpp::Build, path: &'static str) -> FileSpec {
+    let download = build.download();
+    FileSpec::plain(path, download.url, download.size, download.sha256)
+}
+
+/// Модель Parakeet на transcribe.cpp по пути Dub Studio (`models/<dir>/<file>`).
+const fn parakeet_gguf(model: &'static dub_tcpp::Model, path: &'static str) -> FileSpec {
+    FileSpec::plain(path, model.download.url, model.download.size, model.download.sha256)
+}
+
 /// Что нужно приложению. Порядок задаёт порядок показа на экране первого запуска.
 ///
 /// Список статический: срез файлов внутри компонента обязан жить всю программу, иначе на
@@ -224,8 +243,8 @@ static COMPONENTS: &[Component] = &[
             files: &[
                 FileSpec::plain("models/tts-engine/audiocpp_engine.dll", "https://github.com/timoncool/Higgs-Ultimate/releases/download/engine-0.2.3-turing/audiocpp_engine.dll", 129_390_080, "c3608613bd54bdd41c85cc90412d4add67b928b07b32be24f26d91cb9626f46d"),
                 // the engine imports cublas64_13.dll, which loads cudart64_13 and cublasLt64_13: without them beside it Windows refuses the DLL
-                FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cudart64_13.dll"),
-                FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cublas64_13.dll"),
+                CUDART13,
+                CUBLAS13,
             ],
         },
         Component {
@@ -260,12 +279,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Recommended,
             variant_of: "asr",
             files: &[
-                FileSpec::archive("downloads/onnxruntime.zip", "https://github.com/microsoft/onnxruntime/releases/download/v1.28.2/onnxruntime-win-x64-1.28.2.zip", 78_620_837, "c4eedd29489d5feca21866d054638416f3655bf6b18851b3b6b85c8313e95c35", Extract::ZipTree, "models/runtime", "models/runtime/onnxruntime-win-x64-1.28.2/lib/onnxruntime.dll"),
-                FileSpec::plain("models/asr/encoder-model.int8.onnx", "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/encoder-model.int8.onnx", 652_183_999, "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09"),
-                FileSpec::plain("models/asr/decoder_joint-model.int8.onnx", "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/decoder_joint-model.int8.onnx", 18_202_004, "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70"),
-                FileSpec::plain("models/asr/nemo128.onnx", "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/nemo128.onnx", 139_764, "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"),
-                FileSpec::plain("models/asr/vocab.txt", "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/vocab.txt", 93_939, "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
-                FileSpec::plain("models/asr/config.json", "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/config.json", 97, "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466"),
+                parakeet_gguf(&dub_tcpp::MODELS[0], "models/asr-gguf-parakeet-v3/parakeet-tdt-0.6b-v3-Q8_0.gguf"),
+                TCPP_CPU,
             ],
         },
         Component {
@@ -275,12 +290,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Optional,
             variant_of: "asr",
             files: &[
-                FileSpec::archive("downloads/onnxruntime.zip", "https://github.com/microsoft/onnxruntime/releases/download/v1.28.2/onnxruntime-win-x64-1.28.2.zip", 78_620_837, "c4eedd29489d5feca21866d054638416f3655bf6b18851b3b6b85c8313e95c35", Extract::ZipTree, "models/runtime", "models/runtime/onnxruntime-win-x64-1.28.2/lib/onnxruntime.dll"),
-                FileSpec::plain("models/asr-ultra/encoder-model.int8.onnx", "https://huggingface.co/Masterx/parakeet-tdt-0.6b-ultra-onnx/resolve/99b09f030a5a6efeaa13cf2cf54592100ce2c3f1/encoder-model.int8.onnx", 652_183_214, "46e78f85f1ae43b43bd359889c966da5c7ca401df60a42eeffc2e7699b357ba6"),
-                FileSpec::plain("models/asr-ultra/decoder_joint-model.int8.onnx", "https://huggingface.co/Masterx/parakeet-tdt-0.6b-ultra-onnx/resolve/99b09f030a5a6efeaa13cf2cf54592100ce2c3f1/decoder_joint-model.int8.onnx", 18_202_004, "2276a335d4c8dc48686e931475a634595954956427d485830e1214c0d1a18d07"),
-                FileSpec::plain("models/asr-ultra/nemo128.onnx", "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/nemo128.onnx", 139_764, "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"),
-                FileSpec::plain("models/asr-ultra/vocab.txt", "https://huggingface.co/Masterx/parakeet-tdt-0.6b-ultra-onnx/resolve/99b09f030a5a6efeaa13cf2cf54592100ce2c3f1/vocab.txt", 93_939, "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
-                FileSpec::plain("models/asr-ultra/config.json", "https://huggingface.co/Masterx/parakeet-tdt-0.6b-ultra-onnx/resolve/99b09f030a5a6efeaa13cf2cf54592100ce2c3f1/config.json", 97, "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466"),
+                parakeet_gguf(&dub_tcpp::MODELS[1], "models/asr-gguf-parakeet-ultra/parakeet-ultra-Q8_0.gguf"),
+                TCPP_CPU,
             ],
         },
         Component {
@@ -370,6 +381,14 @@ static COMPONENTS: &[Component] = &[
             ],
         },
         Component {
+            id: "asr-gpu",
+            title: "Parakeet на видеокарте",
+            note: "сборка transcribe.cpp под CUDA и её библиотеки; без неё Parakeet работает на процессоре",
+            requirement: Requirement::Optional,
+            variant_of: "",
+            files: &[TCPP_CUDA, CUDART13, CUBLAS13],
+        },
+        Component {
             id: "whisper-cuda",
             title: "Whisper на видеокарте",
             note: "библиотеки CUDA 11 для Whisper; без них Whisper считает только на процессоре",
@@ -420,10 +439,26 @@ pub fn variant_selected(runtime: &crate::runtime::Runtime, id: &str) -> bool {
     }
 }
 
-/// Каталог весов выбранного варианта Parakeet.
-pub fn parakeet_dir(root: &Path, runtime: &crate::runtime::Runtime) -> PathBuf {
-    let models = root.join("models");
-    if runtime.asr_model == "ultra" { models.join("asr-ultra") } else { models.join("asr") }
+/// Модель Parakeet выбранного варианта.
+pub fn parakeet_model(runtime: &crate::runtime::Runtime) -> &'static dub_tcpp::Model {
+    dub_tcpp::chosen("parakeet", Some(&runtime.asr_model)).expect("Parakeet v3 и Ultra есть в dub_tcpp::MODELS")
+}
+
+/// Папки Parakeet на ONNX Runtime (0.13 и раньше) и сама onnxruntime: с transcribe.cpp их никто не читает.
+const RETIRED_ASR: [&str; 3] = ["models/asr", "models/asr-ultra", "models/runtime/onnxruntime-win-x64-1.28.2"];
+
+/// Убрать папки [`RETIRED_ASR`], что остались от прежней версии.
+pub fn remove_retired_asr(root: &Path) {
+    for rel in RETIRED_ASR {
+        let dir = root.join(rel);
+        if !dir.is_dir() {
+            continue;
+        }
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => tracing::info!("убрана прежняя модель распознавания {}", dir.display()),
+            Err(error) => tracing::warn!("не убрать прежнюю модель распознавания {}: {error}", dir.display()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -469,6 +504,11 @@ fn downloads() -> std::sync::MutexGuard<'static, Downloads> {
 /// точном совпадении — так же старый файл прежней версии (другой движок голоса) считается
 /// недостающим и докачивается. Архив после распаковки удаляется: смотрим на маркер и на метку
 /// версии, которую распаковка кладёт рядом, — иначе движок прошлой версии считался бы новым.
+/// Скачан ли компонент `id` целиком: так же, как его видит экран «Что скачать».
+pub fn component_present(root: &Path, id: &str) -> bool {
+    COMPONENTS.iter().find(|component| component.id == id).is_some_and(|component| component.files.iter().all(|file| file_present(root, file)))
+}
+
 fn file_present(root: &Path, file: &FileSpec) -> bool {
     if file.is_archive() {
         let marker = root.join(file.marker);
@@ -545,6 +585,74 @@ fn link_from_neighbors(root: &Path) {
             lock_taken().insert(component.id.to_string(), app);
         }
     }
+    // статус спрашивают каждую секунду, а пак сверяется по SHA-256 сотни файлов: не чаще раза в минуту, в такт тому,
+    // как studio-hub-client заново обходит папки соседей
+    static PACK_TRIED: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let due = {
+        let mut tried = PACK_TRIED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let due = tried.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(60));
+        if due {
+            *tried = Some(std::time::Instant::now());
+        }
+        due
+    };
+    if due && !downloads().live.contains_key("voice-pack") {
+        if let Some(app) = take_voice_pack(root) {
+            tracing::info!("voice-pack взят у {app}, без закачки");
+            lock_taken().insert("voice-pack".to_string(), app);
+        }
+    }
+}
+
+/// Файлы архива пака голосов: имя, размер и SHA-256 каждого (тот же пак, что у Dub Studio и Speech Studio).
+fn voice_pack_files() -> impl Iterator<Item = (&'static str, u64, &'static str)> {
+    include_str!("voice_pack.tsv").lines().filter_map(|line| {
+        let mut fields = line.split('\t');
+        Some((fields.next()?, fields.next()?.parse().ok()?, fields.next()?))
+    })
+}
+
+/// Пак голосов из папки `voices` соседней программы, где лежат все его файлы, каждый по SHA-256 (остальные голоса
+/// той папки не трогаются; обход соседей папку голосов пропускает, поэтому она смотрится прямо); пак засчитывается
+/// установленным меткой архива. Программа, у которой взят, или None.
+fn take_voice_pack(root: &Path) -> Option<String> {
+    let spec = COMPONENTS.iter().find(|component| component.id == "voice-pack")?.files.first()?;
+    if file_present(root, spec) {
+        return None;
+    }
+    let dir = root.join(spec.extract_dir);
+    let abort = AtomicBool::new(false);
+    let whole = |path: &Path, size: u64, sha256: &str| {
+        path.metadata().is_ok_and(|meta| meta.len() == size) && sha256_file(path, &abort).ok().flatten().is_some_and(|got| got == sha256)
+    };
+    let missing: Vec<_> = voice_pack_files().filter(|(name, size, sha256)| !whole(&dir.join(name), *size, sha256)).collect();
+    if missing.is_empty() {
+        std::fs::write(stamp_path(root, spec), spec.url).ok();
+        return None;
+    }
+    for neighbor in studio_hub_client::neighbors::current() {
+        let Some(theirs) = ["voices", "models/voices"].iter().map(|folder| neighbor.data_dir.join(folder)).find(|folder| {
+            missing.iter().all(|(name, size, _)| folder.join(name).metadata().is_ok_and(|meta| meta.len() == *size))
+        }) else {
+            continue;
+        };
+        std::fs::create_dir_all(&dir).ok()?;
+        let taken = missing.iter().all(|(name, size, sha256)| {
+            let target = dir.join(name);
+            match studio_hub_client::neighbors::take_file(&theirs.join(name), &target, true, |staged| whole(staged, *size, sha256)) {
+                Ok(()) => true,
+                Err(error) => {
+                    report_take_failure(&target, &neighbor.app, &error);
+                    false
+                }
+            }
+        });
+        if taken {
+            std::fs::write(stamp_path(root, spec), spec.url).ok()?;
+            return Some(neighbor.app);
+        }
+    }
+    None
 }
 
 /// Метка распакованного архива: имя несёт начало его SHA-256, поэтому новая версия архива
@@ -1110,6 +1218,34 @@ fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_voice_pack_lists_every_file_of_its_archive() {
+        let files: Vec<_> = super::voice_pack_files().collect();
+        assert_eq!(files.len(), 100);
+        assert!(files.iter().all(|(name, size, sha)| !name.is_empty() && *size > 0 && sha.len() == 64));
+    }
+
+    /// Parakeet и сборки transcribe.cpp ложатся туда, где их ищут `dub_tcpp` и голосовой ввод, по путям Dub Studio;
+    /// распознавание на процессоре не тянет файлов CUDA.
+    #[test]
+    fn parakeet_files_land_where_the_binding_looks() {
+        use super::{parakeet_model, Extract, COMPONENTS};
+        let models = std::path::Path::new("models");
+        for (id, variant) in [("asr", "int8"), ("asr-ultra", "ultra")] {
+            let runtime = crate::runtime::Runtime { asr_engine: "parakeet".into(), asr_model: variant.into(), ..Default::default() };
+            let model = parakeet_model(&runtime);
+            let files = COMPONENTS.iter().find(|c| c.id == id).unwrap().files;
+            assert!(files.iter().any(|f| std::path::Path::new(f.path) == dub_tcpp::model_path(models, model) && f.sha256 == model.download.sha256), "{id}");
+            let engine = |build: dub_tcpp::Build| dub_tcpp::engine_dir(models, build).join(dub_tcpp::LIBRARY);
+            let has = |files: &[super::FileSpec], build: dub_tcpp::Build| files.iter().any(|f| std::path::Path::new(f.path) == engine(build) && f.extract == Extract::None && f.sha256 == build.download().sha256);
+            assert!(has(files, dub_tcpp::Build::Cpu) && !has(files, dub_tcpp::Build::Cuda), "{id}: the processor build comes with the model, the card's apart");
+            assert!(files.iter().all(|f| !f.url.contains("onnx") && !f.url.contains("nvidia")), "{id}");
+        }
+        let gpu = COMPONENTS.iter().find(|c| c.id == "asr-gpu").unwrap();
+        assert!(gpu.files.iter().any(|f| std::path::Path::new(f.path) == dub_tcpp::engine_dir(models, dub_tcpp::Build::Cuda).join(dub_tcpp::LIBRARY)));
+        assert!(gpu.files.iter().any(|f| f.marker.ends_with("cublas64_13.dll")) && gpu.files.iter().any(|f| f.marker.ends_with("cudart64_13.dll")));
+    }
 
     #[test]
     fn a_failed_download_reaches_the_hub_as_a_code() {

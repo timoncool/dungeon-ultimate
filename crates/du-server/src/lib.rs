@@ -38,6 +38,7 @@ pub mod story;
 pub mod tts;
 pub mod voice;
 pub mod voice_catalog;
+mod voice_clip;
 mod voice_tags;
 pub mod turn;
 pub mod ui_lang;
@@ -149,6 +150,8 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {
         let state = AppState::new(root)?;
+        let retired = root.to_path_buf();
+        tokio::task::spawn_blocking(move || setup::remove_retired_asr(&retired));
         hub::start(root);
         activity::start(root);
         narrator::set_port(port);

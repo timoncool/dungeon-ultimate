@@ -13,6 +13,8 @@ du-llm = { path = "../du-llm" }
 du-image = { path = "../du-image" }
 du-prompts = { path = "../du-prompts" }
 du-asr = { path = "../du-asr" }
+# Parakeet на transcribe.cpp — та же привязка, что у Dub Studio, Speech Studio и музыкальных студий
+dub-tcpp = { git = "https://github.com/timoncool/dub-studio", rev = "e3373d99a4830f8fe068713685f7b807e373c29e" }
 du-tts = { path = "../du-tts" }
 
 serde = { workspace = true }
@@ -42,6 +44,12 @@ nvml-wrapper = "0.13"
 sysinfo = { workspace = true }
 async-stream = "0.3"
 tower = { version = "0.5", features = ["util"] }
+# Эталон голоса из mp3 пака — без ffmpeg: раскодирование и пересэмплирование, как в студиях.
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis"] }
+rubato = "5.0"
+audioadapter = "5.0"
+audioadapter-buffers = "5.2"
+hound = "3.5"
 
 [dev-dependencies]
 tempfile = "3"

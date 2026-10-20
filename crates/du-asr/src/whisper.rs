@@ -84,7 +84,7 @@ pub struct WhisperAsr {
     model_dir: PathBuf,
     /// Имя модели: tiny|base|small|medium|large-v3|large-v3-turbo.
     model: String,
-    /// compute_type (квант): int8|int8_float32|float32|float16|…
+    /// compute_type (квант): int8|int8_float16|int8_float32
     compute: String,
     /// Устройство исполнения: cpu|cuda.
     device: String,

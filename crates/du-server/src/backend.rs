@@ -84,6 +84,11 @@ pub fn gpu_present() -> bool {
     crate::hw::snapshot().total_vram > 0
 }
 
+/// Выбор игрока для стадии — её собственный или общий; None — «авто».
+pub fn stage_explicit(runtime: &Runtime, stage: Stage) -> Option<Backend> {
+    parse(stage_choice(runtime, stage)).or_else(|| parse(&runtime.local_backend))
+}
+
 /// Где считать эту стадию: сначала её собственный выбор, потом общий, потом по факту железа.
 pub fn stage_backend(runtime: &Runtime, stage: Stage) -> Backend {
     // Кадр и озвучка считаются только видеокартой — даже если общий выбор говорит иначе.

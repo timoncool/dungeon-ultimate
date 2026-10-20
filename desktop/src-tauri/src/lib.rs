@@ -73,16 +73,6 @@ fn wait_until_ready(port: u16, timeout: Duration) -> bool {
     false
 }
 
-/// Прописать ORT_DYLIB_PATH (onnxruntime 1.28.2) в окружение ПРОЦЕССА до старта сервера (du-asr трогает ort
-/// лениво; PATH под движок/инструменты добавит augment_path_for_tools внутри serve_blocking). Библиотеки ещё
-/// нет — путь всё равно ставится: ort упадёт с «нет файла», а не возьмёт системную чужой версии.
-fn setup_server_env(repo_root: &PathBuf) {
-    if std::env::var_os("ORT_DYLIB_PATH").is_none() {
-        std::env::set_var("ORT_DYLIB_PATH", du_core::runtime::ort_library(&repo_root.join("models")));
-    }
-}
-
-
 /// Спрятать ОКНО консоли. Exe — console-subsystem (чтобы дети ffmpeg/llama/roformer наследовали ОДНУ
 /// консоль и НЕ плодили своих окон на каждый спавн). Сама консоль остаётся выделенной (дети её наследуют),
 /// прячем только её ОКНО -> исчезает чёрное окно и его пустая запись в ALT+TAB/панели задач; в переключателе
@@ -189,7 +179,6 @@ pub fn run() {
 
     let repo_root = resolve_repo_root();
     let port = pick_port().expect("нет свободного порта на 127.0.0.1");
-    setup_server_env(&repo_root);
 
     // axum-бэкенд поднимается В ЭТОМ ЖЕ процессе на фоновом потоке — ОДИН exe, без сервер.exe-сайдкара.
     // Поток-демон: живёт до выхода процесса, отдельно убивать не нужно (нет дочернего процесса).

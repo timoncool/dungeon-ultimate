@@ -144,7 +144,7 @@
 | Текст | сайдкар llama.cpp (Gemma 4 12B без цензуры, Q4_K_M) |
 | Картинки | stable-diffusion.cpp через FFI (Krea-2 Turbo Q4_K_M, абляционный энкодер Qwen3-VL, VAE Wan 2.1) |
 | Речь наружу | Higgs Audio v3 через родной движок, потоком по фразам |
-| Речь внутрь | Parakeet-TDT-0.6B-v3 через ONNX Runtime |
+| Речь внутрь | Parakeet-TDT-0.6B-v3 (GGUF Q8_0) на [transcribe.cpp](https://github.com/timoncool/transcribe.cpp), на видеокарте или процессоре; Whisper на faster-whisper |
 | Облако | OpenRouter, отдельно на каждую стадию, со свежими списками моделей и голосов |
 | Хранилище | SQLite; сохранения прежней версии открываются без изменений |
 
