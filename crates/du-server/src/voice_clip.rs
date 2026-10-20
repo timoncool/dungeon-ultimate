@@ -26,7 +26,8 @@ pub fn to_wav(source: &Path, seconds: u32, out: &Path) -> Result<(), String> {
         return Err(format!("в {} нет звука", source.display()));
     }
     let spec = hound::WavSpec { channels: 1, sample_rate: RATE, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
-    let partial = out.with_extension("part");
+    // two first syntheses with one voice prepare it at once: each writes its own file and the last rename wins
+    let partial = out.with_extension(format!("{}.part", uuid::Uuid::new_v4().simple()));
     let written = (|| -> Result<(), hound::Error> {
         let mut writer = hound::WavWriter::create(&partial, spec)?;
         for sample in &samples {
@@ -34,8 +35,11 @@ pub fn to_wav(source: &Path, seconds: u32, out: &Path) -> Result<(), String> {
         }
         writer.finalize()
     })();
-    written.map_err(|error| format!("записать эталон {}: {error}", out.display()))?;
-    std::fs::rename(&partial, out).map_err(|error| format!("записать эталон {}: {error}", out.display()))
+    if let Err(error) = written.map_err(|error| error.to_string()).and_then(|()| std::fs::rename(&partial, out).map_err(|error| error.to_string())) {
+        std::fs::remove_file(&partial).ok();
+        return Err(format!("записать эталон {}: {error}", out.display()));
+    }
+    Ok(())
 }
 
 /// Клип в моно (каналы усредняются) на его собственной частоте.
