@@ -501,8 +501,13 @@ pub fn write_png(path: &std::path::Path, image: &RawImage) -> Result<(), String>
 
 // ── Докачка моделей ────────────────────────────────────────────────────────────
 
-pub async fn setup_status(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({ "components": crate::setup::status(&state.root) }))
+pub async fn setup_status(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    // статус может сверять SHA файла соседней программы: гигабайты не читаются на потоке рантайма
+    let root = state.root.clone();
+    let components = tokio::task::spawn_blocking(move || crate::setup::status(&root))
+        .await
+        .map_err(|error| ApiError::internal(format!("статус настройки: {error}")))?;
+    Ok(Json(json!({ "components": components })))
 }
 
 #[derive(Deserialize)]
@@ -556,6 +561,9 @@ pub async fn setup_download(
                     crate::setup::download_component(&inner.root, &component, &report, abort.clone())
                 {
                     tracing::warn!("компонент «{title}» не скачался: {error}");
+                    if !abort.load(std::sync::atomic::Ordering::SeqCst) {
+                        crate::hub::setup_failed(crate::setup::failure_code(&error));
+                    }
                     return Err(format!("{title}: {error}"));
                 }
                 tracing::info!("компонент «{title}» готов");
@@ -565,6 +573,7 @@ pub async fn setup_download(
                     tracing::info!("распознавание переключено на «{title}»");
                 }
             }
+            crate::hub::setup_ready();
             Ok(json!({ "ok": true }))
         }))
         .await;

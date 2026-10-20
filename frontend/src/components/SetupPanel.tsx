@@ -3,6 +3,7 @@ import { ChevronRight, Download, Loader2, Check, X } from "lucide-react";
 import { useUi, useUiLanguage } from "@/lib/ui-text-context";
 import { panelText } from "@/lib/ui-text-panels";
 import { componentText } from "@/lib/ui-text-components";
+import { programName } from "@/lib/programs";
 import { hubChanged, setTelemetry, telemetryPreview, useHubState } from "@/lib/studioHub";
 
 // Первый запуск: докачка того, чего нет на диске.
@@ -25,6 +26,8 @@ type Component = {
   selected: boolean;
   /// Чем сорвалась последняя закачка; null — не срывалась.
   error: string | null;
+  /// Программа, у которой компонент взят в этом запуске вместо закачки.
+  takenFrom: string | null;
   files: Array<{ bytes: number }>;
 };
 
@@ -331,7 +334,11 @@ export default function SetupPanel() {
                             {component.requirement !== "optional" && !covered(group) && (
                               <span className="ml-1.5 text-[10px] uppercase text-amber-200/70">{panel.defaultWord}</span>
                             )}
-                            {component.present && <span className="ml-1.5 text-[10px] text-amber-200">{panel.installedWord}</span>}
+                            {component.present && (
+                              <span className="ml-1.5 text-[10px] text-amber-200">
+                                {component.takenFrom ? panel.takenFrom.replace("{app}", programName(component.takenFrom)) : panel.installedWord}
+                              </span>
+                            )}
                           </span>
                           <span className="shrink-0 text-[11px] tabular-nums text-stone-500">{gb(size(component), panel.gbUnit)}</span>
                         </span>

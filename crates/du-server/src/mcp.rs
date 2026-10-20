@@ -340,7 +340,7 @@ fn annotations(name: &str) -> Value {
 
 async fn call_route(call: Call) -> Result<(StatusCode, String), String> {
     let api = API.get().ok_or("the game is still starting")?.clone();
-    let builder = Request::builder().method(call.method).uri(&call.path);
+    let builder = Request::builder().method(call.method).uri(&call.path).header(header::HOST, "127.0.0.1");
     let request = match call.payload {
         Payload::None | Payload::Window { .. } | Payload::Composite(_) => builder.body(Body::empty()),
         Payload::Json(body) => builder.header(header::CONTENT_TYPE, "application/json").body(Body::from(body.to_string())),
@@ -397,7 +397,7 @@ async fn fetch(path: &str) -> Value {
 
 struct Bridge {
     commands: tokio::sync::broadcast::Sender<String>,
-    pending: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<Value, String>>>>,
+    pending: Mutex<HashMap<String, (u64, tokio::sync::oneshot::Sender<Result<Value, String>>)>>,
     /// Открытые окна; последним — то, к которому человек обратился последним.
     windows: Mutex<Vec<u64>>,
     sequence: AtomicU64,
@@ -414,26 +414,24 @@ fn open_windows() -> std::sync::MutexGuard<'static, Vec<u64>> {
 
 struct Listening(u64);
 
+/// What a command gets when the window it went to closes before answering.
+const WINDOW_CLOSED: &str = "The game's window closed before it answered. Call the tool again: it goes to another open window, or says that none is open.";
+
 impl Drop for Listening {
     fn drop(&mut self) {
         open_windows().retain(|window| *window != self.0);
+        // a window that went away answers nothing: its commands fail now, not at their timeout
+        let mut pending = bridge().pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let gone: Vec<String> = pending.iter().filter(|(_, (window, _))| *window == self.0).map(|(id, _)| id.clone()).collect();
+        for id in gone {
+            if let Some((_, sender)) = pending.remove(&id) {
+                let _ = sender.send(Err(WINDOW_CLOSED.into()));
+            }
+        }
     }
 }
 
-/// Игрой управляют только её окно и агенты на этом компьютере: страница в браузере игрока или
-/// чужой домен, перепривязанный на этот компьютер, приходят со своим origin и получают отказ.
-fn local_origin(headers: &HeaderMap) -> bool {
-    let Some(origin) = headers.get(header::ORIGIN) else { return true };
-    let Ok(origin) = origin.to_str() else { return false };
-    let Some((scheme, rest)) = origin.split_once("://") else { return false };
-    let host = rest.split('/').next().unwrap_or_default();
-    let host = if host.starts_with('[') { host.split(']').next().map(|name| format!("{name}]")).unwrap_or_default() } else { host.split(':').next().unwrap_or_default().to_string() };
-    scheme == "tauri" || ["localhost", "127.0.0.1", "[::1]", "tauri.localhost"].contains(&host.as_str())
-}
-
-fn foreign_origin() -> Response {
-    (StatusCode::FORBIDDEN, "The game answers only its own window and agents on this computer.").into_response()
-}
+use crate::guard::{foreign_origin, local_origin};
 
 /// Поток команд, которые исполняет окно. Первое сообщение называет окно.
 pub async fn window_events(headers: HeaderMap) -> Response {
@@ -471,7 +469,7 @@ pub async fn window_result(headers: HeaderMap, Json(answer): Json<WindowAnswer>)
     }
     let waiting = bridge().pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&answer.id);
     match waiting {
-        Some(sender) => {
+        Some((_, sender)) => {
             let _ = sender.send(match answer.error {
                 Some(error) => Err(error),
                 None => Ok(answer.result),
@@ -514,7 +512,12 @@ async fn ask_window(command: &str, args: Value, seconds: u64) -> Result<Value, S
     };
     let id = format!("w{}", bridge().sequence.fetch_add(1, Ordering::Relaxed));
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    bridge().pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(id.clone(), sender);
+    bridge().pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(id.clone(), (window, sender));
+    // the window may have closed after it was chosen: its Listening went before this entry was there to fail
+    if !open_windows().contains(&window) {
+        bridge().pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&id);
+        return Err(WINDOW_CLOSED.into());
+    }
     let _ = bridge().commands.send(json!({ "id": id, "window": window, "command": command, "args": args }).to_string());
     match tokio::time::timeout(Duration::from_secs(seconds), receiver).await {
         Ok(Ok(answer)) => answer,
@@ -748,6 +751,7 @@ async fn start_turn(args: &Value) -> Result<Value, String> {
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/story")
+        .header(header::HOST, "127.0.0.1")
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "chatId": chat_id, "input": input }).to_string()))
         .map_err(|error| error.to_string())?;
@@ -1086,6 +1090,22 @@ async fn run_tool(name: &str, args: &Value) -> Result<(String, Option<Value>, Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_command_to_a_window_that_closed_fails_at_once() {
+        // a command is sent only while some window listens: without a receiver it would fail as "not open"
+        let _commands = bridge().commands.subscribe();
+        let window = bridge().sequence.fetch_add(1, Ordering::Relaxed);
+        open_windows().push(window);
+        let listening = Listening(window);
+        let asked = tokio::spawn(ask_window("read_page", json!({}), 300));
+        while !bridge().pending.lock().unwrap().values().any(|(to, _)| *to == window) {
+            tokio::task::yield_now().await;
+        }
+        drop(listening);
+        let answer = tokio::time::timeout(Duration::from_secs(5), asked).await.expect("an answer before the timeout").unwrap();
+        assert!(answer.unwrap_err().contains("closed"));
+    }
 
     #[test]
     fn every_tool_has_a_unique_name_an_object_schema_and_a_route() {

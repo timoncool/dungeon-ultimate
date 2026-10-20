@@ -54,6 +54,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { api } from "./lib/api";
 import { cn } from "./lib/cn";
 import { DEFAULT_STORY_SETTINGS, titleFromInput } from "./lib/defaults";
 import { LOCAL_TEXT_MODELS, type LocalTextModelId, type TextProvider } from "./lib/text-models";
@@ -1475,26 +1476,24 @@ export default function Home() {
     chunkIndex: number,
     chunkText: string,
     voice: string,
-  ): Promise<string | null> {
+  ): Promise<string> {
     // Fold a content hash of the chunk into the key so toggling multi-voice or
     // re-splitting changed text never replays stale audio. Keep the `<id>__c<i>`
     // prefix intact so saveEdit's prefix-clear still drops this message's chunks.
     const key = `${messageId}__c${chunkIndex}__${voice}__${hashText(chunkText)}`;
     const cached = audioCacheRef.current.get(key);
     if (cached) return cached;
-    try {
-      const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice, language: settings.language }),
-      });
-      if (!response.ok) return null;
-      const data = (await response.json()) as { url?: string };
-      if (data.url) audioCacheRef.current.set(key, data.url);
-      return data.url || null;
-    } catch {
-      return null;
-    }
+    const response = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice, language: settings.language }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+    // Голос, которого нет на диске, не появится к следующей фразе: первая же ошибка сервера
+    // останавливает озвучку хода и называется игроку, а не тонет в тишине на каждой фразе.
+    if (!response.ok || !data.url) throw new Error(data.error || `/api/tts ${response.status}`);
+    audioCacheRef.current.set(key, data.url);
+    return data.url;
   }
 
   function playUrl(audio: HTMLAudioElement, url: string): Promise<void> {
@@ -1571,15 +1570,26 @@ export default function Home() {
     }
     const audio = audioRef.current ?? new Audio();
     audioRef.current = audio;
-    let nextUrl = fetchChunkUrl(messageId, 0, chunks[0].text, chunks[0].voice);
+    let nextUrl: Promise<string | null> = fetchChunkUrl(messageId, 0, chunks[0].text, chunks[0].voice);
     for (let i = 0; i < chunks.length; i += 1) {
       if (speakSeqRef.current !== seq) return;
-      const url = await nextUrl;
+      let url: string | null;
+      try {
+        url = await nextUrl;
+      } catch (reason) {
+        if (speakSeqRef.current === seq) {
+          setError(settings_.voiceFailed.replace("{reason}", reason instanceof Error ? reason.message : String(reason)));
+          setSpeakingId("");
+        }
+        return;
+      }
       if (speakSeqRef.current !== seq) return;
       nextUrl =
         i + 1 < chunks.length
           ? fetchChunkUrl(messageId, i + 1, chunks[i + 1].text, chunks[i + 1].voice)
           : Promise.resolve(null);
+      // an unhandled rejection of the prefetch would be reported before the loop reaches it
+      nextUrl.catch(() => undefined);
       if (!url) continue;
       await playUrl(audio, url);
     }
@@ -6925,6 +6935,17 @@ function UpdateNotice() {
   );
 }
 
+/**
+ * GitHub's choice of forms (bug, idea, question) with what the game knows passed along: the keys are the `id`s of
+ * the text fields in `.github/ISSUE_TEMPLATE/*.yml`, and the chosen form fills a field from the query parameter of
+ * the same name.
+ */
+function issueReportUrl(version: string, gpu: string | null): string {
+  const query = new URLSearchParams({ version });
+  if (gpu) query.set("gpu", gpu);
+  return `https://github.com/timoncool/dungeon-ultimate/issues/new/choose?${query.toString()}`;
+}
+
 const DONATE = {
   card: "https://dalink.to/nerual_dreming",
   boosty: "https://boosty.to/neuro_art",
@@ -6971,6 +6992,13 @@ function CryptoRow({ coin, address }: { coin: string; address: string }) {
 function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
   const settings_ = settingsText(useUiLanguage());
   const ui = useUi();
+  const [gpu, setGpu] = useState<string | null>(null);
+  useEffect(() => {
+    api.hwSnapshot()
+      .then((hw) => setGpu(hw.gpuName ? `${hw.gpuName}${hw.totalVram ? `, ${Math.round(hw.totalVram / 1024 ** 3)} GB` : ""}` : null))
+      .catch(() => setGpu(null));
+  }, []);
+  const reportUrl = issueReportUrl(__APP_VERSION__, gpu);
   return (
     <PanelSection
       icon={Heart}
@@ -7027,6 +7055,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           {[
             [settings_.neuroSoft, "https://t.me/neuroport"],
             ["GitHub", DONATE.github],
+            [settings_.reportIssue, reportUrl],
             ["Telegram", DONATE.telegram],
             [settings_.allWays, DONATE.all],
           ].map(([label, href]) => (
