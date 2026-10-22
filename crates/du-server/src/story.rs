@@ -561,8 +561,10 @@ fn run_turn(
                     let mut runtime_for_line = runtime_for_tts.clone();
                     crate::cloud::set_tts_voice(&mut runtime_for_line, &line_voice);
                     let key = key.clone();
+                    let gpu = gpu.clone();
                     flying.push(std::thread::spawn(move || {
                         let spoken = crate::tts::synthesize_with(
+                            &gpu,
                             &root,
                             &generated,
                             &runtime_for_line,
@@ -579,6 +581,7 @@ fn run_turn(
                     let mut runtime_for_line = runtime_for_tts.clone();
                     crate::cloud::set_tts_voice(&mut runtime_for_line, &line_voice);
                     crate::tts::synthesize_with(
+                        &gpu,
                         &root,
                         &generated,
                         &runtime_for_line,

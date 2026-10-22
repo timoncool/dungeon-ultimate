@@ -96,7 +96,7 @@ pub async fn narrate(
                     if abort.load(std::sync::atomic::Ordering::Relaxed) {
                         break;
                     }
-                    let clip = crate::tts::synthesize_with(&inner.root, &inner.generated, &runtime, &sentence, &voice, &format!("{key}-{index}"));
+                    let clip = crate::tts::synthesize_with(&inner.gpu, &inner.root, &inner.generated, &runtime, &sentence, &voice, &format!("{key}-{index}"));
                     match clip {
                         Ok(url) => {
                             crate::mcp::tell_windows(json!({ "play": url, "chat_id": chat_for_play }));

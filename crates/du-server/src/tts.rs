@@ -159,13 +159,14 @@ pub fn default_voice(root: &std::path::Path) -> Option<String> {
 /// Синтез речи БЕЗ очереди: зовётся либо из задачи очереди, либо из маршрута, который сам
 /// в очередь встал. Возвращает путь, по которому звук доступен клиенту.
 pub fn synthesize(
+    gpu: &crate::gpu::Gpu,
     root: &std::path::Path,
     generated: &std::path::Path,
     text: &str,
     voice: &str,
     key: &str,
 ) -> Result<String, UserError> {
-    synthesize_with(root, generated, &crate::runtime::load(root), text, voice, key)
+    synthesize_with(gpu, root, generated, &crate::runtime::load(root), text, voice, key)
 }
 
 /// Короткая метка текста для имени файла.
@@ -183,6 +184,7 @@ fn text_mark(text: &str) -> String {
 
 /// То же, но с уже прочитанными настройками: ход читает их один раз на весь проход.
 pub fn synthesize_with(
+    gpu: &crate::gpu::Gpu,
     root: &std::path::Path,
     generated: &std::path::Path,
     runtime: &crate::runtime::Runtime,
@@ -190,12 +192,14 @@ pub fn synthesize_with(
     voice: &str,
     key: &str,
 ) -> Result<String, UserError> {
-    synthesize_streaming(root, generated, runtime, text, voice, key, &|_, _| {})
+    synthesize_streaming(gpu, root, generated, runtime, text, voice, key, &|_, _| {})
 }
 
 /// Озвучка пофразно: `on_clip` зовётся на КАЖДОЙ готовой фразе, поэтому игрок начинает
 /// слушать, пока хвост хода ещё синтезируется. Возвращает адрес первой фразы.
+#[allow(clippy::too_many_arguments)]
 pub fn synthesize_streaming(
+    gpu: &crate::gpu::Gpu,
     root: &std::path::Path,
     generated: &std::path::Path,
     runtime: &crate::runtime::Runtime,
@@ -226,15 +230,11 @@ pub fn synthesize_streaming(
     // Движку нужен WAV: паки лежат в mp3, поэтому клип один раз перегоняется и дальше
     // берётся готовым.
     let reference = ensure_wav_reference(&reference, runtime.tts_reference_seconds)?;
-    let engine_dll = root.join("models").join("tts-engine").join("audiocpp_engine.dll");
-    let model_root = root.join("models").join("tts");
-    if !engine_dll.is_file() {
-        return Err(UserError::TtsEngineMissing);
-    }
 
     let sentences = split_sentences(text);
     let mut first: Option<String> = None;
-    let mut engine: Option<du_tts::AudiocppEngine> = None;
+    // Движок голоса один на игру и живёт в `Gpu`: он же освобождает карту от рассказчика.
+    let mut engine: Option<std::sync::Arc<du_tts::AudiocppEngine>> = None;
 
     for (index, sentence) in sentences.iter().enumerate() {
         let name = format!("tts-{}-{index}-{}.wav", safe_name(key, 80), text_mark(sentence));
@@ -246,26 +246,9 @@ pub fn synthesize_streaming(
         if !playable_wav(&path) {
             let engine = match engine.as_ref() {
                 Some(engine) => engine,
-                None => {
-                    let loaded = du_tts::AudiocppEngine::load(&engine_dll)?;
-                    loaded
-                        // Где считать голос — общий выбор игрока. Раньше здесь намертво
-                        // стояла карта, и на машине без неё озвучка просто падала.
-                        .load_model(
-                            &model_root,
-                            crate::backend::stage_backend(runtime, crate::backend::Stage::Tts)
-                                .engine_name(),
-                            0,
-                            8,
-                            None,
-                        )?;
-                    engine.insert(loaded)
-                }
+                None => engine.insert(gpu.speech_engine()?),
             };
-            let (samples, rate) =
-                engine.voice_clone(sentence, &reference.to_string_lossy(), transcript.as_deref(), "{}")?;
-            let wav = du_tts::AudiocppEngine::encode_wav(&samples, rate, 1);
-            std::fs::write(&path, wav).map_err(|e| e.to_string())?;
+            speak_sentence(engine, generated, &reference, transcript.as_deref(), sentence, key, index)?;
         }
 
         // Фраза готова — отдаём её сразу, не дожидаясь остальных.
@@ -299,6 +282,7 @@ async fn speak_inner(State(state): State<AppState>, Json(body): Json<TtsBody>) -
 
     let root = state.root.clone();
     let generated = state.generated.clone();
+    let gpu = state.gpu_handle();
     let text = body.text.clone();
 
     // Облачная озвучка карту НЕ занимает, поэтому и в очередь к ней не встаёт: иначе голос
@@ -306,7 +290,7 @@ async fn speak_inner(State(state): State<AppState>, Json(body): Json<TtsBody>) -
     let runtime = crate::runtime::load(&state.root);
     if crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts) {
         let value = tokio::task::spawn_blocking(move || {
-            synthesize(&root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
+            synthesize(&gpu, &root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
         })
         .await
         .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
@@ -317,7 +301,7 @@ async fn speak_inner(State(state): State<AppState>, Json(body): Json<TtsBody>) -
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_, _| {
-            synthesize(&root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
+            synthesize(&gpu, &root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
         }))
         .await;
 
