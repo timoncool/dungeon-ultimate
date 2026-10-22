@@ -182,6 +182,26 @@ pub fn resolve_engine_update(raw: &Value, actors: &ActorMap, hero_id: Option<&st
     update
 }
 
+/// Убрать из объявления врагов, которые уже стоят в бою живыми.
+///
+/// Модель называет идущего в бою врага заново на каждом ходу, иногда короче («Brute» при
+/// «Bandit Brute»), — без этой сверки у игрока копились двойники с полным здоровьем.
+/// Сверка только с живыми врагами: павший может смениться новым с тем же именем.
+pub fn drop_known_enemies(update: &mut GameUpdate, actors: &ActorMap, enemy_ids: &[String]) {
+    let alive: ActorMap = actors
+        .iter()
+        .filter(|(id, actor)| enemy_ids.contains(id) && !actor.rpg.dead)
+        .map(|(id, actor)| (id.clone(), actor.clone()))
+        .collect();
+    update.spawn_enemies.retain(|spawn| {
+        let known = resolve_actor(&alive, Some(&spawn.name), None);
+        if let Some(id) = &known {
+            tracing::debug!("«{}» уже в бою ({id}) — второй раз не выходит", spawn.name);
+        }
+        known.is_none()
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,5 +270,28 @@ mod tests {
     fn an_empty_answer_yields_an_empty_turn() {
         let update = resolve_engine_update(&json!({}), &cast(), None);
         assert!(update.rolls.is_empty() && update.attacks.is_empty() && update.note.is_none());
+    }
+
+    #[test]
+    fn an_enemy_already_fighting_does_not_enter_again() {
+        let mut actors = cast();
+        actors.insert("uuid-brute".into(), Actor { name: "Bandit Brute".into(), rpg: CharacterRpg::default() });
+        let enemies = vec!["uuid-brute".to_string(), "uuid-foe".to_string()];
+        let raw = json!({ "spawnEnemies": [{ "name": "Brute" }, { "name": "Bandit Scout" }, { "name": "Bandit Brute" }] });
+        let mut update = resolve_engine_update(&raw, &actors, Some("uuid-hero"));
+        drop_known_enemies(&mut update, &actors, &enemies);
+        let names: Vec<&str> = update.spawn_enemies.iter().map(|spawn| spawn.name.as_str()).collect();
+        assert_eq!(names, ["Bandit Scout"]);
+    }
+
+    #[test]
+    fn a_fallen_enemy_or_a_friend_with_that_name_does_not_block_a_new_one() {
+        let mut actors = cast();
+        actors["uuid-foe"].rpg.dead = true;
+        let enemies = vec!["uuid-foe".to_string()];
+        let raw = json!({ "spawnEnemies": [{ "name": "Гоблин" }, { "name": "Кайра" }] });
+        let mut update = resolve_engine_update(&raw, &actors, Some("uuid-hero"));
+        drop_known_enemies(&mut update, &actors, &enemies);
+        assert_eq!(update.spawn_enemies.len(), 2, "павший враг и герой — не идущие в бою враги");
     }
 }

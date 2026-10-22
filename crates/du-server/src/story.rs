@@ -842,6 +842,25 @@ fn run_turn(
                 )),
             );
         }
+        // Проход видит только отрывок: без списка тех, кто уже дерётся, он заново выводил
+        // их в бой на каждом ходу.
+        let fighting: Vec<String> = enemies
+            .iter()
+            .filter_map(|enemy| actors.get(&enemy.id))
+            .filter(|actor| !actor.rpg.dead)
+            .map(|actor| format!("• {} — HP {}/{}", actor.name, actor.rpg.hp.current, actor.rpg.hp.max))
+            .collect();
+        if !fighting.is_empty() {
+            ask.insert(
+                1,
+                Message::system(format!(
+                    "ВРАГИ УЖЕ В БОЮ:\n{}\n\nОни уже на поле: в spawnEnemies их НЕ объявляй, в \
+                     attacks и hpDelta называй их ровно этими именами. spawnEnemies — только \
+                     враги, которые ВПЕРВЫЕ вступают в бой в этом отрывке.",
+                    fighting.join("\n")
+                )),
+            );
+        }
         match client.chat_json(&ask, &turn::structured_sampling(), &turn::engine_schema()) {
             Err(error) => tracing::warn!("проход механики не удался: {error}"),
             Ok(raw) => {
@@ -1025,7 +1044,9 @@ pub(crate) fn apply_mechanics(
     actors: &mut du_rpg::ActorMap,
     context: &Mechanics,
 ) -> (Vec<du_rpg::GameEvent>, Vec<du_rpg::Item>) {
-    let update = resolve_engine_update(raw, actors, context.hero_id);
+    let mut update = resolve_engine_update(raw, actors, context.hero_id);
+    let enemy_ids: Vec<String> = context.enemies.iter().map(|enemy| enemy.id.clone()).collect();
+    crate::resolve::drop_known_enemies(&mut update, actors, &enemy_ids);
     let opts = ApplyOptions {
         hero_id: context.hero_id.map(str::to_string),
         random_events: settings.random_events,
