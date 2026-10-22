@@ -75,6 +75,7 @@ const RU: ErrorTexts = {
     "распознавание выбрано на видеокарте, а сборки для неё нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
   parakeet_cuda_lib_missing:
     "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
+  cpu_floor: "процессор не подходит: {detail}",
   recording_empty: "пустая запись",
   no_audio_file: "в запросе нет звукового файла",
   no_file: "в запросе нет файла",
@@ -164,6 +165,7 @@ const EN: ErrorTexts = {
     "recognition is set to the graphics card, but there is no build for it in {path} — download “Parakeet on the graphics card” in “What to download” or switch recognition to the processor",
   parakeet_cuda_lib_missing:
     "Parakeet on the graphics card takes {name} from the voice engine, and it is not in {path} — download “Parakeet on the graphics card” in “What to download” or switch recognition to the processor",
+  cpu_floor: "this processor will not do: {detail}",
   recording_empty: "the recording is empty",
   no_audio_file: "the request has no audio file",
   no_file: "the request has no file",
@@ -254,6 +256,7 @@ const ES: ErrorTexts = {
     "el reconocimiento está en la tarjeta gráfica, pero no hay versión para ella en {path}: descarga «Parakeet en la tarjeta gráfica» en «Qué descargar» o pasa el reconocimiento al procesador",
   parakeet_cuda_lib_missing:
     "Parakeet en la tarjeta gráfica toma {name} del motor de voz, y no está en {path}: descarga «Parakeet en la tarjeta gráfica» en «Qué descargar» o pasa el reconocimiento al procesador",
+  cpu_floor: "este procesador no sirve: {detail}",
   recording_empty: "la grabación está vacía",
   no_audio_file: "la solicitud no trae archivo de audio",
   no_file: "la solicitud no trae archivo",
@@ -346,6 +349,7 @@ const FR: ErrorTexts = {
     "la reconnaissance est réglée sur la carte graphique, mais il n’y a pas de version pour elle dans {path} — télécharge « Parakeet sur la carte graphique » dans « Que télécharger » ou passe la reconnaissance sur le processeur",
   parakeet_cuda_lib_missing:
     "Parakeet sur la carte graphique prend {name} au moteur de voix, et il n’est pas dans {path} — télécharge « Parakeet sur la carte graphique » dans « Que télécharger » ou passe la reconnaissance sur le processeur",
+  cpu_floor: "ce processeur ne convient pas : {detail}",
   recording_empty: "l’enregistrement est vide",
   no_audio_file: "la requête ne contient pas de fichier audio",
   no_file: "la requête ne contient pas de fichier",
@@ -438,6 +442,7 @@ const DE: ErrorTexts = {
     "die Erkennung ist auf die Grafikkarte gestellt, aber dafür gibt es in {path} keinen Build — lade „Parakeet auf der Grafikkarte“ unter „Was herunterladen“ oder stelle die Erkennung auf den Prozessor um",
   parakeet_cuda_lib_missing:
     "Parakeet auf der Grafikkarte nimmt {name} von der Sprach-Engine, und es fehlt in {path} — lade „Parakeet auf der Grafikkarte“ unter „Was herunterladen“ oder stelle die Erkennung auf den Prozessor um",
+  cpu_floor: "dieser Prozessor reicht nicht: {detail}",
   recording_empty: "die Aufnahme ist leer",
   no_audio_file: "die Anfrage enthält keine Audiodatei",
   no_file: "die Anfrage enthält keine Datei",
@@ -521,6 +526,7 @@ const ZH: ErrorTexts = {
     "识别设为显卡，但 {path} 中没有显卡版本：请在“下载什么”中下载“显卡版 Parakeet”，或把识别切换到处理器",
   parakeet_cuda_lib_missing:
     "显卡版 Parakeet 需要配音引擎中的 {name}，但 {path} 中没有：请在“下载什么”中下载“显卡版 Parakeet”，或把识别切换到处理器",
+  cpu_floor: "处理器不满足要求：{detail}",
   recording_empty: "录音为空",
   no_audio_file: "请求中没有音频文件",
   no_file: "请求中没有文件",
@@ -610,6 +616,7 @@ const JA: ErrorTexts = {
     "認識はグラフィックカードの設定だが、{path} にそのためのビルドがない：「何を落とすか」で「グラフィックカード版 Parakeet」を落とすか、認識をプロセッサーに切り替えて",
   parakeet_cuda_lib_missing:
     "グラフィックカード版 Parakeet は音声エンジンの {name} を使うが、{path} にない：「何を落とすか」で「グラフィックカード版 Parakeet」を落とすか、認識をプロセッサーに切り替えて",
+  cpu_floor: "このプロセッサーでは動かない：{detail}",
   recording_empty: "録音が空",
   no_audio_file: "リクエストに音声ファイルがない",
   no_file: "リクエストにファイルがない",

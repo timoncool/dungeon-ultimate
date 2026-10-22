@@ -68,6 +68,7 @@ fn parakeet_text(
     lang: &str,
 ) -> Result<String, UserError> {
     let build = if device.is_cpu() { dub_tcpp::Build::Cpu } else { dub_tcpp::Build::Cuda };
+    build.runs_here().map_err(UserError::CpuFloor)?;
     let engine_dir = dub_tcpp::engine_dir(models_root, build);
     if !engine_dir.join(dub_tcpp::LIBRARY).is_file() {
         return Err(UserError::AsrEngineMissing { path: engine_dir.display().to_string(), gpu: !device.is_cpu() });

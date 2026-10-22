@@ -102,6 +102,8 @@ pub enum UserError {
     /// Нет сборки transcribe.cpp; `gpu` — нужна была сборка для видеокарты.
     AsrEngineMissing { path: String, gpu: bool },
     ParakeetCudaLibMissing { name: String, path: String },
+    /// Процессор без набора команд, под который собран движок; текст называет недостающие.
+    CpuFloor(String),
     RecordingEmpty,
     NoAudioFile,
     NoFile,
@@ -173,6 +175,7 @@ impl UserError {
             UserError::AsrEngineMissing { gpu: false, .. } => "asr_engine_missing",
             UserError::AsrEngineMissing { gpu: true, .. } => "asr_engine_gpu_missing",
             UserError::ParakeetCudaLibMissing { .. } => "parakeet_cuda_lib_missing",
+            UserError::CpuFloor(_) => "cpu_floor",
             UserError::RecordingEmpty => "recording_empty",
             UserError::NoAudioFile => "no_audio_file",
             UserError::NoFile => "no_file",
@@ -208,7 +211,8 @@ impl UserError {
             UserError::JobCrashed(detail)
             | UserError::VoiceReference(detail)
             | UserError::AsrFailed(detail)
-            | UserError::BadSetting(detail) => put("detail", json!(detail)),
+            | UserError::BadSetting(detail)
+            | UserError::CpuFloor(detail) => put("detail", json!(detail)),
             UserError::Llm { error, .. } => llm_params(error, &mut put),
             UserError::TextModelMissing(path)
             | UserError::ImageWeightsMissing(path)
@@ -410,6 +414,7 @@ impl fmt::Display for UserError {
                 f,
                 "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор"
             ),
+            UserError::CpuFloor(detail) => write!(f, "процессор не подходит: {detail}"),
             UserError::RecordingEmpty => f.write_str("пустая запись"),
             UserError::NoAudioFile => f.write_str("в запросе нет звукового файла"),
             UserError::NoFile => f.write_str("в запросе нет файла"),
@@ -543,6 +548,7 @@ mod tests {
             UserError::AsrEngineMissing { path: "x".into(), gpu: false },
             UserError::AsrEngineMissing { path: "x".into(), gpu: true },
             UserError::ParakeetCudaLibMissing { name: "x".into(), path: "x".into() },
+            UserError::CpuFloor("x".into()),
             UserError::RecordingEmpty,
             UserError::NoAudioFile,
             UserError::NoFile,
@@ -601,6 +607,7 @@ mod tests {
                 | UserError::ParakeetModelMissing(_)
                 | UserError::AsrEngineMissing { .. }
                 | UserError::ParakeetCudaLibMissing { .. }
+                | UserError::CpuFloor(_)
                 | UserError::RecordingEmpty
                 | UserError::NoAudioFile
                 | UserError::NoFile
