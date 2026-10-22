@@ -29,10 +29,10 @@ pub enum ImageError {
     Library(#[from] libloading::Error),
     #[error("в пути к модели недопустимый нулевой байт: {0}")]
     BadPath(String),
-    #[error("не удалось создать контекст модели — проверь пути к весам, энкодеру и VAE")]
-    ContextCreation,
-    #[error("генерация не удалась")]
-    GenerationFailed,
+    #[error("не удалось создать контекст модели: {0}")]
+    ContextCreation(String),
+    #[error("генерация не удалась: {0}")]
+    GenerationFailed(String),
 }
 
 /// Готовый кадр в виде сырых пикселей.
@@ -148,6 +148,22 @@ extern "C" fn progress_trampoline(step: c_int, steps: c_int, time: f32, _data: *
     }
 }
 
+/// Последняя ошибка из лога движка: его вызовы отвечают только «не вышло», а причина
+/// (нехватка памяти, битый файл весов) есть лишь в логе. Вызовы движка идут по одному.
+static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+fn forget_last_error() {
+    *LAST_ERROR.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+}
+
+fn last_error() -> String {
+    LAST_ERROR
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+        .unwrap_or_else(|| "движок не написал причину в лог".to_string())
+}
+
 extern "C" fn log_trampoline(level: SdLogLevel, text: *const c_char, _data: *mut c_void) {
     if text.is_null() {
         return;
@@ -159,7 +175,10 @@ extern "C" fn log_trampoline(level: SdLogLevel, text: *const c_char, _data: *mut
         SdLogLevel::Verbose => tracing::trace!(target: "sd", "{message}"),
         SdLogLevel::Info => tracing::info!(target: "sd", "{message}"),
         SdLogLevel::Warn => tracing::warn!(target: "sd", "{message}"),
-        SdLogLevel::Error => tracing::error!(target: "sd", "{message}"),
+        SdLogLevel::Error => {
+            tracing::error!(target: "sd", "{message}");
+            *LAST_ERROR.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(message.to_string());
+        }
     }
 }
 
@@ -311,9 +330,10 @@ impl Engine {
             params.backend = value.as_ptr();
         }
 
+        forget_last_error();
         let ctx = unsafe { (self.symbols.new_sd_ctx)(&params) };
         if ctx.is_null() {
-            return Err(ImageError::ContextCreation);
+            return Err(ImageError::ContextCreation(last_error()));
         }
         Ok(Context { engine: self, ctx })
     }
@@ -399,13 +419,14 @@ impl Context<'_> {
         }
 
         set_progress_sink(progress);
+        forget_last_error();
         let mut out: *mut SdImage = std::ptr::null_mut();
         let mut count: c_int = 0;
         let ok = unsafe { (self.engine.symbols.generate_image)(self.ctx, &gen, &mut out, &mut count) };
         set_progress_sink(None);
 
         if !ok || out.is_null() || count <= 0 {
-            return Err(ImageError::GenerationFailed);
+            return Err(ImageError::GenerationFailed(last_error()));
         }
 
         // Байты копируем к себе и сразу отдаём буферы движку: память выделена его CRT,
