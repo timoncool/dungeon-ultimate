@@ -694,6 +694,10 @@ pub fn apply_game_update(
 
     // Изменения HP.
     for delta in &update.hp_delta {
+        // Ноль — не событие: модель так отмечает промах или уклонение, у которых свои строки.
+        if delta.amount == 0 {
+            continue;
+        }
         let resolver = Resolver { actors, hero_id: opts.hero_id.clone() };
         let Some(target_id) = resolver.resolve_actor_id(delta.character_id.as_deref()) else { continue };
         let Some(actor) = actors.get_mut(&target_id) else { continue };
@@ -701,7 +705,13 @@ pub fn apply_game_update(
         let name = actor.name.clone();
         let sign = if delta.amount >= 0 { "+" } else { "" };
         let heart = if delta.amount >= 0 { "💚" } else { "💔" };
-        let reason = delta.reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default();
+        let reason = delta
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| r.chars().any(char::is_alphabetic))
+            .map(|r| format!(" ({r})"))
+            .unwrap_or_default();
         let line = render(
             &labels.hp_change,
             &[
@@ -1159,6 +1169,22 @@ mod tests {
         let opts = ApplyOptions { hero_id: Some("hero".into()), ..Default::default() };
         apply_game_update(&update, &mut actors, &opts);
         assert_eq!(actors["hero"].rpg.hp.current, 25, "заглушка вместо id обязана уйти герою");
+    }
+
+    #[test]
+    fn a_zero_hp_change_or_a_bare_reason_leaves_no_line() {
+        let mut actors = cast();
+        let update = GameUpdate {
+            hp_delta: vec![
+                HpDeltaDecl { character_id: Some("hero".into()), amount: 0, reason: Some("Hero dodged the grab".into()) },
+                HpDeltaDecl { character_id: Some("hero".into()), amount: -1, reason: Some(",".into()) },
+            ],
+            ..Default::default()
+        };
+        let result = apply_game_update(&update, &mut actors, &ApplyOptions::default());
+        let lines: Vec<&str> = result.events.iter().map(|event| event.text.as_str()).collect();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(!lines[0].contains('('), "{lines:?}");
     }
 
     #[test]
