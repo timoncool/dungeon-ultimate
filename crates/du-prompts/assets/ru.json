@@ -106,6 +106,14 @@
     "died": "☠️ {name} погибает.",
     "itemGained": "📦 Получен предмет: {name} ({rarity}{qty})",
     "effectSummary": "{name}{mods} — {turns} {turnWord}",
+    "questOffered": "📜 Предложено задание: {title}{giver}",
+    "questTaken": "📜 Задание принято: {title}",
+    "questCompleted": "✅ Задание выполнено: {title}{reward}",
+    "questFailed": "❌ Задание провалено: {title}{reason}",
+    "xpGained": "✨ {name}: +{amount} опыта{reason} → {xp}",
+    "levelUp": "🎉 {name} — уровень {level}! Запас сил: {hp}/{max}",
+    "questGiver": " — от {giver}",
+    "questReward": " — награда: {reward}",
     "randomEvent": "{icon} Случайное событие: {summary}. {note}",
     "randomEvents": [
       {

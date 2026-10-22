@@ -106,6 +106,14 @@
     "died": "☠️ {name} muere.",
     "itemGained": "📦 Objeto obtenido: {name} ({rarity}{qty})",
     "effectSummary": "{name}{mods} — {turns} {turnWord}",
+    "questOffered": "📜 Misión ofrecida: {title}{giver}",
+    "questTaken": "📜 Misión aceptada: {title}",
+    "questCompleted": "✅ Misión cumplida: {title}{reward}",
+    "questFailed": "❌ Misión fallida: {title}{reason}",
+    "xpGained": "✨ {name}: +{amount} PX{reason} → {xp}",
+    "levelUp": "🎉 ¡{name} alcanza el nivel {level}! PG: {hp}/{max}",
+    "questGiver": " — de {giver}",
+    "questReward": " — recompensa: {reward}",
     "randomEvent": "{icon} Suceso aleatorio: {summary}. {note}",
     "randomEvents": [
       {

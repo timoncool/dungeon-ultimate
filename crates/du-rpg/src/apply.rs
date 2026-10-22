@@ -208,7 +208,7 @@ fn looks_like_deliberation(note: &str) -> bool {
 /// поэтому смотрим на начало строки, а не только на точное совпадение.
 fn is_placeholder(value: &str) -> bool {
     let value = value.trim().trim_end_matches(['.', '!']).to_lowercase();
-    const EXCUSES: [&str; 8] = [
+    const EXCUSES: [&str; 12] = [
         "не указан",
         "не обещан",
         "не оговорен",
@@ -217,6 +217,10 @@ fn is_placeholder(value: &str) -> bool {
         "без наград",
         "none",
         "n/a",
+        "not specified",
+        "unspecified",
+        "not stated",
+        "no reward",
     ];
     value.is_empty()
         || matches!(value.as_str(), "нет" | "-" | "—" | "unknown")
@@ -561,7 +565,7 @@ pub fn apply_game_update(
         // Задание должен кто-то ДАТЬ. Без имени выдавшего его некому вернуть, и это не
         // задание, а просто мысль вслух.
         let giver = offer.giver.as_deref().map(str::trim).unwrap_or_default();
-        if title.is_empty() || giver.is_empty() {
+        if is_placeholder(title) || is_placeholder(giver) {
             continue;
         }
         // Повтор того же задания — не новое задание: модель нередко напоминает о нём.
@@ -594,7 +598,8 @@ pub fn apply_game_update(
         let giver = quest
             .giver
             .as_deref()
-            .map(|giver| format!(" — от {giver}"))
+            .filter(|giver| !is_placeholder(giver))
+            .map(|giver| render(&labels.quest_giver, &[("giver", giver)]))
             .unwrap_or_default();
         result.events.push(make_event(
             EventKind::Quest,
@@ -635,7 +640,7 @@ pub fn apply_game_update(
                 // Модель нередко пишет в награду отговорку вместо награды — показывать
                 // игроку «награда: Не указано» хуже, чем не писать ничего.
                 .filter(|reward| !is_placeholder(reward))
-                .map(|reward| format!(" — награда: {reward}"))
+                .map(|reward| render(&labels.quest_reward, &[("reward", reward)]))
                 .unwrap_or(tail.clone());
             render(&labels.quest_completed, &[("title", &quest.title), ("reward", &reward)])
         } else {

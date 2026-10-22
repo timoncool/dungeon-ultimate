@@ -2189,7 +2189,7 @@ export default function Home() {
           const styleResponse = await fetch("/api/image-style", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ setting: options.world }),
+            body: JSON.stringify({ setting: options.world, language: settings.language }),
           });
           const style = await readApi<{ style?: string; name?: string }>(styleResponse);
           styleForGame = style.style?.trim() ?? "";
@@ -2358,7 +2358,7 @@ export default function Home() {
         const response = await fetch("/api/actions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ passage, settings }),
+          body: JSON.stringify({ passage, settings, language: settings.language }),
         });
         return (await response.json()) as {
           actions?: Array<{ emoji?: string; label: string }>;
@@ -6457,7 +6457,7 @@ function DiceButton({
       const response = await fetch("/api/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field, context, settings }),
+        body: JSON.stringify({ field, context, settings, language: settings.language }),
       });
       const data = (await response.json()) as { value?: string };
       if (response.ok && data.value) {

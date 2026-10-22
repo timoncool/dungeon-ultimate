@@ -101,6 +101,14 @@ fn default_level_up() -> String {
     "🎉 {name} — уровень {level}! Запас сил: {hp}/{max}".to_string()
 }
 
+fn default_quest_giver() -> String {
+    " — от {giver}".to_string()
+}
+
+fn default_quest_reward() -> String {
+    " — награда: {reward}".to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RandomEventText {
     pub name: String,
@@ -147,6 +155,11 @@ pub struct JournalLabels {
     pub xp_gained: String,
     #[serde(default = "default_level_up")]
     pub level_up: String,
+    /// Хвост строки задания: кто его дал и что обещано.
+    #[serde(default = "default_quest_giver")]
+    pub quest_giver: String,
+    #[serde(default = "default_quest_reward")]
+    pub quest_reward: String,
     /// По порядку соответствуют встроенному перечню случайных событий.
     #[serde(default)]
     pub random_events: Vec<RandomEventText>,

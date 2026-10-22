@@ -106,6 +106,14 @@
     "died": "☠️ {name} 死去。",
     "itemGained": "📦 获得物品：{name}（{rarity}{qty}）",
     "effectSummary": "{name}{mods} — {turns} {turnWord}",
+    "questOffered": "📜 新任务：{title}{giver}",
+    "questTaken": "📜 接受任务：{title}",
+    "questCompleted": "✅ 任务完成：{title}{reward}",
+    "questFailed": "❌ 任务失败：{title}{reason}",
+    "xpGained": "✨ {name}：经验 +{amount}{reason} → {xp}",
+    "levelUp": "🎉 {name} 升到 {level} 级！生命：{hp}/{max}",
+    "questGiver": "（委托人：{giver}）",
+    "questReward": "（奖励：{reward}）",
     "randomEvent": "{icon} 随机事件：{summary}。{note}",
     "randomEvents": [
       {

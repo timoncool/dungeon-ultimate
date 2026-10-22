@@ -51,10 +51,10 @@ pub async fn actions(
                         // Поля описываем явно: набор промптов достался от прежней версии,
                         // где ответ разбирался строкой «значок | действие», и без пояснения
                         // модель кладёт значок прямо в подпись, а текста не пишет вовсе.
-                        "emoji": { "type": "string", "description": "ровно один значок", "maxLength": 8 },
+                        "emoji": { "type": "string", "description": "exactly one emoji", "maxLength": 8 },
                         "label": {
                             "type": "string",
-                            "description": "действие СЛОВАМИ, повелительно, 3-6 слов, без значков",
+                            "description": "the action in WORDS, imperative, 3-6 words, no emoji, in the language the passage is written in",
                             "minLength": 8,
                             "maxLength": 60
                         }
@@ -72,7 +72,7 @@ pub async fn actions(
         Message::user(format!(
             "{passage}
 
-Ответь полями: emoji — один значок, label — само действие словами."
+Fields: emoji is one emoji, label is the action itself in words, in the language of the passage above."
         )),
     ];
     let value = ask_json(&state, messages, &schema).await?;
@@ -209,6 +209,9 @@ pub struct StyleBody {
     /// Пожелание игрока: «акварель», «нуар», «как в старой книге». Может быть пустым.
     #[serde(default)]
     pub wish: String,
+    /// Язык игры: на нём пишется название стиля, которое видит игрок.
+    #[serde(default)]
+    pub language: Language,
 }
 
 /// Визуальный стиль ИЛЛЮСТРАЦИЙ на всю игру — одной строкой, которая ляжет в каждый кадр.
@@ -230,7 +233,7 @@ pub async fn image_style(
                 "minLength": 80,
                 "maxLength": 400
             },
-            "name": { "type": "string", "description": "название стиля по-русски, 2-4 слова" }
+            "name": { "type": "string", "description": format!("style name in {}, 2-4 words", body.language.prompt_name()) }
         },
         "required": ["style", "name"]
     });

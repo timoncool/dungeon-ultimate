@@ -106,6 +106,14 @@
     "died": "☠️ {name} は死んだ。",
     "itemGained": "📦 アイテム獲得：{name}（{rarity}{qty}）",
     "effectSummary": "{name}{mods} — {turns} {turnWord}",
+    "questOffered": "📜 依頼の提示：{title}{giver}",
+    "questTaken": "📜 依頼を受けた：{title}",
+    "questCompleted": "✅ 依頼達成：{title}{reward}",
+    "questFailed": "❌ 依頼失敗：{title}{reason}",
+    "xpGained": "✨ {name}：経験値 +{amount}{reason} → {xp}",
+    "levelUp": "🎉 {name} がレベル {level} に！HP：{hp}/{max}",
+    "questGiver": "（依頼主：{giver}）",
+    "questReward": "（報酬：{reward}）",
     "randomEvent": "{icon} ランダムイベント：{summary}。{note}",
     "randomEvents": [
       {
