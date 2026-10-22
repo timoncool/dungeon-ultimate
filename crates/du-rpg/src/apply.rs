@@ -207,8 +207,8 @@ fn looks_like_deliberation(note: &str) -> bool {
 /// Формулировки бывают длиннее короткого «нет» — «не обещано, но мельник в отчаянии», —
 /// поэтому смотрим на начало строки, а не только на точное совпадение.
 fn is_placeholder(value: &str) -> bool {
-    let value = value.trim().trim_end_matches(['.', '!']).to_lowercase();
-    const EXCUSES: [&str; 12] = [
+    let value = value.trim().trim_end_matches(['.', '!', '。']).to_lowercase();
+    const EXCUSES: [&str; 24] = [
         "не указан",
         "не обещан",
         "не оговорен",
@@ -221,9 +221,26 @@ fn is_placeholder(value: &str) -> bool {
         "unspecified",
         "not stated",
         "no reward",
+        "nicht angegeben",
+        "keine angabe",
+        "keine belohnung",
+        "no especificad",
+        "sin especificar",
+        "sin recompensa",
+        "non spécifié",
+        "non précisé",
+        "non indiqué",
+        "aucune récompense",
+        "未指定",
+        "未说明",
+    ];
+    // Только целиком: «Unbekannter Ritter» — живое имя, а не отговорка.
+    const WHOLE: [&str; 14] = [
+        "нет", "-", "—", "unknown", "unbekannt", "keine", "desconocido", "ninguno", "inconnu",
+        "aucun", "不明", "未知", "无", "なし",
     ];
     value.is_empty()
-        || matches!(value.as_str(), "нет" | "-" | "—" | "unknown")
+        || WHOLE.contains(&value.as_str())
         || EXCUSES.iter().any(|excuse| value.starts_with(excuse))
 }
 
@@ -960,6 +977,12 @@ mod tests {
         assert!(is_placeholder("—"));
         assert!(is_placeholder("Не обещано, но мельник явно в отчаянии"));
         assert!(!is_placeholder("Мешок муки"));
+        assert!(is_placeholder("Nicht angegeben"));
+        assert!(is_placeholder("Non spécifié."));
+        assert!(is_placeholder("未指定"));
+        assert!(is_placeholder("Unbekannt"));
+        assert!(!is_placeholder("Unbekannter Ritter"));
+        assert!(!is_placeholder("Aucun-Le-Brave"));
     }
 
     #[test]

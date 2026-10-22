@@ -54,7 +54,7 @@ pub async fn actions(
                         "emoji": { "type": "string", "description": "exactly one emoji", "maxLength": 8 },
                         "label": {
                             "type": "string",
-                            "description": "the action in WORDS, imperative, 3-6 words, no emoji, in the language the passage is written in",
+                            "description": format!("the action in WORDS, imperative, 3-6 words, no emoji, in {}", body.language.prompt_name()),
                             "minLength": 8,
                             "maxLength": 60
                         }
@@ -72,7 +72,8 @@ pub async fn actions(
         Message::user(format!(
             "{passage}
 
-Fields: emoji is one emoji, label is the action itself in words, in the language of the passage above."
+Fields: emoji is one emoji, label is the action itself in words, in {}.",
+            body.language.prompt_name()
         )),
     ];
     let value = ask_json(&state, messages, &schema).await?;

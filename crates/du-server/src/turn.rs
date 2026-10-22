@@ -176,6 +176,22 @@ pub fn language_directive(language: Language) -> String {
     )
 }
 
+/// Язык строк, которые служебные проходы хода кладут в журнал и лист: имена врагов,
+/// персонажей и предметов, задания, проверки, эффекты, заметки, достижения. Инструкции
+/// проходов написаны по-русски, и без этого указания модель пишет эти строки на языке
+/// инструкций, а не игры. Промпт кадра остаётся английским.
+pub fn visible_text_directive(language: Language) -> String {
+    format!(
+        "ЯЗЫК / LANGUAGE: every text value the player will see — names of enemies, characters \
+         and items, quest titles, givers, summaries, conditions and rewards, check labels, \
+         effect names, reasons, notes, achievement titles and descriptions, the final \
+         sentence — must be written in {}. Names already in the game state are kept exactly \
+         as they are written there. If a field has nothing to say, leave it out instead of \
+         writing a placeholder. Only image prompts stay in English.",
+        language.prompt_name()
+    )
+}
+
 /// Собрать сообщения для прохода нарратора.
 pub fn build_story_messages(
     history: &[StoryMessage],
