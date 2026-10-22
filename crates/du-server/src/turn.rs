@@ -40,7 +40,7 @@ pub fn build_rpg_section(
                 let value = actor.rpg.stats.get(*ability);
                 let modifier = ability_mod(value);
                 let sign = if modifier >= 0 { "+" } else { "" };
-                format!("{} {value} ({sign}{modifier})", ability.label_ru())
+                format!("{} {value} ({sign}{modifier})", prompts.journal.stat(ability.key()))
             })
             .collect::<Vec<_>>()
             .join(", ");

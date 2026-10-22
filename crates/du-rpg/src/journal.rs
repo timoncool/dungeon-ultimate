@@ -109,6 +109,10 @@ fn default_quest_reward() -> String {
     " — награда: {reward}".to_string()
 }
 
+fn default_achievement() -> String {
+    "Достижение: «{title}» — {summary}".to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RandomEventText {
     pub name: String,
@@ -160,6 +164,8 @@ pub struct JournalLabels {
     pub quest_giver: String,
     #[serde(default = "default_quest_reward")]
     pub quest_reward: String,
+    #[serde(default = "default_achievement")]
+    pub achievement: String,
     /// По порядку соответствуют встроенному перечню случайных событий.
     #[serde(default)]
     pub random_events: Vec<RandomEventText>,

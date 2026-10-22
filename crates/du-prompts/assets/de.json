@@ -114,6 +114,7 @@
     "levelUp": "🎉 {name} erreicht Stufe {level}! TP: {hp}/{max}",
     "questGiver": " — von {giver}",
     "questReward": " — Belohnung: {reward}",
+    "achievement": "Errungenschaft: „{title}“ — {summary}",
     "randomEvent": "{icon} Zufallsereignis: {summary}. {note}",
     "randomEvents": [
       {

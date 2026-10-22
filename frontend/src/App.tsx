@@ -2189,7 +2189,7 @@ export default function Home() {
           const styleResponse = await fetch("/api/image-style", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ setting: options.world, language: settings.language }),
+            body: JSON.stringify({ setting: options.world, language: settings.language, settings }),
           });
           const style = await readApi<{ style?: string; name?: string }>(styleResponse);
           styleForGame = style.style?.trim() ?? "";
@@ -3902,6 +3902,7 @@ function CharacterPanel({
         body: JSON.stringify({
           language: settings.language,
           settings: {
+            textProvider: settings.textProvider,
             customBaseUrl: settings.customBaseUrl,
             customModel: settings.customModel,
             customApiKey: settings.customApiKey,

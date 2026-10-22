@@ -114,6 +114,7 @@
     "levelUp": "🎉 {name} がレベル {level} に！HP：{hp}/{max}",
     "questGiver": "（依頼主：{giver}）",
     "questReward": "（報酬：{reward}）",
+    "achievement": "実績：「{title}」— {summary}",
     "randomEvent": "{icon} ランダムイベント：{summary}。{note}",
     "randomEvents": [
       {

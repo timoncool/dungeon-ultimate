@@ -114,6 +114,7 @@
     "levelUp": "🎉 {name} — уровень {level}! Запас сил: {hp}/{max}",
     "questGiver": " — от {giver}",
     "questReward": " — награда: {reward}",
+    "achievement": "Достижение: «{title}» — {summary}",
     "randomEvent": "{icon} Случайное событие: {summary}. {note}",
     "randomEvents": [
       {

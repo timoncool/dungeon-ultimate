@@ -114,6 +114,7 @@
     "levelUp": "🎉 {name} 升到 {level} 级！生命：{hp}/{max}",
     "questGiver": "（委托人：{giver}）",
     "questReward": "（奖励：{reward}）",
+    "achievement": "成就：「{title}」— {summary}",
     "randomEvent": "{icon} 随机事件：{summary}。{note}",
     "randomEvents": [
       {

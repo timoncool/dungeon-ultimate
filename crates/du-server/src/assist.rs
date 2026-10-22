@@ -26,6 +26,9 @@ pub struct ActionsBody {
     pub passage: String,
     #[serde(default)]
     pub language: Language,
+    /// Настройки истории: по ним вызов идёт на её локальный сервер, если он выбран.
+    #[serde(default)]
+    pub settings: Option<du_core::StorySettings>,
 }
 
 /// Чипсы быстрых действий после хода: три-четыре коротких и РАЗНЫХ варианта.
@@ -76,7 +79,7 @@ Fields: emoji is one emoji, label is the action itself in words, in {}.",
             body.language.prompt_name()
         )),
     ];
-    let value = ask_json(&state, messages, &schema).await?;
+    let value = ask_json(&state, body.settings.as_ref(), messages, &schema).await?;
     let actions = value
         .get("actions")
         .and_then(Value::as_array)
@@ -121,6 +124,9 @@ pub struct SuggestBody {
     pub context: String,
     #[serde(default)]
     pub language: Language,
+    /// Настройки истории: по ним вызов идёт на её локальный сервер, если он выбран.
+    #[serde(default)]
+    pub settings: Option<du_core::StorySettings>,
 }
 
 /// «Удиви меня» для одного поля новой истории — чтобы игрок не смотрел в пустую форму.
@@ -143,7 +149,7 @@ pub async fn suggest(
         user.push_str(&body.context);
     }
     let messages = vec![Message::system(prompts.suggest.system.clone()), Message::user(user)];
-    let text = ask_text(&state, messages, Sampling::new(1.0, 400)).await?;
+    let text = ask_text(&state, body.settings.as_ref(), messages, Sampling::new(1.0, 400)).await?;
     Ok(Json(json!({ "value": text.trim() })))
 }
 
@@ -156,6 +162,9 @@ pub struct SetupBody {
     pub gender: String,
     #[serde(default)]
     pub language: Language,
+    /// Настройки истории: по ним вызов идёт на её локальный сервер, если он выбран.
+    #[serde(default)]
+    pub settings: Option<du_core::StorySettings>,
 }
 
 /// «Заполни за меня» в диалоге новой истории: имя, образ и подсказка первой сцены.
@@ -190,7 +199,7 @@ pub async fn story_setup(
             body.setting.clone()
         }),
     ];
-    let value = ask_json(&state, messages, &schema).await?;
+    let value = ask_json(&state, body.settings.as_ref(), messages, &schema).await?;
     // Признак успеха обязателен: интерфейс проверяет именно его и без него считает,
     // что придумать не вышло, — даже когда поля пришли заполненными.
     Ok(Json(json!({
@@ -213,6 +222,9 @@ pub struct StyleBody {
     /// Язык игры: на нём пишется название стиля, которое видит игрок.
     #[serde(default)]
     pub language: Language,
+    /// Настройки истории: по ним вызов идёт на её локальный сервер, если он выбран.
+    #[serde(default)]
+    pub settings: Option<du_core::StorySettings>,
 }
 
 /// Визуальный стиль ИЛЛЮСТРАЦИЙ на всю игру — одной строкой, которая ляжет в каждый кадр.
@@ -250,7 +262,7 @@ pub async fn image_style(
             format!("Мир: {}. {wish}", body.setting.trim()).trim().to_string()
         }),
     ];
-    let value = ask_json(&state, messages, &schema).await?;
+    let value = ask_json(&state, body.settings.as_ref(), messages, &schema).await?;
     Ok(Json(json!({
         "ok": true,
         "style": value.get("style").and_then(Value::as_str).unwrap_or_default().trim(),
@@ -265,6 +277,9 @@ pub struct CharacterBody {
     pub hint: String,
     #[serde(default)]
     pub language: Language,
+    /// Настройки истории: по ним вызов идёт на её локальный сервер, если он выбран.
+    #[serde(default)]
+    pub settings: Option<du_core::StorySettings>,
 }
 
 /// Автозаполнение листа персонажа целиком, одним нажатием.
@@ -297,37 +312,58 @@ pub async fn character(
             body.hint.clone()
         }),
     ];
-    let value = ask_json(&state, messages, &schema).await?;
+    let value = ask_json(&state, body.settings.as_ref(), messages, &schema).await?;
     Ok(Json(value))
 }
 
-/// Собрать собеседника для служебных проходов, если текст пишет облако или агент.
+/// Кто считает служебный вызов, если не своя карта.
 ///
-/// Чипсы действий, «заполнить за меня» и подсказки — это тот же рассказчик, только короткий.
-/// Раньше они ВСЕГДА поднимали модель на карте и вставали в её очередь: игрок видел загрузку
-/// видеокарты, хотя весь ход считало облако.
-///
-/// Возвращает настройки, если текст пишет не своя карта. Сам клиент собирается уже в рабочем
-/// потоке: он держит собственный рантайм, и его рождение или смерть в асинхронном обработчике
-/// роняет поток целиком.
-fn remote_writer(state: &AppState) -> Option<crate::runtime::Runtime> {
+/// Чипсы действий, «заполнить за меня» и подсказки — это тот же рассказчик, только короткий,
+/// поэтому идут туда же, куда ход: в облако или агенту из настроек игры, а иначе на сервер,
+/// который назвала сама история. Раньше они ВСЕГДА поднимали модель на карте: игрок видел
+/// загрузку видеокарты, хотя весь ход считало облако, а с локальным сервером истории и без
+/// встроенной модели чипсы не появлялись вовсе.
+enum Outside {
+    Remote(crate::runtime::Runtime),
+    Story(du_core::StorySettings),
+}
+
+fn outside(state: &AppState, settings: Option<&du_core::StorySettings>) -> Option<Outside> {
     let runtime = crate::runtime::load(&state.root);
-    (crate::narrator::writer(&runtime) != crate::narrator::Writer::Local).then_some(runtime)
+    if crate::narrator::writer(&runtime) != crate::narrator::Writer::Local {
+        return Some(Outside::Remote(runtime));
+    }
+    settings
+        .filter(|settings| settings.text_provider == du_core::TextProvider::Custom)
+        .map(|settings| Outside::Story(settings.clone()))
 }
 
-fn remote_client(runtime: &crate::runtime::Runtime) -> Result<ChatClient, String> {
-    crate::narrator::remote_client(runtime, std::time::Duration::from_secs(180))?
-        .ok_or_else(|| "рассказчик на своей карте".to_string())
+/// Сам клиент собирается уже в рабочем потоке: он держит собственный рантайм, и его
+/// рождение или смерть в асинхронном обработчике роняет поток целиком.
+fn outside_client(outside: &Outside) -> Result<ChatClient, String> {
+    let timeout = std::time::Duration::from_secs(180);
+    match outside {
+        Outside::Remote(runtime) => crate::narrator::remote_client(runtime, timeout)?
+            .ok_or_else(|| "рассказчик на своей карте".to_string()),
+        Outside::Story(settings) => crate::narrator::story_client(settings, timeout)?
+            .ok_or_else(|| "история считает встроенной моделью".to_string()),
+    }
 }
 
-/// Общий путь служебного вызова: облако напрямую, а на карте — через её очередь.
-async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> ApiResult<Value> {
+/// Общий путь служебного вызова: облако, агент или сервер истории напрямую, а на карте —
+/// через её очередь.
+async fn ask_json(
+    state: &AppState,
+    settings: Option<&du_core::StorySettings>,
+    messages: Vec<Message>,
+    schema: &Value,
+) -> ApiResult<Value> {
     let schema = schema.clone();
-    if let Some(runtime) = remote_writer(state) {
+    if let Some(outside) = outside(state, settings) {
         let messages = messages.clone();
         let schema = schema.clone();
         return tokio::task::spawn_blocking(move || {
-            remote_client(&runtime)?
+            outside_client(&outside)?
                 .chat_json(&messages, &structured_sampling(), &schema)
                 .map_err(|error| error.to_string())
         })
@@ -354,12 +390,17 @@ async fn ask_json(state: &AppState, messages: Vec<Message>, schema: &Value) -> A
         .map_err(ApiError::internal)
 }
 
-async fn ask_text(state: &AppState, messages: Vec<Message>, sampling: Sampling) -> ApiResult<String> {
-    if let Some(runtime) = remote_writer(state) {
+async fn ask_text(
+    state: &AppState,
+    settings: Option<&du_core::StorySettings>,
+    messages: Vec<Message>,
+    sampling: Sampling,
+) -> ApiResult<String> {
+    if let Some(outside) = outside(state, settings) {
         let messages = messages.clone();
         let sampling = sampling.clone();
         let text = tokio::task::spawn_blocking(move || {
-            remote_client(&runtime)?.chat(&messages, &sampling).map_err(|error| error.to_string())
+            outside_client(&outside)?.chat(&messages, &sampling).map_err(|error| error.to_string())
         })
         .await
         .map_err(|_| ApiError::internal("задача пропала"))?

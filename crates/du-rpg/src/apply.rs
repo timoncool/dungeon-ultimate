@@ -537,7 +537,7 @@ pub fn apply_game_update(
             None => (10, labels.player.clone()),
         };
         let check = roll_check(score, roll.dc, 0);
-        let label = roll.label.clone().unwrap_or_else(|| ability.label_ru().to_string());
+        let label = roll.label.clone().unwrap_or_else(|| labels.stat(ability.key()).to_string());
         let verdict = match check.crit {
             Some(Crit::Success) => &labels.verdict.crit_success,
             Some(Crit::Fail) => &labels.verdict.crit_fail,

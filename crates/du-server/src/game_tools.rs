@@ -512,6 +512,9 @@ fn achievement_grant(state: &crate::state::Inner, chat_id: &str, arguments: &Val
     if title.is_empty() || summary.is_empty() {
         return json!({ "error": "нужны название и повод" });
     }
+    let Some(chat) = state.store.get_chat(chat_id).ok().flatten() else {
+        return json!({ "error": "история не найдена" });
+    };
 
     let earned = state.store.list_achievements().unwrap_or_default();
     if let Some(same) = earned.iter().find(|award| same_title(&award.title, title)) {
@@ -558,7 +561,7 @@ fn achievement_grant(state: &crate::state::Inner, chat_id: &str, arguments: &Val
         chat_id: Some(chat_id.to_string()),
         // Название истории сохраняем СЕЙЧАС: саму историю игрок может удалить, а награда
         // должна помнить, где заслужена.
-        story: state.store.get_chat(chat_id).ok().flatten().map(|chat| chat.summary.title),
+        story: Some(chat.summary.title.clone()),
         created_at: now.clone(),
     };
     match state.store.add_achievement(&award) {
@@ -570,7 +573,10 @@ fn achievement_grant(state: &crate::state::Inner, chat_id: &str, arguments: &Val
     let event = du_rpg::GameEvent {
         id: uuid::Uuid::new_v4().to_string(),
         kind: du_rpg::EventKind::Achievement,
-        text: format!("Достижение: «{title}» — {summary}"),
+        text: du_rpg::render(
+            &du_prompts::prompts_for(chat.summary.settings.language).journal.achievement,
+            &[("title", title), ("summary", summary)],
+        ),
         data: serde_json::to_value(&award).ok(),
         created_at: now,
     };
@@ -631,7 +637,11 @@ fn roll_check(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
         .and_then(|value| value.as_f64().or_else(|| value.as_str().and_then(|s| s.trim().parse().ok())))
         .map(|value| value.round() as i32)
         .unwrap_or(12);
-    let label = arguments.get("label").and_then(Value::as_str).unwrap_or("проверка");
+    // Строку броска читает игрок в журнале — на языке своей истории.
+    let Some(chat) = state.store.get_chat(chat_id).ok().flatten() else {
+        return json!({ "error": "история не найдена" });
+    };
+    let labels = &du_prompts::prompts_for(chat.summary.settings.language).journal;
     // Своя Гемма называет характеристику как ей удобнее: «Dexterity», «ловкость», «DEX».
     // Молча сваливать всё незнакомое в ловкость нельзя — бросок пойдёт не по той строке листа.
     let raw_ability = arguments.get("ability").and_then(Value::as_str).unwrap_or("dex").to_lowercase();
@@ -662,27 +672,38 @@ fn roll_check(state: &crate::state::Inner, chat_id: &str, arguments: &Value) -> 
 
     // Кубик кидает движок по характеристикам листа: подменить его модель не может.
     let result = roll(rpg.stats.get(ability), dc, 0);
-    let who = chosen.map(|character| character.name.clone()).unwrap_or_else(|| "герой".into());
+    let who = chosen.map(|character| character.name.clone()).unwrap_or_else(|| labels.player.clone());
+    let label = arguments
+        .get("label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| labels.stat(ability.key()));
 
     // Бросок обязан оставить СЛЕД. Раньше инструмент отдавал исход только модели: игрок
     // видел статус «движок разрешает бросок», а ни кубика, ни строки в журнале не было —
     // будто кидали за ширмой. Событие того же вида, что и у прохода механики, поэтому его
     // так же подхватывают журнал и трёхмерный кубик.
     let verdict = match result.crit {
-        Some(du_rpg::dice::Crit::Success) => "критический успех",
-        Some(du_rpg::dice::Crit::Fail) => "критический провал",
-        None if result.success => "успех",
-        None => "провал",
+        Some(du_rpg::dice::Crit::Success) => &labels.verdict.crit_success,
+        Some(du_rpg::dice::Crit::Fail) => &labels.verdict.crit_fail,
+        None if result.success => &labels.verdict.success,
+        None => &labels.verdict.failure,
     };
     let event = du_rpg::GameEvent {
         id: uuid::Uuid::new_v4().to_string(),
         kind: du_rpg::EventKind::Roll,
-        text: format!(
-            "🎲 {who} · {label}: d20 {} {}{} = {} против {dc} → {verdict}",
-            result.d20,
-            if result.modifier < 0 { "" } else { "+" },
-            result.modifier,
-            result.total
+        text: du_rpg::render(
+            &labels.check,
+            &[
+                ("name", &who),
+                ("label", label),
+                ("d20", &result.d20.to_string()),
+                ("mod", &format!("{}{}", if result.modifier < 0 { "" } else { "+" }, result.modifier)),
+                ("total", &result.total.to_string()),
+                ("dc", &dc.to_string()),
+                ("verdict", verdict),
+            ],
         ),
         data: Some(json!({ "result": result })),
         created_at: crate::story::now_iso(),
