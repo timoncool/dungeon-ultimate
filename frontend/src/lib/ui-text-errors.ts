@@ -75,6 +75,8 @@ const RU: ErrorTexts = {
     "распознавание выбрано на видеокарте, а сборки для неё нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
   parakeet_cuda_lib_missing:
     "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
+  needs_gpu: "{stage}: считается только на видеокарте, а её в компьютере нет",
+  needs_nvidia: "{stage}: нужна видеокарта NVIDIA с драйвером от 525 — движок собран только под CUDA",
   cpu_floor: "процессор не подходит: {detail}",
   recording_empty: "пустая запись",
   no_audio_file: "в запросе нет звукового файла",
@@ -165,6 +167,8 @@ const EN: ErrorTexts = {
     "recognition is set to the graphics card, but there is no build for it in {path} — download “Parakeet on the graphics card” in “What to download” or switch recognition to the processor",
   parakeet_cuda_lib_missing:
     "Parakeet on the graphics card takes {name} from the voice engine, and it is not in {path} — download “Parakeet on the graphics card” in “What to download” or switch recognition to the processor",
+  needs_gpu: "{stage}: runs on a graphics card only, and this computer has none",
+  needs_nvidia: "{stage}: needs an NVIDIA graphics card with driver 525 or newer — the engine is built for CUDA only",
   cpu_floor: "this processor will not do: {detail}",
   recording_empty: "the recording is empty",
   no_audio_file: "the request has no audio file",
@@ -256,6 +260,8 @@ const ES: ErrorTexts = {
     "el reconocimiento está en la tarjeta gráfica, pero no hay versión para ella en {path}: descarga «Parakeet en la tarjeta gráfica» en «Qué descargar» o pasa el reconocimiento al procesador",
   parakeet_cuda_lib_missing:
     "Parakeet en la tarjeta gráfica toma {name} del motor de voz, y no está en {path}: descarga «Parakeet en la tarjeta gráfica» en «Qué descargar» o pasa el reconocimiento al procesador",
+  needs_gpu: "{stage}: solo funciona en una tarjeta gráfica, y este equipo no tiene",
+  needs_nvidia: "{stage}: necesita una tarjeta gráfica NVIDIA con controlador 525 o posterior: el motor solo está compilado para CUDA",
   cpu_floor: "este procesador no sirve: {detail}",
   recording_empty: "la grabación está vacía",
   no_audio_file: "la solicitud no trae archivo de audio",
@@ -349,6 +355,8 @@ const FR: ErrorTexts = {
     "la reconnaissance est réglée sur la carte graphique, mais il n’y a pas de version pour elle dans {path} — télécharge « Parakeet sur la carte graphique » dans « Que télécharger » ou passe la reconnaissance sur le processeur",
   parakeet_cuda_lib_missing:
     "Parakeet sur la carte graphique prend {name} au moteur de voix, et il n’est pas dans {path} — télécharge « Parakeet sur la carte graphique » dans « Que télécharger » ou passe la reconnaissance sur le processeur",
+  needs_gpu: "{stage} : ne tourne que sur une carte graphique, et cet ordinateur n’en a pas",
+  needs_nvidia: "{stage} : il faut une carte graphique NVIDIA avec un pilote 525 ou plus récent — le moteur n’est compilé que pour CUDA",
   cpu_floor: "ce processeur ne convient pas : {detail}",
   recording_empty: "l’enregistrement est vide",
   no_audio_file: "la requête ne contient pas de fichier audio",
@@ -442,6 +450,8 @@ const DE: ErrorTexts = {
     "die Erkennung ist auf die Grafikkarte gestellt, aber dafür gibt es in {path} keinen Build — lade „Parakeet auf der Grafikkarte“ unter „Was herunterladen“ oder stelle die Erkennung auf den Prozessor um",
   parakeet_cuda_lib_missing:
     "Parakeet auf der Grafikkarte nimmt {name} von der Sprach-Engine, und es fehlt in {path} — lade „Parakeet auf der Grafikkarte“ unter „Was herunterladen“ oder stelle die Erkennung auf den Prozessor um",
+  needs_gpu: "{stage}: läuft nur auf einer Grafikkarte, und dieser Computer hat keine",
+  needs_nvidia: "{stage}: braucht eine NVIDIA-Grafikkarte mit Treiber 525 oder neuer — die Engine ist nur für CUDA gebaut",
   cpu_floor: "dieser Prozessor reicht nicht: {detail}",
   recording_empty: "die Aufnahme ist leer",
   no_audio_file: "die Anfrage enthält keine Audiodatei",
@@ -526,6 +536,8 @@ const ZH: ErrorTexts = {
     "识别设为显卡，但 {path} 中没有显卡版本：请在“下载什么”中下载“显卡版 Parakeet”，或把识别切换到处理器",
   parakeet_cuda_lib_missing:
     "显卡版 Parakeet 需要配音引擎中的 {name}，但 {path} 中没有：请在“下载什么”中下载“显卡版 Parakeet”，或把识别切换到处理器",
+  needs_gpu: "{stage}：只能在显卡上运行，而这台电脑没有显卡",
+  needs_nvidia: "{stage}：需要驱动版本 525 及以上的 NVIDIA 显卡——引擎只为 CUDA 构建",
   cpu_floor: "处理器不满足要求：{detail}",
   recording_empty: "录音为空",
   no_audio_file: "请求中没有音频文件",
@@ -616,6 +628,8 @@ const JA: ErrorTexts = {
     "認識はグラフィックカードの設定だが、{path} にそのためのビルドがない：「何を落とすか」で「グラフィックカード版 Parakeet」を落とすか、認識をプロセッサーに切り替えて",
   parakeet_cuda_lib_missing:
     "グラフィックカード版 Parakeet は音声エンジンの {name} を使うが、{path} にない：「何を落とすか」で「グラフィックカード版 Parakeet」を落とすか、認識をプロセッサーに切り替えて",
+  needs_gpu: "{stage}：グラフィックカードでしか動かないが、このコンピューターにはない",
+  needs_nvidia: "{stage}：ドライバー 525 以降の NVIDIA グラフィックカードが要る。エンジンは CUDA 専用",
   cpu_floor: "このプロセッサーでは動かない：{detail}",
   recording_empty: "録音が空",
   no_audio_file: "リクエストに音声ファイルがない",

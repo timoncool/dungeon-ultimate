@@ -174,6 +174,16 @@ static COMPONENTS: &[Component] = &[
             ],
         },
         Component {
+            id: "image-engine-vulkan",
+            title: "Движок картинок под Vulkan",
+            note: "stable-diffusion.cpp для видеокарт AMD и Intel",
+            requirement: Requirement::Required,
+            variant_of: "",
+            files: &[
+                FileSpec::archive("downloads/sd-engine-vulkan.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-vulkan-x64.zip", 30_123_908, "9e8b9baff514fe5dfb77e51bf08d85f11e6f10128eac14d4474c87f563309725", Extract::ZipFlat, "models/runtime/sd-vulkan", "models/runtime/sd-vulkan/stable-diffusion.dll"),
+            ],
+        },
+        Component {
             id: "image-dit",
             title: "Модель картинок Krea-2 Turbo",
             note: "рисует кадры сцены; квант Q4_K_M",
@@ -222,6 +232,37 @@ static COMPONENTS: &[Component] = &[
             files: &[
                 FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-cuda-13.4-x64.zip", 153_446_322, "9a0d41f868d34b1c39a9dc4f0b2250d1ef32fb2aed978c54f4380b06a21b8d9f", Extract::ZipFlat, "tools/llama", "tools/llama/llama-server.exe"),
                 FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::ZipFlat, "tools/llama", "tools/llama/cudart64_13.dll"),
+            ],
+        },
+        Component {
+            id: "narrator-engine-cuda12",
+            title: "Движок рассказчика для старых карт NVIDIA",
+            note: "llama.cpp с CUDA 12: Maxwell, Pascal, Volta и карты со старым драйвером",
+            requirement: Requirement::Required,
+            variant_of: "",
+            files: &[
+                FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-cuda-12.4-x64.zip", 265_207_448, "1108e4e77a62009365caee1208c33c1d76859b1e45c02e21f63b54090388cc29", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
+            ],
+        },
+        Component {
+            id: "narrator-engine-vulkan",
+            title: "Движок рассказчика под Vulkan",
+            note: "llama.cpp для видеокарт AMD и Intel",
+            requirement: Requirement::Required,
+            variant_of: "",
+            files: &[
+                FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-vulkan-x64.zip", 32_084_441, "6db23c5cf69e51f3dc2bf7f68277f4a791217bab853bd5b93afac1898d450b83", Extract::ZipFlat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
+            ],
+        },
+        Component {
+            id: "narrator-engine-cpu",
+            title: "Движок рассказчика на процессоре",
+            note: "llama.cpp для компьютера без видеокарты",
+            requirement: Requirement::Required,
+            variant_of: "",
+            files: &[
+                FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-cpu-x64.zip", 19_501_541, "bcfca9c8198899d4268e4e6b586113905280dec372a82c7106ebe78bc0eacb5b", Extract::ZipFlat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
             ],
         },
         Component {
@@ -751,13 +792,36 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
             || (voice && crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Tts))
             || (asr && crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr))
     };
+    let accel = crate::accel::accel(&runtime);
     for status in statuses.iter_mut() {
-        if status.component.requirement != Requirement::Optional && elsewhere(status.component.id) {
+        if status.component.requirement != Requirement::Optional
+            && (elsewhere(status.component.id) || !fits_this_machine(status.component.id, accel))
+        {
             status.component.requirement = Requirement::Optional;
         }
     }
     installed_variant_covers_group(&mut statuses);
     statuses
+}
+
+/// Нужна ли этой машине сборка: из сборок движка нужна одна — под её карту, а то, что считается только на CUDA
+/// (голос, распознавание на карте), без годной NVIDIA не нужно вовсе. Остальные компоненты нужны везде.
+fn fits_this_machine(id: &str, accel: crate::accel::Accel) -> bool {
+    use crate::accel::Accel;
+    let narrator = match accel {
+        Accel::Cuda13 => "narrator-engine",
+        Accel::Cuda12 => "narrator-engine-cuda12",
+        Accel::Vulkan => "narrator-engine-vulkan",
+        Accel::Cpu => "narrator-engine-cpu",
+    };
+    match id {
+        "narrator-engine" | "narrator-engine-cuda12" | "narrator-engine-vulkan" | "narrator-engine-cpu" => id == narrator,
+        "image-engine" => accel.nvidia(),
+        "image-engine-vulkan" => accel == Accel::Vulkan,
+        _ if id.starts_with("image-") => accel != Accel::Cpu,
+        "voice-engine" | "voice-model" | "asr-gpu" => accel.nvidia(),
+        _ => true,
+    }
 }
 
 fn variant_of(id: &str) -> &'static str {

@@ -102,6 +102,10 @@ pub enum UserError {
     /// Нет сборки transcribe.cpp; `gpu` — нужна была сборка для видеокарты.
     AsrEngineMissing { path: String, gpu: bool },
     ParakeetCudaLibMissing { name: String, path: String },
+    /// Стадия считается только на видеокарте, а её нет.
+    NeedsGpu(CloudStage),
+    /// Движок стадии собран только под CUDA, а карта не NVIDIA (или CUDA на ней не идёт).
+    NeedsNvidia(CloudStage),
     /// Процессор без набора команд, под который собран движок; текст называет недостающие.
     CpuFloor(String),
     RecordingEmpty,
@@ -176,6 +180,8 @@ impl UserError {
             UserError::AsrEngineMissing { gpu: true, .. } => "asr_engine_gpu_missing",
             UserError::ParakeetCudaLibMissing { .. } => "parakeet_cuda_lib_missing",
             UserError::CpuFloor(_) => "cpu_floor",
+            UserError::NeedsGpu(_) => "needs_gpu",
+            UserError::NeedsNvidia(_) => "needs_nvidia",
             UserError::RecordingEmpty => "recording_empty",
             UserError::NoAudioFile => "no_audio_file",
             UserError::NoFile => "no_file",
@@ -227,7 +233,11 @@ impl UserError {
                 put("name", json!(name));
                 put("path", json!(path));
             }
-            UserError::CloudKeyMissing(stage) | UserError::CloudModelMissing(stage) | UserError::CloudEmpty(stage) => {
+            UserError::CloudKeyMissing(stage)
+            | UserError::CloudModelMissing(stage)
+            | UserError::CloudEmpty(stage)
+            | UserError::NeedsGpu(stage)
+            | UserError::NeedsNvidia(stage) => {
                 put("stage", json!(stage.key()))
             }
             UserError::CloudSaid { stage, message } => {
@@ -415,6 +425,10 @@ impl fmt::Display for UserError {
                 "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор"
             ),
             UserError::CpuFloor(detail) => write!(f, "процессор не подходит: {detail}"),
+            UserError::NeedsGpu(stage) => write!(f, "{}: считается только на видеокарте, а её в компьютере нет", stage.ru()),
+            UserError::NeedsNvidia(stage) => {
+                write!(f, "{}: нужна видеокарта NVIDIA с драйвером от 525 — движок собран только под CUDA", stage.ru())
+            }
             UserError::RecordingEmpty => f.write_str("пустая запись"),
             UserError::NoAudioFile => f.write_str("в запросе нет звукового файла"),
             UserError::NoFile => f.write_str("в запросе нет файла"),
@@ -549,6 +563,8 @@ mod tests {
             UserError::AsrEngineMissing { path: "x".into(), gpu: true },
             UserError::ParakeetCudaLibMissing { name: "x".into(), path: "x".into() },
             UserError::CpuFloor("x".into()),
+            UserError::NeedsGpu(CloudStage::Image),
+            UserError::NeedsNvidia(CloudStage::Tts),
             UserError::RecordingEmpty,
             UserError::NoAudioFile,
             UserError::NoFile,
@@ -608,6 +624,8 @@ mod tests {
                 | UserError::AsrEngineMissing { .. }
                 | UserError::ParakeetCudaLibMissing { .. }
                 | UserError::CpuFloor(_)
+                | UserError::NeedsGpu(_)
+                | UserError::NeedsNvidia(_)
                 | UserError::RecordingEmpty
                 | UserError::NoAudioFile
                 | UserError::NoFile

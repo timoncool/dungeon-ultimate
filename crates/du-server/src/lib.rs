@@ -4,6 +4,7 @@
 //! на карте одновременно оказаться не могут. Прежде порядок держал клиент, и одного
 //! совпадения хватало, чтобы карта встала.
 
+pub mod accel;
 pub mod activity;
 pub mod assist;
 pub mod backend;
@@ -12,6 +13,8 @@ mod casting;
 mod characters;
 mod chats;
 mod dialogue;
+#[cfg(test)]
+mod dll_imports;
 pub mod cloud;
 pub mod cloud_models;
 pub mod credentials;
@@ -146,7 +149,10 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
     // Убираем процессы модели, оставшиеся от прошлого запуска. Штатный выход закрывает их
     // сам, но после падения или снятия силой они живут дальше и держат видеопамять: у меня
     // так набралось три штуки на 23.7 ГБ из 24.5, и всё после этого ползло.
-    du_llm::kill_orphans(&root.join("tools").join("llama"));
+    for build in [accel::Accel::Cuda13, accel::Accel::Cuda12, accel::Accel::Vulkan, accel::Accel::Cpu] {
+        du_llm::kill_orphans(&gpu::llama_dir(root, build));
+    }
+    accel::apply_saved_gpu(root);
 
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {

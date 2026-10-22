@@ -600,6 +600,9 @@ pub async fn runtime_get(State(state): State<AppState>) -> Json<Value> {
         "googleKeySet": google.is_some(),
         "googleKeySource": google,
         "googleTtsModels": crate::google_tts::MODELS,
+        // Карты NVIDIA и то, чем игра считает: выбор карты показывается, когда их больше одной.
+        "machine": crate::accel::machine(),
+        "accel": crate::accel::accel(&runtime).key(),
     }))
 }
 

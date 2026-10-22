@@ -81,7 +81,8 @@ fn parse(choice: &str) -> Option<Backend> {
 
 /// Есть ли на машине видеокарта, на которой вообще можно считать.
 pub fn gpu_present() -> bool {
-    crate::hw::snapshot().total_vram > 0
+    let machine = crate::accel::machine();
+    !machine.nvidia.is_empty() || machine.other_adapter.is_some()
 }
 
 /// Выбор игрока для стадии — её собственный или общий; None — «авто».

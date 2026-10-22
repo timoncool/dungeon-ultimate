@@ -38,6 +38,9 @@ pub struct Runtime {
     pub asr_model: String,
     /// Модель Whisper: tiny|base|small|medium|large-v3|large-v3-turbo.
     pub whisper_model: String,
+    /// Номер карты NVIDIA (в порядке шины PCI), на которой считает игра; пусто — первая. Действует с запуска игры:
+    /// CUDA читает выбор один раз на процесс.
+    pub gpu_index: Option<u32>,
 
     /// Контекст рассказчика в токенах. Это главный потребитель памяти под KV-кэш: в промпт
     /// уезжает около 48 тысяч символов истории, то есть примерно 13 тысяч токенов, поэтому
@@ -98,6 +101,7 @@ impl Default for Runtime {
             narrator_provider: String::new(),
             asr_model: "int8".to_string(),
             whisper_model: "large-v3-turbo".to_string(),
+            gpu_index: None,
             narrator_ctx: 16_384,
             narrator_gpu_layers: -1,
             image_steps: 8,

@@ -82,7 +82,7 @@ pub fn start(root: &Path) {
             gpu: studio_hub_client::Gpu {
                 vendor: vendor.into(),
                 vram_gb: studio_hub_client::Gpu::vram_bucket(snapshot.total_vram),
-                backend: if crate::backend::gpu_present() { "cuda" } else { "cpu" }.into(),
+                backend: crate::accel::accel(&crate::runtime::load(root)).key().into(),
             },
             ui_lang: "en".into(),
             urls: Vec::new(),

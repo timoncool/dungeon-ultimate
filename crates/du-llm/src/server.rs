@@ -61,6 +61,9 @@ pub struct ServerOpts {
     /// `--device`: `none` — ничего не отдавать видеокарте, иначе llama.cpp считает на ней и
     /// при весах в оперативной памяти.
     pub device: Option<String>,
+    /// Каталоги, где сервер ищет библиотеки после своего: VC++ runtime лежит рядом с exe игры, а
+    /// llama-server — отдельный процесс в своей папке и сам его там не видит.
+    pub library_dirs: Vec<PathBuf>,
     pub ready_timeout_secs: u64,
 }
 
@@ -76,6 +79,7 @@ impl ServerOpts {
             // делим с картинками и озвучкой.
             ctx_size: 16_384,
             device: None,
+            library_dirs: Vec::new(),
             ready_timeout_secs: 300,
         }
     }
@@ -152,6 +156,15 @@ impl LlamaServer {
             .arg("4");
         if let Some(device) = &opts.device {
             cmd.arg("--device").arg(device);
+        }
+        if !opts.library_dirs.is_empty() {
+            let mut dirs = opts.library_dirs.clone();
+            if let Some(current) = std::env::var_os("PATH") {
+                dirs.extend(std::env::split_paths(&current));
+            }
+            if let Ok(joined) = std::env::join_paths(dirs) {
+                cmd.env("PATH", joined);
+            }
         }
         if let Some(mmproj) = opts.mmproj.as_ref().filter(|path| path.is_file()) {
             cmd.arg("--mmproj").arg(mmproj);

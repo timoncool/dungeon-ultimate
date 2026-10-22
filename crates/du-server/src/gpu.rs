@@ -29,12 +29,10 @@ pub enum Resident {
 /// Где лежат веса и рантайм-библиотеки.
 #[derive(Debug, Clone)]
 pub struct Paths {
-    /// Каталог с `stable-diffusion.dll` и бэкендами ggml.
-    pub image_runtime: PathBuf,
+    /// Корень игры: сборки движков под разные карты лежат в своих папках под ним.
+    pub root: PathBuf,
     /// Каталог с весами картинок.
     pub image_models: PathBuf,
-    /// Каталог с `llama-server`.
-    pub llama_tools: PathBuf,
     /// GGUF нарратора.
     pub text_model: PathBuf,
     /// Проектор для мультимодальности; без него модель не увидит портреты.
@@ -48,9 +46,8 @@ impl Paths {
     pub fn under(root: &Path) -> Self {
         let models = root.join("models");
         Self {
-            image_runtime: models.join("runtime").join("sd"),
+            root: root.to_path_buf(),
             image_models: models.join("image"),
-            llama_tools: root.join("tools").join("llama"),
             text_model: models.join("text").join("narrator.gguf"),
             text_mmproj: Some(models.join("text").join("mmproj.gguf")),
         }
@@ -76,7 +73,30 @@ impl Paths {
     }
 
     pub fn text_ready(&self) -> bool {
-        self.text_model.is_file() && du_llm::resolve_llama_bin(&self.llama_tools).is_file()
+        let accel = crate::accel::accel(&crate::runtime::load(&self.root));
+        self.text_model.is_file() && du_llm::resolve_llama_bin(&llama_dir(&self.root, accel)).is_file()
+    }
+}
+
+/// Сборка llama.cpp под эту машину: CUDA 13, CUDA 12, Vulkan (AMD, Intel) или процессор — у каждой своя папка, и
+/// одноимённые `ggml-*.dll` разных сборок не смешиваются.
+pub fn llama_dir(root: &Path, accel: crate::accel::Accel) -> PathBuf {
+    let tools = root.join("tools");
+    match accel {
+        crate::accel::Accel::Cuda13 => tools.join("llama"),
+        crate::accel::Accel::Cuda12 => tools.join("llama-cuda12"),
+        crate::accel::Accel::Vulkan => tools.join("llama-vulkan"),
+        crate::accel::Accel::Cpu => tools.join("llama-cpu"),
+    }
+}
+
+/// Сборка sd.cpp: CUDA 12 на любой годной карте NVIDIA, Vulkan на остальных; на процессоре кадр не рисуется.
+pub fn image_dir(root: &Path, accel: crate::accel::Accel) -> Option<PathBuf> {
+    let runtime = root.join("models").join("runtime");
+    match accel {
+        crate::accel::Accel::Cuda13 | crate::accel::Accel::Cuda12 => Some(runtime.join("sd")),
+        crate::accel::Accel::Vulkan => Some(runtime.join("sd-vulkan")),
+        crate::accel::Accel::Cpu => None,
     }
 }
 
@@ -131,7 +151,8 @@ impl Gpu {
         // Настройки читаем при КАЖДОМ обращении: изменил устройство или контекст — следующий
         // запрос уже идёт на сервер с ними.
         let runtime = crate::runtime::load(&self.root);
-        let bin = du_llm::resolve_llama_bin(&self.paths.llama_tools);
+        let accel = crate::accel::accel(&runtime);
+        let bin = du_llm::resolve_llama_bin(&llama_dir(&self.root, accel));
         let mut opts = ServerOpts::new(bin, self.paths.text_model.clone())
             // Зрение подключаем, только если файл кто-то положил руками: игра картинки
             // рассказчику не показывает — приложенное игроком уходит в конвейер кадра, а
@@ -140,6 +161,8 @@ impl Gpu {
             .with_ctx(runtime.narrator_ctx);
         opts.n_gpu_layers = narrator_layers(&runtime);
         opts.device = narrator_device(&runtime);
+        // VC++ runtime установщик кладёт рядом с exe игры.
+        opts.library_dirs = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)).into_iter().collect();
         {
             let mut text = self.text.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(server) = text.as_mut() {
@@ -186,6 +209,10 @@ impl Gpu {
             if let Some(engine) = speech.as_ref() {
                 return Ok(engine.clone());
             }
+        }
+        // Движок голоса собран только под CUDA: на AMD, Intel и без карты он не загрузится.
+        if !crate::accel::accel(&crate::runtime::load(&self.root)).nvidia() {
+            return Err(UserError::NeedsNvidia(crate::errors::CloudStage::Tts));
         }
         let dll = self.root.join("models").join("tts-engine").join("audiocpp_engine.dll");
         let model_root = self.root.join("models").join("tts");
@@ -243,14 +270,19 @@ impl Gpu {
         self.release_speech();
         *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Image;
 
+        let runtime = crate::runtime::load(&self.root);
+        let accel = crate::accel::accel(&runtime);
+        let Some(dir) = image_dir(&self.root, accel) else {
+            return Err(UserError::NeedsGpu(crate::errors::CloudStage::Image));
+        };
         let mut engine_slot = self.engine.lock().unwrap_or_else(|e| e.into_inner());
         if engine_slot.is_none() {
-            *engine_slot = Some(Engine::load(&self.paths.image_runtime)?);
+            tracing::info!("картинки: sd.cpp из {} ({})", dir.display(), accel.key());
+            *engine_slot = Some(Engine::load(&dir)?);
         }
         let engine = engine_slot.as_ref().expect("движок только что загружен");
 
-        let runtime = crate::runtime::load(&self.root);
-        let config = image_config(self.paths.krea2(), &runtime);
+        let config = image_config(self.paths.krea2(), &runtime, accel);
         let mut context = engine.new_context(&config)?;
         let images = context.generate(params, progress)?;
         drop(context); // веса уходят с карты немедленно
@@ -295,9 +327,11 @@ pub fn narrator_layers(runtime: &crate::runtime::Runtime) -> i32 {
 pub fn image_config(
     mut config: du_image::ModelConfig,
     runtime: &crate::runtime::Runtime,
+    accel: crate::accel::Accel,
 ) -> du_image::ModelConfig {
     let where_to = crate::backend::stage_backend(runtime, crate::backend::Stage::Image);
-    config.backend = Some(where_to.engine_name().to_string());
+    // Имя реестра ggml: сборка под Vulkan знает «vulkan», под CUDA — «cuda».
+    config.backend = Some(if accel == crate::accel::Accel::Vulkan { "vulkan".to_string() } else { where_to.engine_name().to_string() });
     // Выгрузка весов в память имеет смысл только когда считает карта: на процессоре они и
     // так там, а поблочная подача лишь замедляет.
     config.offload_to_cpu = !where_to.is_cpu() && runtime.image_offload_to_cpu;
@@ -333,9 +367,11 @@ mod tests {
         let base = || du_image::ModelConfig::krea2("d".into(), "l".into(), "v".into());
 
         let on_gpu = Runtime { local_backend: "gpu".into(), image_offload_to_cpu: true, ..Default::default() };
-        let config = super::image_config(base(), &on_gpu);
+        let config = super::image_config(base(), &on_gpu, crate::accel::Accel::Cuda13);
         assert_eq!(config.backend.as_deref(), Some("cuda"));
         assert!(config.offload_to_cpu, "на карте выгрузка весов в память сохраняется");
+        let config = super::image_config(base(), &on_gpu, crate::accel::Accel::Vulkan);
+        assert_eq!(config.backend.as_deref(), Some("vulkan"));
 
         // Кадр не уводится на процессор ДАЖЕ по прямому указанию: там он считается десятки
         // минут вместо десятка секунд.
@@ -345,7 +381,7 @@ mod tests {
             image_offload_to_cpu: true,
             ..Default::default()
         };
-        let config = super::image_config(base(), &on_cpu);
+        let config = super::image_config(base(), &on_cpu, crate::accel::Accel::Cuda13);
         assert_eq!(config.backend.as_deref(), Some("cuda"));
         assert!(config.offload_to_cpu, "выгрузка весов в память при этом сохраняется");
     }
