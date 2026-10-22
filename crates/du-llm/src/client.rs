@@ -162,7 +162,7 @@ impl ChatClient {
     }
 
     pub fn with_api_key(mut self, key: Option<String>) -> Self {
-        self.api_key = key.filter(|key| !key.trim().is_empty());
+        self.api_key = key.map(|key| key.trim().to_string()).filter(|key| !key.is_empty());
         self
     }
 
@@ -377,8 +377,6 @@ impl ChatClient {
         }
     }
 
-    /// Стриминговый вызов: `on_delta` зовётся на каждом куске текста. Возвращает полный текст.
-    /// `on_delta` может вернуть `false`, чтобы оборвать генерацию (игрок нажал «стоп»).
     pub fn chat_stream(
         &self,
         messages: &[Message],
@@ -386,42 +384,112 @@ impl ChatClient {
         mut on_delta: impl FnMut(&str) -> bool,
     ) -> Result<String, LlmError> {
         let body = Value::Object(self.body(messages, sampling, true));
-        let response = self
-            .post(&body)
-            .send()
-            .map_err(|e| LlmError::Http(format!("стриминг: {e}")))?;
-        let status = response.status();
-        if !status.is_success() {
-            let detail = response.text().unwrap_or_default();
-            return Err(LlmError::Api(format!("{}: {}", status.as_u16(), truncate(&detail))));
-        }
+        // Повтор — только до первого куска текста: однослотовый локальный сервер сбрасывает
+        // соединение проигравшему из двух одновременных запросов, как и в буферизованном вызове.
+        let mut attempt = 0;
+        let response = loop {
+            attempt += 1;
+            match self.post(&body).send() {
+                Ok(response) => {
+                    let status = response.status();
+                    if status.is_success() {
+                        break response;
+                    }
+                    let detail = response.text().unwrap_or_default();
+                    let code = status.as_u16();
+                    if !TRANSIENT.contains(&code) || attempt >= MAX_ATTEMPTS {
+                        return Err(LlmError::Api(format!("{code}: {}", truncate(&detail))));
+                    }
+                }
+                Err(error) => {
+                    if error.is_timeout() || attempt >= MAX_ATTEMPTS {
+                        return Err(LlmError::Http(format!("стриминг: {error}")));
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(350 * attempt as u64));
+        };
 
         let mut full = String::new();
+        let mut outcome = StreamOutcome::default();
         let reader = BufReader::new(response);
         for line in reader.lines() {
             let line = line.map_err(|e| LlmError::Http(format!("обрыв потока: {e}")))?;
             let Some(payload) = line.strip_prefix("data:") else { continue };
             let payload = payload.trim();
             if payload == "[DONE]" {
+                outcome.done = true;
                 break;
             }
             if payload.is_empty() {
                 continue;
             }
             let Ok(value) = serde_json::from_str::<Value>(payload) else { continue };
-            let delta = value
-                .pointer("/choices/0/delta/content")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if delta.is_empty() {
+            // Провайдер, уже ответивший 200, сообщает об ошибке внутри потока.
+            if let Some(error) = value.get("error") {
+                let message = error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| error.to_string());
+                return Err(LlmError::Api(format!("ошибка в потоке: {}", truncate(&message))));
+            }
+            if let Some(reason) = value.pointer("/choices/0/finish_reason").and_then(Value::as_str) {
+                outcome.finish = Some(reason.to_string());
+            }
+            let delta = value.pointer("/choices/0/delta").cloned().unwrap_or(Value::Null);
+            for key in ["reasoning_content", "reasoning"] {
+                if let Some(thought) = delta.get(key).and_then(Value::as_str) {
+                    outcome.reasoning_chars += thought.chars().count();
+                }
+            }
+            if delta.get("tool_calls").and_then(Value::as_array).is_some_and(|calls| !calls.is_empty()) {
+                outcome.tool_call = true;
+            }
+            let text = delta.get("content").and_then(Value::as_str).unwrap_or_default();
+            if text.is_empty() {
                 continue;
             }
-            full.push_str(delta);
-            if !on_delta(delta) {
+            full.push_str(text);
+            if !on_delta(text) {
                 break;
             }
         }
+        if full.is_empty() {
+            return Err(LlmError::Api(outcome.why_empty()));
+        }
         Ok(full)
+    }
+}
+
+/// Что пришло в потоке, кроме текста: по этому видно, почему текста нет.
+#[derive(Debug, Default)]
+struct StreamOutcome {
+    finish: Option<String>,
+    reasoning_chars: usize,
+    tool_call: bool,
+    done: bool,
+}
+
+impl StreamOutcome {
+    fn why_empty(&self) -> String {
+        let finish = self.finish.as_deref().unwrap_or("нет");
+        if self.tool_call {
+            return format!("модель позвала инструмент вместо текста (finish_reason={finish})");
+        }
+        if self.reasoning_chars > 0 {
+            return format!(
+                "модель только размышляла ({} знаков) и не написала текст (finish_reason={finish}): \
+                 выключите у неё размышления или выберите модель без них",
+                self.reasoning_chars
+            );
+        }
+        match self.finish.as_deref() {
+            Some("content_filter") => "провайдер отфильтровал ответ (content_filter)".to_string(),
+            Some(reason) => format!("модель вернула пустой текст (finish_reason={reason})"),
+            None if self.done => "модель вернула пустой текст без причины завершения".to_string(),
+            None => "поток оборвался, не дав ни текста, ни причины завершения".to_string(),
+        }
     }
 }
 
@@ -449,6 +517,68 @@ mod tests {
     #[test]
     fn a_bare_host_gets_the_full_endpoint() {
         assert_eq!(chat_endpoint("http://127.0.0.1:8080"), "http://127.0.0.1:8080/v1/chat/completions");
+    }
+
+    /// Поднять разовый HTTP-сервер, отвечающий потоком SSE из готовых строк.
+    fn serve_stream(lines: &'static [&'static str]) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0u8; 65536];
+            let _ = socket.read(&mut request);
+            let body: String = lines.iter().map(|line| format!("data: {line}\n\n")).collect();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(head.as_bytes());
+            let _ = socket.write_all(body.as_bytes());
+        });
+        format!("http://{address}")
+    }
+
+    fn stream(lines: &'static [&'static str]) -> Result<String, LlmError> {
+        let client = ChatClient::new(&serve_stream(lines), Duration::from_secs(5)).unwrap();
+        client.chat_stream(&[Message::user("ход")], &Sampling::new(0.5, 100), |_| true)
+    }
+
+    #[test]
+    fn a_stream_without_text_says_why() {
+        let thinking = stream(&[
+            r#"{"choices":[{"delta":{"reasoning_content":"думаю, думаю"}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+            "[DONE]",
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(thinking.contains("размышляла") && thinking.contains("length"), "{thinking}");
+
+        let tool = stream(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"roll_check"}}]}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+            "[DONE]",
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(tool.contains("инструмент"), "{tool}");
+
+        let failed = stream(&[r#"{"error":{"message":"Provider returned error","code":502}}"#])
+            .unwrap_err()
+            .to_string();
+        assert!(failed.contains("Provider returned error"), "{failed}");
+    }
+
+    #[test]
+    fn a_stream_with_text_returns_it_whole() {
+        let text = stream(&[
+            r#"{"choices":[{"delta":{"content":"Дверь "}}]}"#,
+            r#"{"choices":[{"delta":{"content":"скрипнула."},"finish_reason":"stop"}]}"#,
+            "[DONE]",
+        ])
+        .unwrap();
+        assert_eq!(text, "Дверь скрипнула.");
     }
 
     #[test]
