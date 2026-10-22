@@ -146,13 +146,23 @@ pub fn setup_failed(reason: &str) {
 /// Работа закончилась: считается `<вид>_done` или `<вид>_failed`. У сбоя остаётся причина, которую
 /// клиент хаба обезличивает, у удачи — на чём она шла.
 pub fn ended(work: Work, outcome: Result<(), &str>) {
+    finish(work, outcome, None);
+}
+
+/// Ход истории закончился. История может писаться на своём сервере (настройка «Локальный
+/// сервер»): тогда и в отчёте стоит он, а не встроенная модель.
+pub fn turn_ended(settings: &du_core::StorySettings, outcome: Result<(), &str>) {
+    finish(Work::Turn, outcome, Some(settings));
+}
+
+fn finish(work: Work, outcome: Result<(), &str>, story: Option<&du_core::StorySettings>) {
     let Some(hub) = HUB.get().and_then(Option::as_ref) else { return };
     match outcome {
         Ok(()) => {
             hub.count(&format!("{}_done", work.as_str()), 1);
             if let Some(root) = ROOT.get() {
                 let runtime = crate::runtime::load(root);
-                hub.used_models(None, &[model_in_use(&runtime, work.stage())], 1);
+                hub.used_models(None, &[model_in_use(&runtime, work.stage(), story)], 1);
             }
         }
         Err(reason) => {
@@ -162,12 +172,22 @@ pub fn ended(work: Work, outcome: Result<(), &str>) {
     }
 }
 
+/// Имя модели своего сервера истории без пути: LM Studio и llama.cpp называют модель путём к
+/// файлу, а путь несёт имя пользователя.
+fn custom_model_name(settings: &du_core::StorySettings) -> String {
+    let model = settings.custom_model.trim();
+    let name = model.rsplit(['/', '\\']).next().unwrap_or(model);
+    if name.is_empty() { "custom".to_string() } else { format!("custom:{name}") }
+}
+
 /// На чём сейчас идёт стадия: `стадия:модель`.
-fn model_in_use(runtime: &crate::runtime::Runtime, stage: &str) -> String {
+fn model_in_use(runtime: &crate::runtime::Runtime, stage: &str, story: Option<&du_core::StorySettings>) -> String {
     use crate::cloud::{stage_enabled, Stage};
+    let custom = story.filter(|settings| settings.text_provider == du_core::TextProvider::Custom);
     match stage {
         "narrator" if runtime.narrator_provider == "agent" => "narrator:agent".into(),
         "narrator" if stage_enabled(runtime, Stage::Narrator) => format!("narrator:openrouter:{}", runtime.openrouter_narrator_model),
+        "narrator" if custom.is_some() => format!("narrator:{}", custom.map(custom_model_name).unwrap_or_default()),
         "narrator" => "narrator:gemma-4-12b-q4_k_m".into(),
         "image" if stage_enabled(runtime, Stage::Image) => format!("image:openrouter:{}", runtime.openrouter_image_model),
         "image" => "image:krea2-turbo-q4_k_m".into(),
@@ -189,8 +209,8 @@ mod tests {
     #[test]
     fn each_stage_names_what_it_runs_on() {
         let local = Runtime::default();
-        assert_eq!(model_in_use(&local, "narrator"), "narrator:gemma-4-12b-q4_k_m");
-        assert_eq!(model_in_use(&local, "asr"), "asr:parakeet-int8");
+        assert_eq!(model_in_use(&local, "narrator", None), "narrator:gemma-4-12b-q4_k_m");
+        assert_eq!(model_in_use(&local, "asr", None), "asr:parakeet-int8");
         let google = Runtime {
             openrouter_tts_on: true,
             cloud_tts_provider: "google".into(),
@@ -200,8 +220,21 @@ mod tests {
             narrator_provider: "agent".into(),
             ..Runtime::default()
         };
-        assert_eq!(model_in_use(&google, "tts"), "tts:google:gemini-3.8-flash-tts");
-        assert_eq!(model_in_use(&google, "asr"), "asr:whisper-large-v3-turbo");
-        assert_eq!(model_in_use(&google, "narrator"), "narrator:agent");
+        assert_eq!(model_in_use(&google, "tts", None), "tts:google:gemini-3.8-flash-tts");
+        assert_eq!(model_in_use(&google, "asr", None), "asr:whisper-large-v3-turbo");
+        assert_eq!(model_in_use(&google, "narrator", None), "narrator:agent");
+    }
+
+    #[test]
+    fn a_story_on_its_own_server_names_that_server_without_the_path() {
+        let local = Runtime::default();
+        let mut story = du_core::StorySettings { text_provider: du_core::TextProvider::Custom, ..Default::default() };
+        assert_eq!(model_in_use(&local, "narrator", Some(&story)), "narrator:custom");
+        story.custom_model = "C:\\Users\\ivan\\models\\qwen3-8b-q4_k_m.gguf".into();
+        assert_eq!(model_in_use(&local, "narrator", Some(&story)), "narrator:custom:qwen3-8b-q4_k_m.gguf");
+        story.custom_model = "lmstudio-community/gemma-3-12b".into();
+        assert_eq!(model_in_use(&local, "narrator", Some(&story)), "narrator:custom:gemma-3-12b");
+        story.text_provider = du_core::TextProvider::Local;
+        assert_eq!(model_in_use(&local, "narrator", Some(&story)), "narrator:gemma-4-12b-q4_k_m");
     }
 }

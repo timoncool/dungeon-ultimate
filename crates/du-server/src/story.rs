@@ -95,7 +95,7 @@ pub async fn story(
             drop(watch);
             // Прерванный игроком ход — не сбой и не удача: в отчёт надёжности он не идёт.
             if !abort.load(std::sync::atomic::Ordering::Relaxed) {
-                crate::hub::ended(crate::hub::Work::Turn, result.as_ref().map(|_| ()).map_err(String::as_str));
+                crate::hub::turn_ended(&chat.summary.settings, result.as_ref().map(|_| ()).map_err(String::as_str));
             }
             result
         }))
