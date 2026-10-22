@@ -56,6 +56,8 @@ export type PanelText = {
   // Пояснения и прочие панели
   keyHint: string;
   asIsHint: string;
+  gpuCard: string;
+  gpuCardHint: string;
   componentsUnreadable: string;
   ready: string;
   requiredNote: string;
@@ -174,6 +176,8 @@ const RU: PanelText = {
 
   keyHint: "Ключ OpenRouter {state}. Без него облачные стадии не включаются и всё считает своя карта.",
   asIsHint: "«Как есть» — карта, если она в системе есть, иначе процессор. Любую стадию ниже можно увести отдельно.",
+  gpuCard: "Видеокарта",
+  gpuCardHint: "Действует после перезапуска игры: карта выбирается до загрузки движков.",
   componentsUnreadable: "Список компонентов не читается.",
   ready: "Готово",
   requiredNote: " · без него игра не пойдёт",
@@ -290,6 +294,8 @@ const EN: PanelText = {
 
   keyHint: "The OpenRouter key is {state}. Without it cloud stages stay off and everything runs on your card.",
   asIsHint: "«As is» means the card when there is one, otherwise the CPU. Any stage below can be moved on its own.",
+  gpuCard: "Graphics card",
+  gpuCardHint: "Takes effect after the game restarts: the card is chosen before the engines load.",
   componentsUnreadable: "The component list cannot be read.",
   ready: "Done",
   requiredNote: " · the game will not run without it",
@@ -406,6 +412,8 @@ const ES: PanelText = {
 
   keyHint: "La clave de OpenRouter está {state}. Sin ella las etapas en la nube no se activan y todo lo calcula tu tarjeta.",
   asIsHint: "«Tal cual» significa la tarjeta si la hay, si no la CPU. Cada etapa se puede mover por separado.",
+  gpuCard: "Tarjeta gráfica",
+  gpuCardHint: "Se aplica al reiniciar el juego: la tarjeta se elige antes de cargar los motores.",
   componentsUnreadable: "No se puede leer la lista de componentes.",
   ready: "Listo",
   requiredNote: " · sin esto el juego no arranca",
@@ -522,6 +530,8 @@ const FR: PanelText = {
 
   keyHint: "La clé OpenRouter est {state}. Sans elle, les étapes dans le nuage restent éteintes et tout passe par ta carte.",
   asIsHint: "« Tel quel » veut dire la carte si elle existe, sinon le processeur. Chaque étape se déplace séparément.",
+  gpuCard: "Carte graphique",
+  gpuCardHint: "Prend effet après le redémarrage du jeu : la carte est choisie avant le chargement des moteurs.",
   componentsUnreadable: "La liste des composants est illisible.",
   ready: "Prêt",
   requiredNote: " · sans lui le jeu ne démarre pas",
@@ -638,6 +648,8 @@ const DE: PanelText = {
 
   keyHint: "Der OpenRouter-Schlüssel ist {state}. Ohne ihn bleiben Cloud-Stufen aus und alles rechnet die eigene Karte.",
   asIsHint: "«Wie es ist» heißt Karte, wenn eine da ist, sonst Prozessor. Jede Stufe lässt sich einzeln verschieben.",
+  gpuCard: "Grafikkarte",
+  gpuCardHint: "Gilt nach einem Neustart des Spiels: die Karte wird vor dem Laden der Engines gewählt.",
   componentsUnreadable: "Die Komponentenliste ist nicht lesbar.",
   ready: "Fertig",
   requiredNote: " · ohne das läuft das Spiel nicht",
@@ -754,6 +766,8 @@ const ZH: PanelText = {
 
   keyHint: "OpenRouter 密钥{state}。没有它，云端阶段不会开启，一切都由本机显卡计算。",
   asIsHint: "「保持原样」是指有显卡就用显卡，否则用处理器。下面每个阶段都可以单独挪动。",
+  gpuCard: "显卡",
+  gpuCardHint: "重启游戏后生效：显卡在加载引擎之前选定。",
   componentsUnreadable: "读不到组件列表。",
   ready: "完成",
   requiredNote: " · 没有它游戏跑不起来",
@@ -870,6 +884,8 @@ const JA: PanelText = {
 
   keyHint: "OpenRouter の鍵は{state}。無ければ雲の段は動かず、すべて手元の画板が計算する。",
   asIsHint: "「そのまま」は画板があれば画板、無ければ処理装置。下の各段は個別に移せる。",
+  gpuCard: "グラフィックカード",
+  gpuCardHint: "ゲームの再起動後に有効：カードはエンジンを読み込む前に選ばれる。",
   componentsUnreadable: "部品の一覧が読めない。",
   ready: "完了",
   requiredNote: " · これが無いと遊べない",

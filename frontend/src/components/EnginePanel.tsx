@@ -43,7 +43,12 @@ type Runtime = {
   googleTtsModel: string;
   googleTtsVoice: string;
   narratorProvider: string;
+  /// Номер карты NVIDIA, на которой считает игра; null — первая.
+  gpuIndex: number | null;
 };
+
+/// Карты NVIDIA машины, как их видит сервер (порядок шины PCI).
+type Machine = { nvidia: Array<{ index: number; name: string; vramGb: number }> };
 
 type Setup = { components: Array<{ id: string; present: boolean }> };
 
@@ -188,8 +193,10 @@ export default function EnginePanel() {
   const [googleModels, setGoogleModels] = useState<string[]>([]);
   const [googleKeyDraft, setGoogleKeyDraft] = useState("");
   const [installed, setInstalled] = useState<Set<string>>(new Set());
+  const [machine, setMachine] = useState<Machine>({ nvidia: [] });
   const readRuntime = useCallback((data: {
     runtime: Runtime;
+    machine?: Machine;
     openrouterKeySet?: boolean;
     googleKeySet?: boolean;
     googleKeySource?: string | null;
@@ -200,6 +207,7 @@ export default function EnginePanel() {
     setGoogleKeySet(Boolean(data.googleKeySet));
     setGoogleKeyFromEnv(data.googleKeySource === "environment");
     setGoogleModels(data.googleTtsModels ?? []);
+    if (data.machine) setMachine(data.machine);
   }, []);
 
   useEffect(() => {
@@ -471,6 +479,27 @@ export default function EnginePanel() {
             <p className="text-[11px] leading-relaxed text-stone-600">
               {panel.asIsHint}
             </p>
+            {machine.nvidia.length > 1 && (
+              <label className="block space-y-1 pt-1">
+                <span className="block text-xs text-stone-400">{panel.gpuCard}</span>
+                <select
+                  value={String(runtime.gpuIndex ?? machine.nvidia[0].index)}
+                  onChange={(event) => {
+                    const next = { gpuIndex: Number(event.target.value) } as Partial<Runtime>;
+                    setRuntime((current) => (current ? { ...current, ...next } : current));
+                    void save(next);
+                  }}
+                  className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1 text-xs text-stone-200"
+                >
+                  {machine.nvidia.map((card) => (
+                    <option key={card.index} value={card.index}>
+                      {card.index}: {card.name} · {Math.round(card.vramGb)} GB
+                    </option>
+                  ))}
+                </select>
+                <span className="block text-[11px] leading-relaxed text-stone-600">{panel.gpuCardHint}</span>
+              </label>
+            )}
           </div>
 
           {stages(panel).map((stage) => {
