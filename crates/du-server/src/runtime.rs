@@ -150,6 +150,7 @@ pub fn save(root: &Path, runtime: &Runtime) -> Result<(), String> {
 
 /// Привести пришедшие извне значения к работоспособным.
 pub fn sanitize(mut runtime: Runtime) -> Runtime {
+    runtime.openrouter_key = runtime.openrouter_key.trim().to_string();
     runtime.narrator_ctx = runtime.narrator_ctx.clamp(2_048, 131_072);
     runtime.narrator_gpu_layers = runtime.narrator_gpu_layers.max(-1);
     runtime.image_steps = runtime.image_steps.clamp(1, 60);
