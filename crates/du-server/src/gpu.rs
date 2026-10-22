@@ -128,21 +128,8 @@ impl Gpu {
 
     /// Поднять текстовую модель, предварительно освободив карту.
     pub fn text_base_url(&self) -> Result<String, UserError> {
-        {
-            let text = self.text.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(server) = text.as_ref() {
-                return Ok(server.base_url().to_string());
-            }
-        }
-        if !self.paths.text_ready() {
-            return Err(UserError::TextModelMissing(self.paths.text_model.display().to_string()));
-        }
-        // Картинка обязана уйти с карты до загрузки нарратора.
-        self.drop_image_context();
-
-        // Настройки читаем при КАЖДОМ запуске: изменил контекст — следующий ход уже с ним.
-        // Голос уходит с карты перед рассказчиком — по той же причине, что и наоборот.
-        self.release_speech();
+        // Настройки читаем при КАЖДОМ обращении: изменил устройство или контекст — следующий
+        // запрос уже идёт на сервер с ними.
         let runtime = crate::runtime::load(&self.root);
         let bin = du_llm::resolve_llama_bin(&self.paths.llama_tools);
         let mut opts = ServerOpts::new(bin, self.paths.text_model.clone())
@@ -152,6 +139,30 @@ impl Gpu {
             .with_mmproj(self.paths.text_mmproj.clone().filter(|path| path.is_file()))
             .with_ctx(runtime.narrator_ctx);
         opts.n_gpu_layers = narrator_layers(&runtime);
+        opts.device = narrator_device(&runtime);
+        {
+            let mut text = self.text.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(server) = text.as_mut() {
+                // Живой и запущенный с теми же настройками — он и отвечает. Умерший (нехватка
+                // памяти, падение) отдавал бы мёртвый адрес каждому следующему ходу.
+                match server.ended() {
+                    Some(why) => tracing::warn!("llama-server завершился сам: {why}; поднимаю заново"),
+                    None if server.launch_key() == opts.launch_key() => return Ok(server.base_url().to_string()),
+                    None => tracing::info!("рассказчик: настройки устройства изменились, перезапускаю llama-server"),
+                }
+                if let Some(mut old) = text.take() {
+                    old.stop();
+                }
+            }
+        }
+        if !self.paths.text_ready() {
+            return Err(UserError::TextModelMissing(self.paths.text_model.display().to_string()));
+        }
+        // Картинка обязана уйти с карты до загрузки нарратора.
+        self.drop_image_context();
+
+        // Голос уходит с карты перед рассказчиком — по той же причине, что и наоборот.
+        self.release_speech();
         let server = LlamaServer::start(&opts).map_err(|error| UserError::Llm { error, starting: true })?;
         let url = server.base_url().to_string();
         *self.text.lock().unwrap_or_else(|e| e.into_inner()) = Some(server);
@@ -181,6 +192,7 @@ impl Gpu {
         if !dll.is_file() {
             return Err(UserError::TtsEngineMissing);
         }
+        dub_tcpp::cpu_floor("Higgs").map_err(UserError::CpuFloor)?;
         // Голосу нужна карта — значит текстовая модель с неё уходит. Без этого Гемма на 8 ГБ
         // и голос на 4 ГБ жили на карте одновременно, всё упиралось в память и ход занимал
         // одиннадцать минут вместо десятков секунд. Кадр так делал давно, озвучка — нет.
@@ -266,6 +278,12 @@ impl Gpu {
 ///
 /// Выбор устройства — общий, а не отдельный тумблер про слои: на процессоре слоёв на карте
 /// ноль, иначе столько, сколько попрошено (−1 — все).
+/// `--device` рассказчика: на процессоре — `none`, иначе llama.cpp отдаёт вычисления карте и
+/// при `-ngl 0`.
+pub fn narrator_device(runtime: &crate::runtime::Runtime) -> Option<String> {
+    crate::backend::stage_backend(runtime, crate::backend::Stage::Narrator).is_cpu().then(|| "none".to_string())
+}
+
 pub fn narrator_layers(runtime: &crate::runtime::Runtime) -> i32 {
     match crate::backend::stage_backend(runtime, crate::backend::Stage::Narrator) {
         crate::backend::Backend::Cpu => 0,

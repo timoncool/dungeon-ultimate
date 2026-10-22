@@ -18,9 +18,21 @@ use crate::LlmError;
 type LogTail = Arc<Mutex<VecDeque<String>>>;
 const TAIL_LINES: usize = 40;
 
+/// Строки вывода llama-server о том, на чём он считает: какие бэкенды нашёл, какую карту взял,
+/// сколько слоёв ушло на неё. Хвост к моменту готовности их уже вытесняет, поэтому они идут в
+/// журнал игры сразу.
+fn names_the_device(line: &str) -> bool {
+    ["using device", "offloaded", "model buffer size", "projected to use", "no usable GPU", "ggml_vulkan", "ggml_cuda_init"]
+        .iter()
+        .any(|mark| line.contains(mark))
+}
+
 fn drain_to_tail<R: std::io::Read + Send + 'static>(reader: R, tail: LogTail) {
     std::thread::spawn(move || {
         for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            if names_the_device(&line) {
+                tracing::info!(target: "llama", "{}", line.trim());
+            }
             if let Ok(mut tail) = tail.lock() {
                 if tail.len() >= TAIL_LINES {
                     tail.pop_front();
@@ -43,9 +55,12 @@ pub struct ServerOpts {
     pub model: PathBuf,
     /// Проектор для мультимодальности: без него портреты персонажей модель не увидит.
     pub mmproj: Option<PathBuf>,
-    /// Слои на GPU; −1 = все.
+    /// Слои на GPU; −1 = сколько поместится (`auto` у llama.cpp).
     pub n_gpu_layers: i32,
     pub ctx_size: u32,
+    /// `--device`: `none` — ничего не отдавать видеокарте, иначе llama.cpp считает на ней и
+    /// при весах в оперативной памяти.
+    pub device: Option<String>,
     pub ready_timeout_secs: u64,
 }
 
@@ -60,8 +75,14 @@ impl ServerOpts {
             // 13 тысяч токенов. Больший контекст даром съедает VRAM под KV-кэш, а карту мы
             // делим с картинками и озвучкой.
             ctx_size: 16_384,
+            device: None,
             ready_timeout_secs: 300,
         }
+    }
+
+    /// То, с чем сервер запущен и что меняет его поведение: смена любого из них требует перезапуска.
+    pub fn launch_key(&self) -> String {
+        format!("{}|{}|{}|{}", self.model.display(), self.n_gpu_layers, self.ctx_size, self.device.as_deref().unwrap_or(""))
     }
 
     pub fn with_mmproj(mut self, mmproj: Option<PathBuf>) -> Self {
@@ -82,6 +103,7 @@ pub struct LlamaServer {
     port: u16,
     base_url: String,
     log_tail: LogTail,
+    launch_key: String,
 }
 
 /// Свободный TCP-порт на 127.0.0.1. Между освобождением и стартом сервера остаётся тонкая
@@ -123,7 +145,14 @@ impl LlamaServer {
             .arg("1")
             // Без Jinja сервер игнорирует chat_template_kwargs, модель уходит «думать»,
             // сжигает лимит токенов на рассуждения и возвращает ПУСТОЙ content.
-            .arg("--jinja");
+            .arg("--jinja")
+            // На уровне 4 сервер называет устройство и сколько слоёв ушло на карту — без этого
+            // в журнале не видно, где считает рассказчик.
+            .arg("-lv")
+            .arg("4");
+        if let Some(device) = &opts.device {
+            cmd.arg("--device").arg(device);
+        }
         if let Some(mmproj) = opts.mmproj.as_ref().filter(|path| path.is_file()) {
             cmd.arg("--mmproj").arg(mmproj);
         }
@@ -148,11 +177,19 @@ impl LlamaServer {
             drain_to_tail(stderr, log_tail.clone());
         }
 
+        tracing::info!(
+            "рассказчик: llama-server {} на порту {port}, -ngl {}, -c {}, --device {}",
+            opts.bin.display(),
+            opts.n_gpu_layers,
+            opts.ctx_size,
+            opts.device.as_deref().unwrap_or("(все)")
+        );
         let mut server = LlamaServer {
             child,
             port,
             base_url: format!("http://127.0.0.1:{port}"),
             log_tail,
+            launch_key: opts.launch_key(),
         };
         server.wait_ready(opts.ready_timeout_secs)?;
         Ok(server)
@@ -203,6 +240,20 @@ impl LlamaServer {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// С чем запущен ([`ServerOpts::launch_key`]).
+    pub fn launch_key(&self) -> &str {
+        &self.launch_key
+    }
+
+    /// Процесс завершился сам (нехватка памяти, падение): код выхода и хвост его вывода.
+    pub fn ended(&mut self) -> Option<String> {
+        match self.child.try_wait() {
+            Ok(Some(status)) => Some(format!("{status}; вывод: {}", tail_text(&self.log_tail))),
+            Ok(None) => None,
+            Err(error) => Some(format!("состояние процесса не читается: {error}")),
+        }
     }
 
     /// Остановить сервер и вернуть VRAM. Идемпотентно.
