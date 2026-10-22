@@ -162,6 +162,17 @@ pub enum TextProvider {
 }
 
 
+/// Голос истории по умолчанию — из «Набора голосов», тот же, что у окна (`frontend/src/lib/defaults.ts`):
+/// игра начинается озвученной, а не молчаливой.
+pub const DEFAULT_VOICE: &str = "RU_Male_Gabidullin_ruslan";
+
+/// «Ведущего» в нынешнем «Наборе голосов» нет: история с ним на каждой реплике падала бы на
+/// «голоса нет на диске», хотя набор стоит.
+fn voice_in_pack<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let voice = String::deserialize(deserializer)?;
+    Ok(if voice == "Vedushchiy" { DEFAULT_VOICE.to_string() } else { voice })
+}
+
 /// Настройки истории. Хранятся как JSON на строке чата, поэтому имена полей обязаны
 /// совпадать с прежним контрактом `StorySettings` — иначе старые базы не прочитаются.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +211,7 @@ pub struct StorySettings {
     pub prose_size: ProseSize,
     pub response_length: ResponseLength,
     pub language: Language,
+    #[serde(deserialize_with = "voice_in_pack")]
     pub voice: String,
     pub autoplay: bool,
     pub tts_volume: f32,
@@ -238,9 +250,7 @@ impl Default for StorySettings {
             prose_size: ProseSize::default(),
             response_length: ResponseLength::default(),
             language: Language::default(),
-            // Голос по умолчанию — клон эталонного «Ведущего» из пака: игра начинается
-            // озвученной, а не молчаливой.
-            voice: "Vedushchiy".to_string(),
+            voice: DEFAULT_VOICE.to_string(),
             autoplay: true,
             tts_volume: 1.0,
             tts_speed: 1.0,
@@ -285,5 +295,20 @@ mod tests {
         assert_eq!(settings.world, "лес");
         assert!(matches!(settings.language, Language::Ru));
         assert!(settings.image_generation_enabled);
+    }
+}
+
+#[cfg(test)]
+mod voice_tests {
+    use super::*;
+
+    #[test]
+    fn a_story_saved_with_the_retired_voice_gets_one_from_the_pack() {
+        let old: StorySettings = serde_json::from_str(r#"{"voice":"Vedushchiy"}"#).unwrap();
+        assert_eq!(old.voice, DEFAULT_VOICE);
+        let chosen: StorySettings = serde_json::from_str(r#"{"voice":"English_Female"}"#).unwrap();
+        assert_eq!(chosen.voice, "English_Female");
+        let empty: StorySettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty.voice, DEFAULT_VOICE);
     }
 }
