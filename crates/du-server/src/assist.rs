@@ -14,6 +14,7 @@ use du_core::Language;
 use du_llm::{ChatClient, Message, Sampling};
 use du_prompts::prompts_for;
 
+use crate::errors::UserError;
 use crate::routes::ApiError;
 use crate::state::AppState;
 use crate::turn::structured_sampling;
@@ -140,7 +141,7 @@ pub async fn suggest(
         "style" => &prompts.suggest.fields.style,
         "character" => &prompts.suggest.fields.character,
         "opening" => &prompts.suggest.fields.opening,
-        other => return Err(ApiError::bad_request(format!("неизвестное поле: {other}"))),
+        other => return Err(ApiError::bad_request(crate::errors::UserError::UnknownField(other.to_string()))),
     };
 
     let mut user = instruction.clone();
@@ -320,9 +321,7 @@ pub async fn character(
 ///
 /// Чипсы действий, «заполнить за меня» и подсказки — это тот же рассказчик, только короткий,
 /// поэтому идут туда же, куда ход: в облако или агенту из настроек игры, а иначе на сервер,
-/// который назвала сама история. Раньше они ВСЕГДА поднимали модель на карте: игрок видел
-/// загрузку видеокарты, хотя весь ход считало облако, а с локальным сервером истории и без
-/// встроенной модели чипсы не появлялись вовсе.
+/// который назвала сама история; своя карта — только когда ход тоже считает она.
 enum Outside {
     Remote(crate::runtime::Runtime),
     Story(du_core::StorySettings),
@@ -340,13 +339,13 @@ fn outside(state: &AppState, settings: Option<&du_core::StorySettings>) -> Optio
 
 /// Сам клиент собирается уже в рабочем потоке: он держит собственный рантайм, и его
 /// рождение или смерть в асинхронном обработчике роняет поток целиком.
-fn outside_client(outside: &Outside) -> Result<ChatClient, String> {
+fn outside_client(outside: &Outside) -> Result<ChatClient, UserError> {
     let timeout = std::time::Duration::from_secs(180);
     match outside {
         Outside::Remote(runtime) => crate::narrator::remote_client(runtime, timeout)?
-            .ok_or_else(|| "рассказчик на своей карте".to_string()),
+            .ok_or_else(|| UserError::from("рассказчик на своей карте")),
         Outside::Story(settings) => crate::narrator::story_client(settings, timeout)?
-            .ok_or_else(|| "история считает встроенной моделью".to_string()),
+            .ok_or_else(|| UserError::from("история считает встроенной моделью")),
     }
 }
 
@@ -363,12 +362,10 @@ async fn ask_json(
         let messages = messages.clone();
         let schema = schema.clone();
         return tokio::task::spawn_blocking(move || {
-            outside_client(&outside)?
-                .chat_json(&messages, &structured_sampling(), &schema)
-                .map_err(|error| error.to_string())
+            Ok::<_, UserError>(outside_client(&outside)?.chat_json(&messages, &structured_sampling(), &schema)?)
         })
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal);
     }
 
@@ -376,17 +373,14 @@ async fn ask_json(
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_, _| {
-            let base_url = inner.gpu.text_base_url().map_err(|error| error.to_string())?;
-            let client = ChatClient::new(&base_url, std::time::Duration::from_secs(180))
-                .map_err(|error| error.to_string())?;
-            client
-                .chat_json(&messages, &structured_sampling(), &schema)
-                .map_err(|error| error.to_string())
+            let base_url = inner.gpu.text_base_url()?;
+            let client = ChatClient::new(&base_url, std::time::Duration::from_secs(180))?;
+            Ok(client.chat_json(&messages, &structured_sampling(), &schema)?)
         }))
         .await;
     result
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal)
 }
 
@@ -400,10 +394,10 @@ async fn ask_text(
         let messages = messages.clone();
         let sampling = sampling.clone();
         let text = tokio::task::spawn_blocking(move || {
-            outside_client(&outside)?.chat(&messages, &sampling).map_err(|error| error.to_string())
+            Ok::<_, UserError>(outside_client(&outside)?.chat(&messages, &sampling)?)
         })
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal)?;
         return Ok(text);
     }
@@ -412,18 +406,14 @@ async fn ask_text(
     let (_, result) = state
         .queue
         .enqueue_awaitable(Box::new(move |_, _| {
-            let base_url = inner.gpu.text_base_url().map_err(|error| error.to_string())?;
-            let client = ChatClient::new(&base_url, std::time::Duration::from_secs(180))
-                .map_err(|error| error.to_string())?;
-            client
-                .chat(&messages, &sampling)
-                .map(Value::String)
-                .map_err(|error| error.to_string())
+            let base_url = inner.gpu.text_base_url()?;
+            let client = ChatClient::new(&base_url, std::time::Duration::from_secs(180))?;
+            Ok(Value::String(client.chat(&messages, &sampling)?))
         }))
         .await;
     let value = result
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal)?;
     Ok(value.as_str().unwrap_or_default().to_string())
 }

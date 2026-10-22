@@ -26,6 +26,7 @@ use du_prompts::strip_image_artifacts;
 use du_rpg::{apply_game_update, ApplyOptions, RpgSnapshot};
 
 use crate::resolve::resolve_engine_update;
+use crate::errors::UserError;
 use crate::routes::ApiError;
 use crate::state::AppState;
 use crate::turn;
@@ -55,16 +56,13 @@ pub async fn story(
         .store
         .get_chat(&body.chat_id)
         .map_err(|error| ApiError::internal(error.to_string()).into_response())?
-        .ok_or_else(|| ApiError::not_found("чат не найден").into_response())?;
+        .ok_or_else(|| ApiError::not_found(crate::errors::UserError::ChatNotFound).into_response())?;
 
     // Погибшим героем история кончается. Раньше можно было писать дальше как ни в чём не
     // бывало: движок помечал героя мёртвым, а ход шёл своим чередом. Отменить роковой ход
     // по-прежнему можно — «Стереть» и «Повтор» откатывают его последствия.
     if chat.summary.settings.rpg_enabled && hero_is_dead(&state, &body.chat_id) {
-        return Err(ApiError::conflict(
-            "Герой погиб — история окончена. Отмени последний ход или начни новую историю.",
-        )
-        .into_response());
+        return Err(ApiError::conflict(UserError::HeroDead).into_response());
     }
 
     // Реплику игрока сохраняем сразу: если ход сорвётся, она не потеряется.
@@ -95,7 +93,11 @@ pub async fn story(
             drop(watch);
             // Прерванный игроком ход — не сбой и не удача: в отчёт надёжности он не идёт.
             if !abort.load(std::sync::atomic::Ordering::Relaxed) {
-                crate::hub::turn_ended(&chat.summary.settings, result.as_ref().map(|_| ()).map_err(String::as_str));
+                let reason = result.as_ref().err().map(ToString::to_string);
+                crate::hub::turn_ended(&chat.summary.settings, match &reason {
+                    Some(reason) => Err(reason.as_str()),
+                    None => Ok(()),
+                });
             }
             result
         }))
@@ -106,7 +108,7 @@ pub async fn story(
         .queue
         .subscribe(&job_id)
         .await
-        .ok_or_else(|| ApiError::internal("задача потерялась").into_response())?;
+        .ok_or_else(|| ApiError::internal(crate::errors::UserError::JobLost).into_response())?;
 
     // Контракт потока — ИМЕНОВАННЫЕ события: интерфейс различает их по имени, а безымянные
     // просто игнорирует, из-за чего экран оставался пустым при уже готовом ходе.
@@ -153,7 +155,17 @@ fn hero_is_dead(state: &AppState, chat_id: &str) -> bool {
 /// Разложить готовую фразу на куски с голосами. Контекстом для поиска говорящего служит
 /// хвост уже прочитанного: имя часто называют фразой раньше самой реплики.
 /// Запущенный синтез одной фразы: номер по порядку, голос и то, что вышло.
-type FlyingClip = std::thread::JoinHandle<(usize, String, Result<String, String>)>;
+type FlyingClip = std::thread::JoinHandle<(usize, String, Result<String, UserError>)>;
+
+/// Фраза не озвучилась: русский текст для журнала и код с полями для перевода в окне.
+fn voice_error_event(error: &UserError) -> Value {
+    json!({
+        "stage": "озвучка",
+        "voiceError": error.to_string(),
+        "voiceErrorCode": error.code(),
+        "voiceErrorParams": error.params(),
+    })
+}
 
 /// Забрать САМЫЙ СТАРЫЙ из запущенных запросов озвучки и отдать клип игроку.
 ///
@@ -175,8 +187,8 @@ fn take_ready(
         }
         Ok((_, _, Err(error))) => {
             tracing::warn!("фраза не озвучилась: {error}");
-            sink(json!({ "stage": "озвучка", "voiceError": error.clone() }));
-            *last_error = Some(error);
+            sink(voice_error_event(&error));
+            *last_error = Some(error.to_string());
         }
         Err(_) => {
             tracing::warn!("поток озвучки не дожил до ответа");
@@ -272,11 +284,17 @@ fn to_named(event: &Value) -> Option<Event> {
                 );
             }
             if let Some(reason) = event.get("voiceError").and_then(Value::as_str) {
-                return Some(
-                    Event::default()
-                        .event("notice")
-                        .data(json!({ "text": format!("Озвучка не удалась: {reason}") }).to_string()),
-                );
+                return Some(Event::default().event("notice").data(
+                    json!({
+                        "text": format!("Озвучка не удалась: {reason}"),
+                        "voiceError": {
+                            "code": event.get("voiceErrorCode"),
+                            "params": event.get("voiceErrorParams"),
+                            "error": reason,
+                        },
+                    })
+                    .to_string(),
+                ));
             }
             let stage = event.get("stage").and_then(Value::as_str)?;
             // Имя инструмента едет вместе со стадией: без него в потоке видно только пять
@@ -306,7 +324,9 @@ fn to_named(event: &Value) -> Option<Event> {
         }
         "error" => {
             let error = event.get("error").and_then(Value::as_str).unwrap_or("ход прервался");
-            Some(Event::default().event("error").data(json!({ "error": error }).to_string()))
+            Some(Event::default().event("error").data(
+                json!({ "error": error, "code": event.get("code"), "params": event.get("params") }).to_string(),
+            ))
         }
         _ => None,
     }
@@ -321,12 +341,15 @@ fn run_turn(
     progress: crate::jobs::ProgressFn,
     // Поднят, когда игрок нажал «Прервать» или ушёл со страницы.
     abort: crate::jobs::AbortFlag,
-) -> Result<Value, String> {
+) -> Result<Value, UserError> {
     let settings = &chat.summary.settings;
     let stopped = || abort.load(std::sync::atomic::Ordering::Relaxed);
 
     // Рассказчик идёт либо на своей карте, либо в облако — тогда карта вообще не нужна.
     let runtime = crate::runtime::load(&state.root);
+    // Рассказчик на своей карте: голос туда же грузится только после всех текстовых проходов
+    // хода — загрузка голоса глушит текстовую модель, а её адрес ход уже держит.
+    let mut text_on_card = false;
     let client = match crate::narrator::remote_client(&runtime, std::time::Duration::from_secs(600))? {
         Some(client) => {
             progress(json!({ "stage": match crate::narrator::writer(&runtime) {
@@ -342,7 +365,8 @@ fn run_turn(
             }
             None => {
                 progress(json!({ "stage": "загрузка модели" }));
-                let base_url = state.gpu.text_base_url().map_err(|error| error.to_string())?;
+                text_on_card = true;
+                let base_url = state.gpu.text_base_url()?;
                 ChatClient::new(&base_url, std::time::Duration::from_secs(600))
                     .map_err(|error| error.to_string())?
             }
@@ -484,6 +508,8 @@ fn run_turn(
 
     // Канал несёт (номер, текст, голос): номер держит порядок воспроизведения.
     let (sentences_tx, sentences_rx) = std::sync::mpsc::channel::<(usize, String, String)>();
+    // Закрывается, когда текстовой модели в этом ходе больше нечего делать.
+    let (text_done_tx, text_done_rx) = std::sync::mpsc::channel::<()>();
     let speaker = if speaking_on {
         let root = state.root.clone();
         let generated = state.generated.clone();
@@ -499,11 +525,14 @@ fn run_turn(
             let engine = if in_cloud {
                 None
             } else {
+                if text_on_card {
+                    let _ = text_done_rx.recv();
+                }
                 match gpu.speech_engine() {
                     Ok(engine) => Some(engine),
                     Err(error) => {
                         tracing::warn!("озвучка не удалась: {error}");
-                        sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
+                        sink(voice_error_event(&error));
                         crate::hub::ended(crate::hub::Work::Tts, Err(&error.to_string()));
                         return None;
                     }
@@ -566,7 +595,10 @@ fn run_turn(
                         ) {
                             Ok(pair) => Some(pair),
                             Err(error) => {
+                                // Один раз на голос: остальные его реплики пропускаются по той же причине.
                                 tracing::warn!("голос «{line_voice}» недоступен: {error}");
+                                sink(voice_error_event(&error));
+                                last_error = Some(error.to_string());
                                 None
                             }
                         }
@@ -599,7 +631,7 @@ fn run_turn(
                     }
                     Err(error) => {
                         tracing::warn!("фраза не озвучилась: {error}");
-                        sink(json!({ "stage": "озвучка", "voiceError": error.to_string() }));
+                        sink(voice_error_event(&error));
                         last_error = Some(error.to_string());
                     }
                 }
@@ -673,7 +705,7 @@ fn run_turn(
             }
             true
         })
-        .map_err(|error| error.to_string())?;
+        ?;
     // Хвост озвучки считаем по СЫРОМУ тексту: `spoken` тоже сырой, с пометками, и вычесть
     // одно из другого можно только пока они в одном виде.
     let narration_raw = narration.clone();
@@ -702,10 +734,10 @@ fn run_turn(
         }
     }
     if stopped() {
-        return Err("ход прерван".into());
+        return Err(UserError::TurnAborted);
     }
     if narration.trim().is_empty() {
-        return Err("нарратор написал только служебные вставки, прозы после их чистки не осталось".into());
+        return Err(UserError::NarratorOnlyArtifacts);
     }
     if speaking_on {
         // Хвост после чистки артефактов озвучиваем тем же порядком.
@@ -842,8 +874,7 @@ fn run_turn(
                 )),
             );
         }
-        // Проход видит только отрывок: без списка тех, кто уже дерётся, он заново выводил
-        // их в бой на каждом ходу.
+        // Проход видит только отрывок: кто уже в бою, он знает лишь из этого списка.
         let fighting: Vec<String> = enemies
             .iter()
             .filter_map(|enemy| actors.get(&enemy.id))
@@ -973,6 +1004,8 @@ fn run_turn(
             }
         }
     }
+
+    drop(text_done_tx);
 
     // Дожидаемся озвучки: она шла параллельно механике и кадру. Не удалась — ход всё равно
     // состоялся: текст и картинка важнее звука.

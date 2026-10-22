@@ -8,6 +8,7 @@ use axum::extract::{Query, State};
 use axum::Json;
 use serde_json::{json, Value};
 
+use crate::errors::UserError;
 use crate::routes::ApiError;
 use crate::state::AppState;
 
@@ -65,15 +66,11 @@ fn parakeet_text(
     device: crate::backend::Backend,
     wav: &std::path::Path,
     lang: &str,
-) -> Result<String, String> {
+) -> Result<String, UserError> {
     let build = if device.is_cpu() { dub_tcpp::Build::Cpu } else { dub_tcpp::Build::Cuda };
     let engine_dir = dub_tcpp::engine_dir(models_root, build);
     if !engine_dir.join(dub_tcpp::LIBRARY).is_file() {
-        return Err(if device.is_cpu() {
-            format!("нет движка распознавания в {} — скачайте Parakeet в «Что скачать»", engine_dir.display())
-        } else {
-            format!("распознавание выбрано на видеокарте, а сборки для неё нет в {} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор", engine_dir.display())
-        });
+        return Err(UserError::AsrEngineMissing { path: engine_dir.display().to_string(), gpu: !device.is_cpu() });
     }
     if build == dub_tcpp::Build::Cuda && cfg!(windows) {
         link_cuda13(&engine_dir, &models_root.join("tts-engine"))?;
@@ -86,12 +83,12 @@ fn parakeet_text(
     if build == dub_tcpp::Build::Cuda {
         dub_tcpp::unload();
     }
-    let words = heard.map_err(|error| format!("Parakeet не распознал запись: {error}"))?;
+    let words = heard.map_err(|error| UserError::AsrFailed(error.to_string()))?;
     Ok(words.iter().map(|word| word.word.trim()).filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" "))
 }
 
 /// Положить [`CUDA13_LIBRARIES`] из `source` рядом со сборкой `engine_dir` (жёсткой ссылкой, иначе копией).
-fn link_cuda13(engine_dir: &std::path::Path, source: &std::path::Path) -> Result<(), String> {
+fn link_cuda13(engine_dir: &std::path::Path, source: &std::path::Path) -> Result<(), UserError> {
     for name in CUDA13_LIBRARIES {
         let target = engine_dir.join(name);
         let from = source.join(name);
@@ -100,10 +97,7 @@ fn link_cuda13(engine_dir: &std::path::Path, source: &std::path::Path) -> Result
             continue;
         }
         if !from.is_file() {
-            return Err(format!(
-                "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
-                source.display()
-            ));
+            return Err(UserError::ParakeetCudaLibMissing { name: name.to_string(), path: source.display().to_string() });
         }
         // устаревшая копия от прежнего cuBLAS движка озвучки уступает новой
         std::fs::remove_file(&target).ok();
@@ -116,7 +110,7 @@ fn link_cuda13(engine_dir: &std::path::Path, source: &std::path::Path) -> Result
 
 async fn transcribe_inner(State(state): State<AppState>, language: du_core::Language, body: Bytes) -> ApiResult<Json<Value>> {
     if body.is_empty() {
-        return Err(ApiError::bad_request("пустая запись"));
+        return Err(ApiError::bad_request(UserError::RecordingEmpty));
     }
     let runtime = crate::runtime::load(&state.root);
     let in_cloud = crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr);
@@ -130,24 +124,17 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
         // Выбранный вариант без файлов — ошибка с подсказкой, а не другой движок молча.
         if by_whisper {
             if !whisper_bin.is_file() {
-                return Err(ApiError::internal(format!(
-                    "выбран Whisper, но его программы нет в {} — скачайте вариант Whisper в «Что скачать» или выберите Parakeet",
-                    whisper_bin.display()
-                )));
+                return Err(ApiError::internal(UserError::WhisperBinMissing(whisper_bin.display().to_string())));
             }
             let model_dir = whisper_models.join(format!("faster-whisper-{}", runtime.whisper_model));
             if !model_dir.join("model.bin").is_file() {
-                return Err(ApiError::internal(format!(
-                    "выбран Whisper {}, но модели нет в {} — скачайте её в «Что скачать»",
-                    runtime.whisper_model,
-                    model_dir.display()
-                )));
+                return Err(ApiError::internal(UserError::WhisperModelMissing {
+                    model: runtime.whisper_model.clone(),
+                    path: model_dir.display().to_string(),
+                }));
             }
         } else if !parakeet_path.is_file() {
-            return Err(ApiError::internal(format!(
-                "нет модели распознавания {} — либо скачайте её в «Что скачать», либо включите облако",
-                parakeet_path.display()
-            )));
+            return Err(ApiError::internal(UserError::ParakeetModelMissing(parakeet_path.display().to_string())));
         }
     }
 
@@ -178,10 +165,7 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                 // Whisper на видеокарте требует библиотек CUDA 11 рядом с программой: без них он
                 // упал бы, а молча считать на процессоре нельзя.
                 if !device.is_cpu() && !whisper_cuda_present(&whisper_bin) {
-                    return Err(
-                        "Whisper должен считать на видеокарте, но библиотек CUDA для него нет — скачайте «Whisper на видеокарте» в «Что скачать» или переключите распознавание на процессор"
-                            .to_string(),
-                    );
+                    return Err(UserError::WhisperCudaMissing);
                 }
                 du_asr::WhisperAsr::new(
                     &whisper_bin,
@@ -206,7 +190,7 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
 
     let value = result
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal);
     let _ = std::fs::remove_file(&temp);
     Ok(Json(value?))

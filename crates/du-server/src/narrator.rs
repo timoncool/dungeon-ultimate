@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use du_llm::ChatClient;
 
+use crate::errors::UserError;
 use crate::runtime::Runtime;
 
 static PORT: AtomicU16 = AtomicU16::new(0);
@@ -65,7 +66,7 @@ pub fn writer(runtime: &Runtime) -> Writer {
 
 /// Клиент для облака или агента; `None` — текст считает своя карта, и клиента надо брать у её
 /// сервера в очереди к карте.
-pub fn remote_client(runtime: &Runtime, timeout: Duration) -> Result<Option<ChatClient>, String> {
+pub fn remote_client(runtime: &Runtime, timeout: Duration) -> Result<Option<ChatClient>, UserError> {
     match writer(runtime) {
         Writer::Local => Ok(None),
         Writer::Agent => agent_client().map(Some),
@@ -75,13 +76,13 @@ pub fn remote_client(runtime: &Runtime, timeout: Duration) -> Result<Option<Chat
 
 /// Клиент OpenAI-совместимого сервера, который история назвала сама («Локальный сервер» в её настройках: llama.cpp,
 /// LM Studio, vLLM, Unsloth и т. п.); `None` — история считает своей моделью. Ключ и модель — если заданы.
-pub fn story_client(settings: &du_core::StorySettings, timeout: Duration) -> Result<Option<ChatClient>, String> {
+pub fn story_client(settings: &du_core::StorySettings, timeout: Duration) -> Result<Option<ChatClient>, UserError> {
     if settings.text_provider != du_core::settings::TextProvider::Custom {
         return Ok(None);
     }
     let url = settings.custom_base_url.trim();
     if url.is_empty() {
-        return Err("в настройках истории выбран локальный сервер, но его адрес пуст: впишите адрес сервера".into());
+        return Err(UserError::LocalServerUrlEmpty);
     }
     let filled = |value: &str| Some(value.trim().to_string()).filter(|value| !value.is_empty());
     Ok(Some(
@@ -94,22 +95,19 @@ pub fn story_client(settings: &du_core::StorySettings, timeout: Duration) -> Res
 
 /// Ожидание агента ограничивает сам вопрос (`mcp::AGENT_ANSWER`): короткий срок вызывающего
 /// оборвал бы запрос, пока агент ещё пишет ответ.
-fn agent_client() -> Result<ChatClient, String> {
+fn agent_client() -> Result<ChatClient, UserError> {
     if !crate::mcp::agent_present() {
-        return Err(
-            "рассказчик — агент, но агент не подключён к MCP игры: подключите его или выберите рассказчика на своей карте"
-                .into(),
-        );
+        return Err(UserError::AgentNotConnected);
     }
     let port = PORT.load(Ordering::Relaxed);
     if port == 0 {
         return Err("сервер ещё не знает свой порт".into());
     }
     ChatClient::new(&format!("http://127.0.0.1:{port}/agent"), crate::mcp::AGENT_ANSWER + Duration::from_secs(30))
-        .map_err(|error| error.to_string())
+        .map_err(UserError::from)
 }
 
-fn cloud_client(runtime: &Runtime, timeout: Duration) -> Result<ChatClient, String> {
+fn cloud_client(runtime: &Runtime, timeout: Duration) -> Result<ChatClient, UserError> {
     crate::cloud::require(runtime, crate::cloud::Stage::Narrator)?;
     // Размышления ПРЯЧЕМ, а не запрещаем: запрет часть моделей отвергает отказом, а если
     // рассуждения попадают в ответ, структурный проход возвращает их вместо JSON.
@@ -120,8 +118,7 @@ fn cloud_client(runtime: &Runtime, timeout: Duration) -> Result<ChatClient, Stri
         _ => du_llm::Reasoning::AsIs,
     };
     let effort = du_llm::Effort(caps.cheapest_effort().map(str::to_string));
-    Ok(ChatClient::new("https://openrouter.ai/api", timeout)
-        .map_err(|error| error.to_string())?
+    Ok(ChatClient::new("https://openrouter.ai/api", timeout)?
         .with_api_key(Some(runtime.openrouter_key.clone()))
         .with_model(Some(runtime.openrouter_narrator_model.clone()))
         .with_reasoning(reasoning)
@@ -156,6 +153,6 @@ mod tests {
     fn an_agent_writer_without_an_agent_is_an_error_not_the_card() {
         let runtime = Runtime { narrator_provider: "agent".into(), ..Runtime::default() };
         let Err(error) = remote_client(&runtime, Duration::from_secs(1)) else { panic!("без агента клиента нет") };
-        assert!(error.contains("агент"), "{error}");
+        assert!(error.to_string().contains("агент"), "{error}");
     }
 }

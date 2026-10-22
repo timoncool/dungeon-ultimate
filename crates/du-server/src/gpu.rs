@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex};
 use du_image::{Engine, GenParams, ModelConfig, RawImage};
 use du_llm::{LlamaServer, ServerOpts};
 
+use crate::errors::UserError;
+
 /// Кто держит карту прямо сейчас.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resident {
@@ -93,15 +95,6 @@ pub struct Gpu {
     resident: Mutex<Resident>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum GpuError {
-    #[error("движок картинок: {0}")]
-    Image(#[from] du_image::ImageError),
-    #[error("текстовая модель: {0}")]
-    Text(#[from] du_llm::LlmError),
-    #[error("не хватает файлов модели: {0}")]
-    Missing(String),
-}
 
 impl Gpu {
     pub fn new(root: &Path, paths: Paths) -> Self {
@@ -134,7 +127,7 @@ impl Gpu {
     }
 
     /// Поднять текстовую модель, предварительно освободив карту.
-    pub fn text_base_url(&self) -> Result<String, GpuError> {
+    pub fn text_base_url(&self) -> Result<String, UserError> {
         {
             let text = self.text.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(server) = text.as_ref() {
@@ -142,10 +135,7 @@ impl Gpu {
             }
         }
         if !self.paths.text_ready() {
-            return Err(GpuError::Missing(format!(
-                "нет модели нарратора ({}) или llama-server",
-                self.paths.text_model.display()
-            )));
+            return Err(UserError::TextModelMissing(self.paths.text_model.display().to_string()));
         }
         // Картинка обязана уйти с карты до загрузки нарратора.
         self.drop_image_context();
@@ -162,7 +152,7 @@ impl Gpu {
             .with_mmproj(self.paths.text_mmproj.clone().filter(|path| path.is_file()))
             .with_ctx(runtime.narrator_ctx);
         opts.n_gpu_layers = narrator_layers(&runtime);
-        let server = LlamaServer::start(&opts)?;
+        let server = LlamaServer::start(&opts).map_err(|error| UserError::Llm { error, starting: true })?;
         let url = server.base_url().to_string();
         *self.text.lock().unwrap_or_else(|e| e.into_inner()) = Some(server);
         *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Text;
@@ -179,7 +169,7 @@ impl Gpu {
     }
 
     /// Загруженный движок озвучки. Первый вызов грузит веса, дальше отдаётся тот же.
-    pub fn speech_engine(&self) -> Result<Arc<du_tts::AudiocppEngine>, GpuError> {
+    pub fn speech_engine(&self) -> Result<Arc<du_tts::AudiocppEngine>, UserError> {
         {
             let speech = self.speech.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(engine) = speech.as_ref() {
@@ -189,7 +179,7 @@ impl Gpu {
         let dll = self.root.join("models").join("tts-engine").join("audiocpp_engine.dll");
         let model_root = self.root.join("models").join("tts");
         if !dll.is_file() {
-            return Err(GpuError::Missing("движок озвучки не установлен".into()));
+            return Err(UserError::TtsEngineMissing);
         }
         // Голосу нужна карта — значит текстовая модель с неё уходит. Без этого Гемма на 8 ГБ
         // и голос на 4 ГБ жили на карте одновременно, всё упиралось в память и ход занимал
@@ -197,8 +187,7 @@ impl Gpu {
         self.release_text();
         *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Speech;
 
-        let engine = du_tts::AudiocppEngine::load(&dll)
-            .map_err(|error| GpuError::Missing(error.to_string()))?;
+        let engine = du_tts::AudiocppEngine::load(&dll)?;
         let runtime = crate::runtime::load(&self.root);
         engine
             .load_model(
@@ -207,8 +196,7 @@ impl Gpu {
                 0,
                 8,
                 None,
-            )
-            .map_err(|error| GpuError::Missing(error.to_string()))?;
+            )?;
         let engine = Arc::new(engine);
         *self.speech.lock().unwrap_or_else(|e| e.into_inner()) = Some(engine.clone());
         Ok(engine)
@@ -234,12 +222,9 @@ impl Gpu {
         &self,
         params: &GenParams,
         progress: Option<ImageProgressFn>,
-    ) -> Result<Vec<RawImage>, GpuError> {
+    ) -> Result<Vec<RawImage>, UserError> {
         if !self.paths.image_ready() {
-            return Err(GpuError::Missing(format!(
-                "нет весов картинок в {}",
-                self.paths.image_models.display()
-            )));
+            return Err(UserError::ImageWeightsMissing(self.paths.image_models.display().to_string()));
         }
         self.release_text();
         // Картинке нужна вся карта: и текст, и озвучка уходят с неё.
@@ -361,7 +346,7 @@ mod tests {
         let gpu = Gpu::new(root, Paths::under(root));
         assert!(!gpu.paths().image_ready());
         let error = gpu.generate_image(&GenParams::default(), None).unwrap_err();
-        assert!(matches!(error, GpuError::Missing(_)));
+        assert!(matches!(error, UserError::ImageWeightsMissing(_)));
         assert_eq!(gpu.resident(), Resident::Nobody, "карта не должна была занятья");
     }
 
@@ -369,6 +354,6 @@ mod tests {
     fn a_missing_narrator_is_reported_too() {
         let root = Path::new("D:/нет-такого-каталога");
         let gpu = Gpu::new(root, Paths::under(root));
-        assert!(matches!(gpu.text_base_url(), Err(GpuError::Missing(_))));
+        assert!(matches!(gpu.text_base_url(), Err(UserError::TextModelMissing(_))));
     }
 }

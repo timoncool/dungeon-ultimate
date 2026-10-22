@@ -99,6 +99,7 @@ import { reportUiLanguage } from "./lib/studioHub";
 import ActivityPanel from "./components/ActivityPanel";
 import { CHANGED, PLAY, startBridge, useBridgeCommand } from "./lib/mcpBridge";
 import { UiTextProvider, useUi, useUiLanguage } from "./lib/ui-text-context";
+import { errorText, type ServerError } from "./lib/ui-text-errors";
 import { uiText, type UiText } from "./lib/ui-text";
 import { settingsText, type SettingsText } from "./lib/ui-text-settings";
 
@@ -361,7 +362,7 @@ async function readApi<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message =
       isRecord(payload) && typeof payload.error === "string"
-        ? payload.error
+        ? errorText(payload as ServerError)
         : `Request failed (${response.status}).`;
     throw new Error(message);
   }
@@ -1488,10 +1489,10 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messageId, chunkIndex, text: chunkText, voice, language: settings.language }),
     });
-    const data = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+    const data = (await response.json().catch(() => ({}))) as { url?: string } & ServerError;
     // Голос, которого нет на диске, не появится к следующей фразе: первая же ошибка сервера
     // останавливает озвучку хода и называется игроку, а не тонет в тишине на каждой фразе.
-    if (!response.ok || !data.url) throw new Error(data.error || `/api/tts ${response.status}`);
+    if (!response.ok || !data.url) throw new Error(data.error ? errorText(data) : `/api/tts ${response.status}`);
     audioCacheRef.current.set(key, data.url);
     return data.url;
   }
@@ -1657,6 +1658,8 @@ export default function Home() {
       let streamMessageId = "";
       // Клипы озвучки, пришедшие потоком: если они были, в конце переозвучивать нечего.
       const streamedClips: string[] = [];
+      // Озвучка уже сорвалась по ходу и причина названа: переозвучка упала бы на том же.
+      let voiceFailedInStream = false;
 
       const finalize = (final: {
         id?: string;
@@ -1666,7 +1669,7 @@ export default function Home() {
         const text = (final.content ?? "").trim();
         // Переозвучиваем только если поток клипов не пришёл — иначе игрок услышал бы
         // ход дважды.
-        if (opts.settings.autoplay && text && streamedClips.length === 0) {
+        if (opts.settings.autoplay && text && streamedClips.length === 0 && !voiceFailedInStream) {
           void speakText(final.id || streamMessageId || makeId(), text);
         }
         void refreshChats();
@@ -1742,6 +1745,10 @@ export default function Home() {
             id?: string;
             content?: string;
             error?: string;
+            code?: string | null;
+            params?: Record<string, unknown> | null;
+            /// Почему не озвучилась фраза: код и поля для перевода.
+            voiceError?: ServerError;
             imageRequest?: StoryMessage["imageRequest"];
             events?: GameEvent[];
             /// Адрес готовой фразы озвучки, пришедшей во время генерации текста.
@@ -1766,7 +1773,10 @@ export default function Home() {
           } else if (eventName === "notice") {
             // Ход состоялся, но что-то из него не вышло — говорим об этом прямо, а не
             // оставляем игрока гадать, почему стало тихо.
-            if (data.text) {
+            if (data.voiceError) {
+              voiceFailedInStream = true;
+              setError(settings_.voiceFailed.replace("{reason}", errorText(data.voiceError)));
+            } else if (data.text) {
               setError(String(data.text));
             }
           } else if (eventName === "clip") {
@@ -1777,7 +1787,7 @@ export default function Home() {
               void enqueueClip(data.url);
             }
           } else if (eventName === "error") {
-            streamErrorMessage = data.error || settings_.errorStoryStream;
+            streamErrorMessage = data.error ? errorText(data) : settings_.errorStoryStream;
             done = true;
             // The assistant message is persisted only on the success path (the `done`
             // event reconciles it). Any error means it was NOT saved, so drop the
@@ -3910,8 +3920,8 @@ function CharacterPanel({
         }),
       });
       if (!response.ok) {
-        const info = (await response.json().catch(() => null)) as { error?: string } | null;
-        setAutofillError(info?.error || settings_.errorCharacterGenerate);
+        const info = (await response.json().catch(() => null)) as ServerError | null;
+        setAutofillError(info?.error ? errorText(info) : settings_.errorCharacterGenerate);
         return;
       }
       const data = (await response.json()) as {
@@ -4820,12 +4830,9 @@ function VoiceControl({
       const form = new FormData();
       form.append("file", file);
       const response = await fetch("/api/tts-voice", { method: "POST", body: form });
-      const data = (await response.json().catch(() => ({}))) as {
-        voice?: string;
-        error?: string;
-      };
+      const data = (await response.json().catch(() => ({}))) as { voice?: string } & ServerError;
       if (!response.ok || !data.voice) {
-        setVoiceError(data.error || settings_.errorVoiceLoad);
+        setVoiceError(data.error ? errorText(data) : settings_.errorVoiceLoad);
         return;
       }
       const id = data.voice;
@@ -5221,8 +5228,8 @@ function MicButton({
         headers: { "Content-Type": "audio/wav" },
         body: wav,
       });
-      const data = (await response.json()) as { text?: string; error?: string };
-      if (!response.ok) throw new Error(data.error ?? response.statusText);
+      const data = (await response.json()) as { text?: string } & ServerError;
+      if (!response.ok) throw new Error(data.error ? errorText(data) : response.statusText);
       if (data.text) onTranscript(data.text);
     } catch (asrError) {
       onError(asrError instanceof Error ? asrError.message : String(asrError));

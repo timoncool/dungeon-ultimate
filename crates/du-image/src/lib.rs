@@ -25,8 +25,9 @@ pub const PINNED_COMMIT: &str = "1b0ba10";
 pub enum ImageError {
     #[error("движок картинок не найден: {0}")]
     LibraryMissing(PathBuf),
-    #[error("не удалось загрузить движок картинок: {0}")]
-    Library(#[from] libloading::Error),
+    /// `dll` — какая библиотека не загрузилась, `detail` — причина вместе с кодом ошибки системы.
+    #[error("не удалось загрузить движок картинок: {dll}: {detail}")]
+    Library { dll: String, detail: String },
     #[error("в пути к модели недопустимый нулевой байт: {0}")]
     BadPath(String),
     #[error("не удалось создать контекст модели: {0}")]
@@ -236,17 +237,18 @@ impl Engine {
         // Бэкенды ggml (CUDA, CPU) подключаются динамически и по умолчанию ищутся рядом с
         // EXE процесса. У нас движок лежит отдельным каталогом, поэтому регистрируем их
         // явно оттуда — иначе в процессе не будет видно ни одного устройства.
-        let ggml = unsafe { load_library(&dir.join("ggml.dll"))? };
+        let ggml_path = dir.join("ggml.dll");
+        let ggml = unsafe { load_library(&ggml_path).map_err(|error| library_error(&ggml_path, &error))? };
         unsafe {
             let load_all: unsafe extern "C" fn(*const c_char) =
-                *ggml.get(b"ggml_backend_load_all_from_path\0")?;
+                *ggml.get(b"ggml_backend_load_all_from_path\0").map_err(|error| library_error(&ggml_path, &error))?;
             if let Ok(dir_c) = CString::new(dir.to_string_lossy().into_owned()) {
                 load_all(dir_c.as_ptr());
             }
         }
 
-        let lib = unsafe { load_library(&dll)? };
-        let symbols = unsafe { Symbols::load(&lib)? };
+        let lib = unsafe { load_library(&dll).map_err(|error| library_error(&dll, &error))? };
+        let symbols = unsafe { Symbols::load(&lib).map_err(|error| library_error(&dll, &error))? };
         let engine = Engine { _ggml: ggml, _lib: lib, symbols };
         unsafe {
             (engine.symbols.sd_set_log_callback)(log_trampoline, std::ptr::null_mut());
@@ -501,6 +503,26 @@ fn augment_search_path(dir: &Path) {
 unsafe fn load_library(path: &Path) -> Result<libloading::Library, libloading::Error> {
     use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
     Library::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH).map(Into::into)
+}
+
+/// Ошибка загрузки библиотеки с именем файла и цепочкой причин: сам `libloading` пишет лишь
+/// «LoadLibraryExW failed», а код системы (126 — нет зависимой DLL, 193 — не та разрядность)
+/// лежит в его источнике.
+fn library_error(path: &Path, error: &libloading::Error) -> ImageError {
+    let dll = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    ImageError::Library { dll, detail: error_chain(error) }
+}
+
+/// Текст ошибки вместе со всеми её источниками.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 #[cfg(not(windows))]

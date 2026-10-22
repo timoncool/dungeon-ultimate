@@ -98,10 +98,10 @@ fn free_port() -> Result<u16, LlmError> {
 impl LlamaServer {
     pub fn start(opts: &ServerOpts) -> Result<Self, LlmError> {
         if !opts.bin.is_file() {
-            return Err(LlmError::Spawn(format!("llama-server не найден: {}", opts.bin.display())));
+            return Err(LlmError::BinMissing(opts.bin.clone()));
         }
         if !opts.model.is_file() {
-            return Err(LlmError::Spawn(format!("модель не найдена: {}", opts.model.display())));
+            return Err(LlmError::ModelMissing(opts.model.clone()));
         }
         let port = free_port()?;
         let mut cmd = Command::new(&opts.bin);
@@ -322,7 +322,8 @@ mod tests {
     fn a_missing_binary_is_reported_before_anything_is_spawned() {
         let opts = ServerOpts::new("нет-такого-бинаря", "нет-такой-модели");
         let error = LlamaServer::start(&opts).map(|_| ()).unwrap_err();
-        assert!(matches!(error, LlmError::Spawn(ref text) if text.contains("llama-server не найден")));
+        assert!(matches!(error, LlmError::BinMissing(_)));
+        assert!(error.to_string().contains("llama-server не найден"));
     }
 
     #[test]

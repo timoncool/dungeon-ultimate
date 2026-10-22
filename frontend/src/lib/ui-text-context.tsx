@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { uiText, type UiText } from "@/lib/ui-text";
+import { setErrorLanguage } from "@/lib/ui-text-errors";
 import type { Language } from "@/lib/types";
 
 /// Язык интерфейса берётся из языка истории: игрок выбирает его один раз, и странно, когда
@@ -16,7 +17,10 @@ export function UiTextProvider({
   language: Language | undefined;
   children: ReactNode;
 }) {
-  const value = useMemo(() => uiText(language), [language]);
+  const value = useMemo(() => {
+    setErrorLanguage(language ?? "ru");
+    return uiText(language);
+  }, [language]);
   return (
     <LanguageContext.Provider value={language ?? "ru"}>
       <UiTextContext.Provider value={value}>{children}</UiTextContext.Provider>

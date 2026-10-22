@@ -269,7 +269,15 @@ impl Engine {
         }
         let lib = unsafe {
             Library::new(library_path).map_err(|e| {
-                EngineError::LibraryLoad(format!("{}: {}", library_path.display(), e))
+                // libloading пишет лишь «LoadLibraryExW failed», код системы лежит в источнике.
+                let mut detail = e.to_string();
+                let mut source = std::error::Error::source(&e);
+                while let Some(cause) = source {
+                    detail.push_str(&format!(": {cause}"));
+                    source = cause.source();
+                }
+                let name = library_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                EngineError::LibraryLoad(format!("{name}: {detail} ({})", library_path.display()))
             })?
         };
 

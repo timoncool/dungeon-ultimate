@@ -29,7 +29,7 @@ pub async fn create_chat(
 ) -> ApiResult<Json<Value>> {
     let title = body.title.unwrap_or_else(|| "Новая история".to_string());
     let id = state.store.create_chat(body.settings, &title)?;
-    let chat = state.store.get_chat(&id)?.ok_or_else(|| ApiError::internal("чат не создался"))?;
+    let chat = state.store.get_chat(&id)?.ok_or_else(|| ApiError::internal(crate::errors::UserError::ChatNotCreated))?;
     Ok(Json(json!({ "chat": chat })))
 }
 
@@ -37,7 +37,7 @@ pub async fn get_chat(
     State(state): State<AppState>,
     Path(chat_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found("чат не найден"))?;
+    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found(crate::errors::UserError::ChatNotFound))?;
     // В режиме D&D вместе с чатом отдаём состояние героя, инвентарь и журнал: иначе после
     // перезагрузки они пусты — живут-то они в событиях хода. На этом же ответе держится и
     // портрет героя: без `heroId` интерфейсу некому его рисовать.
@@ -82,7 +82,7 @@ pub async fn patch_chat(
     if let Some(title) = body.title {
         state.store.set_title(&chat_id, &title)?;
     }
-    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found("чат не найден"))?;
+    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found(crate::errors::UserError::ChatNotFound))?;
     Ok(Json(json!({ "chat": chat })))
 }
 
@@ -186,7 +186,7 @@ pub async fn equip_item(
     let item = state
         .store
         .set_item_equipped(&chat_id, &item_id, body.equipped)?
-        .ok_or_else(|| ApiError::not_found("предмет не найден"))?;
+        .ok_or_else(|| ApiError::not_found(crate::errors::UserError::ItemNotFound))?;
     Ok(Json(json!({ "item": item })))
 }
 
@@ -213,7 +213,7 @@ pub async fn delete_message(
     let before = chat_files(&state, &chat_id);
     let removed = state.store.delete_message_and_after(&message_id, query.include_after)?;
     if !removed {
-        return Err(ApiError::not_found("сообщение не найдено"));
+        return Err(ApiError::not_found(crate::errors::UserError::MessageNotFound));
     }
     let after: std::collections::HashSet<std::path::PathBuf> =
         chat_files(&state, &chat_id).into_iter().collect();
@@ -236,7 +236,7 @@ pub async fn edit_message(
     Json(body): Json<EditMessage>,
 ) -> ApiResult<Json<Value>> {
     if !state.store.set_message_content(&message_id, &body.content)? {
-        return Err(ApiError::not_found("сообщение не найдено"));
+        return Err(ApiError::not_found(crate::errors::UserError::MessageNotFound));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -280,6 +280,6 @@ pub async fn patch_quest(
     let quest = state
         .store
         .set_quest_status(&chat_id, &quest_id, body.status, &crate::story::now_iso())?
-        .ok_or_else(|| ApiError::not_found("задание не найдено"))?;
+        .ok_or_else(|| ApiError::not_found(crate::errors::UserError::QuestNotFound))?;
     Ok(Json(json!({ "quest": quest })))
 }

@@ -15,8 +15,10 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
+use crate::errors::UserError;
+
 /// Тело задачи: получает колбэк прогресса, возвращает результат.
-pub type JobFn = Box<dyn FnOnce(ProgressFn, AbortFlag) -> Result<Value, String> + Send + 'static>;
+pub type JobFn = Box<dyn FnOnce(ProgressFn, AbortFlag) -> Result<Value, UserError> + Send + 'static>;
 
 /// Флаг «задачу бросили». Тело задачи смотрит на него между стадиями и в потоке текста:
 /// иначе «Прервать» лишь отцепляет браузер, а сервер продолжает считать и держит карту.
@@ -40,17 +42,24 @@ struct Job {
     events: broadcast::Sender<Value>,
     status: JobStatus,
     result: Option<Value>,
-    error: Option<String>,
+    error: Option<Value>,
     abandoned: bool,
     /// Виден телу задачи: по нему она останавливается на полпути.
     abort: AbortFlag,
-    result_sender: Option<oneshot::Sender<Result<Value, String>>>,
+    result_sender: Option<oneshot::Sender<Result<Value, UserError>>>,
 }
 
 #[derive(Clone)]
 pub struct JobQueue {
     jobs: Arc<Mutex<HashMap<String, Job>>>,
     submit: mpsc::UnboundedSender<(String, JobFn)>,
+}
+
+/// Событие обрыва задачи: русский текст и код с полями для перевода в окне.
+fn error_event(error: &UserError) -> Value {
+    let mut event = error.to_json();
+    event["type"] = json!("error");
+    event
 }
 
 fn new_job_id() -> String {
@@ -99,7 +108,7 @@ impl JobQueue {
                 // Тело синхронное и тяжёлое, поэтому уезжает в блокирующий пул.
                 let outcome = tokio::task::spawn_blocking(move || body(progress, abort))
                     .await
-                    .unwrap_or_else(|error| Err(format!("задача упала: {error}")));
+                    .unwrap_or_else(|error| Err(UserError::JobCrashed(error.to_string())));
 
                 {
                     let mut map = worker_jobs.lock().await;
@@ -111,9 +120,10 @@ impl JobQueue {
                                 let _ = events.send(json!({ "type": "done", "result": value }));
                             }
                             Err(error) => {
+                                let event = error_event(error);
                                 job.status = JobStatus::Error;
-                                job.error = Some(error.clone());
-                                let _ = events.send(json!({ "type": "error", "error": error }));
+                                job.error = Some(event.clone());
+                                let _ = events.send(event);
                             }
                         }
                         if let Some(sender) = job.result_sender.take() {
@@ -133,7 +143,7 @@ impl JobQueue {
         JobQueue { jobs, submit }
     }
 
-    fn make_job(&self, result_sender: Option<oneshot::Sender<Result<Value, String>>>) -> (String, Job) {
+    fn make_job(&self, result_sender: Option<oneshot::Sender<Result<Value, UserError>>>) -> (String, Job) {
         let (events, _) = broadcast::channel(256);
         (
             new_job_id(),
@@ -180,7 +190,7 @@ impl JobQueue {
             });
             let outcome = tokio::task::spawn_blocking(move || body(progress, abort))
                 .await
-                .unwrap_or_else(|error| Err(format!("задача упала: {error}")));
+                .unwrap_or_else(|error| Err(UserError::JobCrashed(error.to_string())));
 
             if let Some(job) = jobs.lock().await.get_mut(&done_id) {
                 match &outcome {
@@ -190,9 +200,10 @@ impl JobQueue {
                         let _ = events.send(json!({ "type": "done", "result": value }));
                     }
                     Err(error) => {
+                        let event = error_event(error);
                         job.status = JobStatus::Error;
-                        job.error = Some(error.clone());
-                        let _ = events.send(json!({ "type": "error", "error": error }));
+                        job.error = Some(event.clone());
+                        let _ = events.send(event);
                     }
                 }
             }
@@ -213,7 +224,7 @@ impl JobQueue {
     pub async fn enqueue_awaitable(
         &self,
         body: JobFn,
-    ) -> (String, oneshot::Receiver<Result<Value, String>>) {
+    ) -> (String, oneshot::Receiver<Result<Value, UserError>>) {
         let (sender, receiver) = oneshot::channel();
         let (id, job) = self.make_job(Some(sender));
         self.jobs.lock().await.insert(id.clone(), job);
@@ -229,9 +240,7 @@ impl JobQueue {
         let receiver = job.events.subscribe();
         let terminal = match job.status {
             JobStatus::Done => Some(json!({ "type": "done", "result": job.result })),
-            JobStatus::Error => {
-                Some(json!({ "type": "error", "error": job.error.clone().unwrap_or_default() }))
-            }
+            JobStatus::Error => Some(job.error.clone().unwrap_or_else(|| error_event(&UserError::JobLost))),
             _ => None,
         };
         Some((receiver, terminal))
@@ -346,9 +355,9 @@ mod tests {
     async fn a_failing_job_reports_its_error() {
         let queue = JobQueue::new();
         let (_, result) = queue
-            .enqueue_awaitable(Box::new(|_, _| Err("не вышло".to_string())))
+            .enqueue_awaitable(Box::new(|_, _| Err("не вышло".into())))
             .await;
-        assert_eq!(result.await.unwrap().unwrap_err(), "не вышло");
+        assert_eq!(result.await.unwrap().unwrap_err().to_string(), "не вышло");
     }
 
     #[tokio::test]

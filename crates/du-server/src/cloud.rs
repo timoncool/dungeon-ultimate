@@ -14,6 +14,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Value};
 
 use crate::bytes::{base64_decode, base64_encode, wrap_pcm16_wav};
+use crate::errors::{CloudStage, UserError};
 use crate::runtime::Runtime;
 
 /// Стадия, которую можно увести в облако.
@@ -61,21 +62,21 @@ pub fn set_tts_voice(runtime: &mut Runtime, voice: &str) {
 }
 
 /// Готова ли облачная стадия к вызову: есть ключ и выбрана модель.
-pub fn require(runtime: &Runtime, stage: Stage) -> Result<(), String> {
+pub fn require(runtime: &Runtime, stage: Stage) -> Result<(), UserError> {
     if stage == Stage::Tts && tts_by_google(runtime) {
-        return crate::google_tts::validate_model(&runtime.google_tts_model);
+        return Ok(crate::google_tts::validate_model(&runtime.google_tts_model)?);
     }
-    let (name, model) = match stage {
-        Stage::Narrator => ("рассказчик", &runtime.openrouter_narrator_model),
-        Stage::Image => ("картинки", &runtime.openrouter_image_model),
-        Stage::Tts => ("озвучка", &runtime.openrouter_tts_model),
-        Stage::Asr => ("распознавание речи", &runtime.openrouter_asr_model),
+    let model = match stage {
+        Stage::Narrator => &runtime.openrouter_narrator_model,
+        Stage::Image => &runtime.openrouter_image_model,
+        Stage::Tts => &runtime.openrouter_tts_model,
+        Stage::Asr => &runtime.openrouter_asr_model,
     };
     if runtime.openrouter_key.trim().is_empty() {
-        return Err(format!("{name} включён в облаке, но ключ OpenRouter не задан — впишите ключ или выключите облако для этой стадии"));
+        return Err(UserError::CloudKeyMissing(stage.into()));
     }
     if model.trim().is_empty() {
-        return Err(format!("{name} включён в облаке, но модель не выбрана — выберите модель или выключите облако для этой стадии"));
+        return Err(UserError::CloudModelMissing(stage.into()));
     }
     Ok(())
 }
@@ -135,14 +136,12 @@ const CLOUD_PCM_RATE: u32 = 24_000;
 ///   отвергается с прямым указанием «Audio output requires stream: true».
 ///
 /// Пробуем сайдкар, а на чат откатываемся: так работает любая выбранная модель.
-pub fn speak(root: &Path, runtime: &Runtime, text: &str, out: &Path) -> Result<(), String> {
+pub fn speak(root: &Path, runtime: &Runtime, text: &str, out: &Path) -> Result<(), UserError> {
     require(runtime, Stage::Tts)?;
     if tts_by_google(runtime) {
-        let (key, _) = crate::credentials::google_api_key(root).ok_or(
-            "озвучка Google включена, но ключа нет — задайте ключ Google в настройках озвучки или GEMINI_API_KEY",
-        )?;
+        let (key, _) = crate::credentials::google_api_key(root).ok_or(UserError::GoogleKeyMissing)?;
         let voice = default_voice_for(&runtime.google_tts_model, &runtime.google_tts_voice);
-        return crate::google_tts::speak(&key, &runtime.google_tts_model, &voice, text, out);
+        return Ok(crate::google_tts::speak(&key, &runtime.google_tts_model, &voice, text, out)?);
     }
     let voice = default_voice_for(&runtime.openrouter_tts_model, &runtime.openrouter_tts_voice);
     let payload = json!({
@@ -160,8 +159,8 @@ pub fn speak(root: &Path, runtime: &Runtime, text: &str, out: &Path) -> Result<(
     }
     let primary = match run_helper(root, &runtime.openrouter_key, "tts", &payload) {
         Ok(_) if out.is_file() => return Ok(()),
-        Ok(_) => "сайдкар озвучки не записал файл".to_string(),
-        Err(error) => error,
+        Ok(_) => UserError::from("сайдкар озвучки не записал файл"),
+        Err(error) => UserError::from(error),
     };
     tracing::warn!("озвучка через сайдкар не вышла ({primary}), пробуем чат");
     // Если не вышло и через чат — показываем ошибку ПЕРВОГО пути: он основной, и именно его
@@ -204,7 +203,7 @@ fn speak_via_speech_endpoint(
     text: &str,
     voice: &str,
     out: &Path,
-) -> Result<(), String> {
+) -> Result<(), UserError> {
     // Формат СЫРОЙ, всегда: так же сделано в Dub Studio, и там это выстрадано — pcm
     // (24 кГц, 16 бит, моно) отдают все модели речи, включая мультиязычные, а перебора по
     // моделям не требуется. На `wav` ручка отвечает отказом. Заголовок дописываем сами.
@@ -224,11 +223,11 @@ fn speak_via_speech_endpoint(
         .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
         .header("Content-Type", "application/json")
         .send(body.to_string())
-        .map_err(|error| format!("облачная озвучка: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Tts, detail: error.to_string() })?;
     let status = response.status().as_u16();
     if status >= 400 {
         let raw = response.into_body().read_to_string().unwrap_or_default();
-        return Err(explain("облачная озвучка", status, &raw));
+        return Err(explain(CloudStage::Tts, status, &raw));
     }
     // Для сырого потока частота приходит В ЗАГОЛОВКЕ: `audio/pcm;rate=24000;channels=1`.
     // Считывать её оттуда надёжнее, чем полагаться на то, что она всегда одна и та же.
@@ -248,13 +247,13 @@ fn speak_via_speech_endpoint(
         .into_body()
         .into_reader()
         .read_to_end(&mut audio)
-        .map_err(|error| format!("облачная озвучка: обрыв ответа: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Tts, detail: format!("обрыв ответа: {error}") })?;
     if audio.len() < 2_000 {
         // Короткий ответ — это не звук, а сообщение об ошибке: показываем его как есть.
-        return Err(format!(
-            "облачная озвучка: {}",
-            String::from_utf8_lossy(&audio).trim().chars().take(200).collect::<String>()
-        ));
+        return Err(UserError::CloudSaid {
+            stage: CloudStage::Tts,
+            message: String::from_utf8_lossy(&audio).trim().chars().take(200).collect(),
+        });
     }
     // Часть моделей всё же отдаёт готовый WAV — тогда оборачивать нечего.
     let bytes = if audio.starts_with(b"RIFF") {
@@ -262,12 +261,12 @@ fn speak_via_speech_endpoint(
     } else {
         wrap_pcm16_wav(&audio, rate)
     };
-    std::fs::write(out, bytes).map_err(|error| format!("не записать облачную озвучку: {error}"))
+    std::fs::write(out, bytes).map_err(|error| UserError::from(format!("не записать облачную озвучку: {error}")))
 }
 
 /// Озвучка чат-моделью: аудио приходит кусками в base64 внутри событий потока, поэтому
 /// собираем их и оборачиваем в заголовок WAV сами — заодно не тянем сюда ffmpeg.
-fn speak_via_chat(runtime: &Runtime, text: &str, out: &Path, voice: &str) -> Result<(), String> {
+fn speak_via_chat(runtime: &Runtime, text: &str, out: &Path, voice: &str) -> Result<(), UserError> {
     let body = json!({
         "model": runtime.openrouter_tts_model,
         "modalities": ["text", "audio"],
@@ -280,12 +279,12 @@ fn speak_via_chat(runtime: &Runtime, text: &str, out: &Path, voice: &str) -> Res
         .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
         .header("Content-Type", "application/json")
         .send(body.to_string())
-        .map_err(|error| format!("облачная озвучка: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Tts, detail: error.to_string() })?;
 
     let stream = response
         .into_body()
         .read_to_string()
-        .map_err(|error| format!("облачная озвучка: обрыв потока: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Tts, detail: format!("обрыв потока: {error}") })?;
 
     let mut pcm: Vec<u8> = Vec::new();
     for line in stream.lines() {
@@ -306,11 +305,11 @@ fn speak_via_chat(runtime: &Runtime, text: &str, out: &Path, voice: &str) -> Res
         pcm.extend_from_slice(&decoded);
     }
     if pcm.len() < 2_000 {
-        return Err(format!("облачная озвучка вернула слишком мало данных ({} байт)", pcm.len()));
+        return Err(UserError::CloudTooSmall { stage: CloudStage::Tts, bytes: pcm.len() });
     }
 
     std::fs::write(out, wrap_pcm16_wav(&pcm, CLOUD_PCM_RATE))
-        .map_err(|error| format!("не записать облачную озвучку: {error}"))
+        .map_err(|error| UserError::from(format!("не записать облачную озвучку: {error}")))
 }
 
 /// Распознать речь в облаке.
@@ -318,7 +317,7 @@ fn speak_via_chat(runtime: &Runtime, text: &str, out: &Path, voice: &str) -> Res
 /// Как и с озвучкой, миров два: настоящие модели расшифровки (Whisper, Chirp, Parakeet и
 /// прочие — их 19) знает сайдкар, а мультимодальные чат-модели на ручке расшифровки
 /// отсутствуют, и запись им отдают куском сообщения. Пробуем сайдкар, откатываемся на чат.
-pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) -> Result<String, String> {
+pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) -> Result<String, UserError> {
     require(runtime, Stage::Asr)?;
     let mut payload = json!({
         "model": runtime.openrouter_asr_model,
@@ -367,7 +366,7 @@ pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) ->
             tracing::warn!("распознавание через ручку расшифровки не вышло ({error}), пробуем чат");
             return transcribe_via_chat(runtime, wav, language).map_err(|fallback| {
                 tracing::warn!("распознавание через чат тоже не вышло: {fallback}");
-                error
+                UserError::from(error)
             });
         }
     }
@@ -378,7 +377,7 @@ pub fn transcribe(root: &Path, runtime: &Runtime, wav: &Path, language: &str) ->
 ///
 /// Формат записи объявляем `wav`: по документации его принимают все провайдеры, а браузер
 /// именно его и пишет. Ссылкой звук на этой ручке передавать нельзя.
-fn transcribe_direct(runtime: &Runtime, wav: &Path, language: &str) -> Result<String, String> {
+fn transcribe_direct(runtime: &Runtime, wav: &Path, language: &str) -> Result<String, UserError> {
     let audio = std::fs::read(wav).map_err(|error| format!("запись не прочиталась: {error}"))?;
     let mut body = json!({
         "model": runtime.openrouter_asr_model,
@@ -397,29 +396,29 @@ fn transcribe_direct(runtime: &Runtime, wav: &Path, language: &str) -> Result<St
         .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
         .header("Content-Type", "application/json")
         .send(body.to_string())
-        .map_err(|error| format!("облачное распознавание: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Asr, detail: error.to_string() })?;
     let status = response.status().as_u16();
     let raw = response
         .into_body()
         .read_to_string()
-        .map_err(|error| format!("облачное распознавание: обрыв ответа: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Asr, detail: format!("обрыв ответа: {error}") })?;
     if status >= 400 {
-        return Err(explain("облачное распознавание", status, &raw));
+        return Err(explain(CloudStage::Asr, status, &raw));
     }
     let parsed: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("облачное распознавание: ответ не разобрать: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Asr, detail: format!("ответ не разобрать: {error}") })?;
     let text = parsed.get("text").and_then(Value::as_str).unwrap_or_default().trim().to_string();
     if text.is_empty() {
         return Err(match parsed.pointer("/error/message").and_then(Value::as_str) {
-            Some(message) => format!("облачное распознавание: {message}"),
-            None => "облачное распознавание вернуло пустой текст".to_string(),
+            Some(message) => UserError::CloudSaid { stage: CloudStage::Asr, message: message.to_string() },
+            None => UserError::CloudEmpty(CloudStage::Asr),
         });
     }
     Ok(text)
 }
 
 /// Распознавание чат-моделью: запись уходит куском сообщения.
-fn transcribe_via_chat(runtime: &Runtime, wav: &Path, language: &str) -> Result<String, String> {
+fn transcribe_via_chat(runtime: &Runtime, wav: &Path, language: &str) -> Result<String, UserError> {
     let audio = std::fs::read(wav).map_err(|error| format!("запись не прочиталась: {error}"))?;
     let language = language.trim();
     let hint = if language.is_empty() || language.eq_ignore_ascii_case("auto") {
@@ -453,13 +452,13 @@ fn transcribe_via_chat(runtime: &Runtime, wav: &Path, language: &str) -> Result<
         .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
         .header("Content-Type", "application/json")
         .send(body.to_string())
-        .map_err(|error| format!("облачное распознавание: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Asr, detail: error.to_string() })?;
     let raw = response
         .into_body()
         .read_to_string()
-        .map_err(|error| format!("облачное распознавание: обрыв ответа: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Asr, detail: format!("обрыв ответа: {error}") })?;
     let parsed: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("облачное распознавание: ответ не разобрать: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Asr, detail: format!("ответ не разобрать: {error}") })?;
 
     let text = parsed
         .pointer("/choices/0/message/content")
@@ -469,8 +468,8 @@ fn transcribe_via_chat(runtime: &Runtime, wav: &Path, language: &str) -> Result<
         .to_string();
     if text.is_empty() {
         return Err(match parsed.pointer("/error/message").and_then(Value::as_str) {
-            Some(message) => format!("облачное распознавание: {message}"),
-            None => "облачное распознавание вернуло пустой текст".to_string(),
+            Some(message) => UserError::CloudSaid { stage: CloudStage::Asr, message: message.to_string() },
+            None => UserError::CloudEmpty(CloudStage::Asr),
         });
     }
     Ok(text)
@@ -490,7 +489,7 @@ fn tolerant_agent(timeout: std::time::Duration) -> ureq::Agent {
 }
 
 /// Достать из отказа человеческое объяснение.
-fn explain(stage: &str, status: u16, raw: &str) -> String {
+fn explain(stage: CloudStage, status: u16, raw: &str) -> UserError {
     let message = serde_json::from_str::<Value>(raw)
         .ok()
         .and_then(|parsed| {
@@ -500,11 +499,7 @@ fn explain(stage: &str, status: u16, raw: &str) -> String {
                 .map(str::to_string)
         })
         .unwrap_or_else(|| raw.trim().chars().take(200).collect());
-    if message.is_empty() {
-        format!("{stage}: провайдер отказал ({status})")
-    } else {
-        format!("{stage}: {message} ({status})")
-    }
+    UserError::CloudRefused { stage, status, message: Some(message).filter(|message| !message.is_empty()) }
 }
 
 /// Картинка тяжелее этого в основу не идёт: тело запроса раздувается втрое от base64.
@@ -545,7 +540,7 @@ pub fn draw(
     size: (u32, u32),
     references: &[PathBuf],
     out: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, UserError> {
     require(runtime, Stage::Image)?;
     let (width, height) = size;
     let mut body = json!({
@@ -570,17 +565,17 @@ pub fn draw(
         .header("Authorization", &format!("Bearer {}", runtime.openrouter_key))
         .header("Content-Type", "application/json")
         .send(body.to_string())
-        .map_err(|error| format!("облачный кадр: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Image, detail: error.to_string() })?;
     let status = response.status().as_u16();
     let raw = response
         .into_body()
         .read_to_string()
-        .map_err(|error| format!("облачный кадр: обрыв ответа: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Image, detail: format!("обрыв ответа: {error}") })?;
     if status >= 400 {
-        return Err(explain("облачный кадр", status, &raw));
+        return Err(explain(CloudStage::Image, status, &raw));
     }
     let parsed: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("облачный кадр: ответ не разобрать: {error}"))?;
+        .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Image, detail: format!("ответ не разобрать: {error}") })?;
 
     let first = parsed.pointer("/data/0");
     let bytes = match first.and_then(|item| item.get("b64_json")).and_then(Value::as_str) {
@@ -594,8 +589,8 @@ pub fn draw(
                     // Ошибку провайдера показываем как есть: «нет картинки» само по себе не
                     // подсказывает, что модель не рисует или кончились деньги.
                     match parsed.pointer("/error/message").and_then(Value::as_str) {
-                        Some(message) => format!("облачный кадр: {message}"),
-                        None => "облачный кадр: модель не вернула картинку".to_string(),
+                        Some(message) => UserError::CloudSaid { stage: CloudStage::Image, message: message.to_string() },
+                        None => UserError::CloudEmpty(CloudStage::Image),
                     }
                 })?;
             // Ссылка провайдера живёт минуты, а без таймаута зависший CDN держал бы ход вечно.
@@ -606,28 +601,29 @@ pub fn draw(
             let response = agent
                 .get(url)
                 .call()
-                .map_err(|error| format!("облачный кадр: не скачался: {error}"))?;
+                .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Image, detail: format!("не скачался: {error}") })?;
             let mut buffer = Vec::new();
             response
                 .into_body()
                 .into_reader()
                 .read_to_end(&mut buffer)
-                .map_err(|error| format!("облачный кадр: не скачался: {error}"))?;
+                .map_err(|error| UserError::CloudNetwork { stage: CloudStage::Image, detail: format!("не скачался: {error}") })?;
             buffer
         }
     };
     if bytes.len() < 1_000 {
-        return Err(format!("облачный кадр: слишком мало данных ({} байт)", bytes.len()));
+        return Err(UserError::CloudTooSmall { stage: CloudStage::Image, bytes: bytes.len() });
     }
     // Формат выбирает провайдер: Grok отдаёт JPEG, другие — PNG. Расширение ставим по
     // содержимому, иначе файл называется не тем, что в нём лежит.
     let out = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { out.with_extension("jpg") } else { out.to_path_buf() };
-    std::fs::write(&out, &bytes).map_err(|error| format!("облачный кадр: не сохранился: {error}"))?;
+    std::fs::write(&out, &bytes).map_err(|error| UserError::CloudNetwork { stage: CloudStage::Image, detail: format!("не сохранился: {error}") })?;
     Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::errors::CloudStage;
 
     #[test]
     fn a_reference_goes_in_the_shape_the_endpoint_demands() {
@@ -658,12 +654,12 @@ mod tests {
     fn a_refusal_carries_the_providers_own_words() {
         let raw = r#"{"error":{"message":"Invalid size for this model","code":400}}"#;
         assert_eq!(
-            super::explain("облачный кадр", 400, raw),
+            super::explain(CloudStage::Image, 400, raw).to_string(),
             "облачный кадр: Invalid size for this model (400)"
         );
         // Не JSON — показываем начало тела, а не голый номер.
-        assert!(super::explain("облачный кадр", 502, "upstream down").contains("upstream down"));
-        assert!(super::explain("облачный кадр", 500, "").contains("500"));
+        assert!(super::explain(CloudStage::Image, 502, "upstream down").to_string().contains("upstream down"));
+        assert!(super::explain(CloudStage::Image, 500, "").to_string().contains("500"));
     }
     use super::*;
 
@@ -679,14 +675,14 @@ mod tests {
             ..Runtime::default()
         };
         assert!(stage_enabled(&runtime, Stage::Narrator), "решает флаг стадии");
-        let error = require(&runtime, Stage::Narrator).unwrap_err();
+        let error = require(&runtime, Stage::Narrator).unwrap_err().to_string();
         assert!(error.contains("ключ"), "{error}");
 
         runtime.openrouter_key = "ключ".into();
         assert!(require(&runtime, Stage::Narrator).is_ok());
 
         runtime.openrouter_narrator_model = "  ".into();
-        let error = require(&runtime, Stage::Narrator).unwrap_err();
+        let error = require(&runtime, Stage::Narrator).unwrap_err().to_string();
         assert!(error.contains("модель"), "{error}");
     }
 
@@ -729,7 +725,7 @@ mod tests {
         // вышло нигде, показать надо причину ОСНОВНОГО пути: она и объясняет поломку.
         let dir = tempfile::tempdir().unwrap();
         let runtime = Runtime { openrouter_asr_model: "openai/whisper-large-v3".into(), ..with_key() };
-        let error = transcribe(dir.path(), &runtime, &dir.path().join("in.wav"), "ru").unwrap_err();
+        let error = transcribe(dir.path(), &runtime, &dir.path().join("in.wav"), "ru").unwrap_err().to_string();
         assert!(error.contains("сайдкар"), "показана ошибка запасного пути: {error}");
     }
 }

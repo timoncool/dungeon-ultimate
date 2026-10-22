@@ -291,7 +291,7 @@ impl ChatClient {
                 .pointer("/error/message")
                 .and_then(Value::as_str)
                 .unwrap_or("провайдер отказал");
-            return Err(LlmError::Http(format!("{status}: {message}")));
+            return Err(LlmError::Status { code: status.as_u16(), detail: message.to_string() });
         }
         let message = value.pointer("/choices/0/message").cloned().unwrap_or(Value::Null);
         let text = message.get("content").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -328,7 +328,7 @@ impl ChatClient {
                     let detail = response.text().unwrap_or_default();
                     let code = status.as_u16();
                     if !TRANSIENT.contains(&code) {
-                        return Err(LlmError::Api(format!("{code}: {}", truncate(&detail))));
+                        return Err(LlmError::Status { code, detail: truncate(&detail) });
                     }
                     last = format!("{code}: {}", truncate(&detail));
                 }
@@ -398,12 +398,12 @@ impl ChatClient {
                     let detail = response.text().unwrap_or_default();
                     let code = status.as_u16();
                     if !TRANSIENT.contains(&code) || attempt >= MAX_ATTEMPTS {
-                        return Err(LlmError::Api(format!("{code}: {}", truncate(&detail))));
+                        return Err(LlmError::Status { code, detail: truncate(&detail) });
                     }
                 }
                 Err(error) => {
                     if error.is_timeout() || attempt >= MAX_ATTEMPTS {
-                        return Err(LlmError::Http(format!("стриминг: {error}")));
+                        return Err(LlmError::StreamSend(error.to_string()));
                     }
                 }
             }
@@ -414,7 +414,7 @@ impl ChatClient {
         let mut outcome = StreamOutcome::default();
         let reader = BufReader::new(response);
         for line in reader.lines() {
-            let line = line.map_err(|e| LlmError::Http(format!("обрыв потока: {e}")))?;
+            let line = line.map_err(|e| LlmError::StreamBroken(e.to_string()))?;
             let Some(payload) = line.strip_prefix("data:") else { continue };
             let payload = payload.trim();
             if payload == "[DONE]" {
@@ -456,7 +456,7 @@ impl ChatClient {
             }
         }
         if full.is_empty() {
-            return Err(LlmError::Api(outcome.why_empty()));
+            return Err(LlmError::Empty(outcome.why_empty()));
         }
         Ok(full)
     }
@@ -472,25 +472,41 @@ struct StreamOutcome {
 }
 
 impl StreamOutcome {
-    fn why_empty(&self) -> String {
-        let finish = self.finish.as_deref().unwrap_or("нет");
+    fn why_empty(&self) -> EmptyStream {
+        let finish = self.finish.clone().unwrap_or_else(|| "нет".to_string());
         if self.tool_call {
-            return format!("модель позвала инструмент вместо текста (finish_reason={finish})");
+            return EmptyStream::ToolCall { finish };
         }
         if self.reasoning_chars > 0 {
-            return format!(
-                "модель только размышляла ({} знаков) и не написала текст (finish_reason={finish}): \
-                 выключите у неё размышления или выберите модель без них",
-                self.reasoning_chars
-            );
+            return EmptyStream::OnlyThinking { chars: self.reasoning_chars, finish };
         }
         match self.finish.as_deref() {
-            Some("content_filter") => "провайдер отфильтровал ответ (content_filter)".to_string(),
-            Some(reason) => format!("модель вернула пустой текст (finish_reason={reason})"),
-            None if self.done => "модель вернула пустой текст без причины завершения".to_string(),
-            None => "поток оборвался, не дав ни текста, ни причины завершения".to_string(),
+            Some("content_filter") => EmptyStream::Filtered,
+            Some(_) => EmptyStream::Finished { finish },
+            None if self.done => EmptyStream::NoReason,
+            None => EmptyStream::Cut,
         }
     }
+}
+
+/// Почему поток рассказчика кончился без текста.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EmptyStream {
+    #[error("модель позвала инструмент вместо текста (finish_reason={finish})")]
+    ToolCall { finish: String },
+    #[error(
+        "модель только размышляла ({chars} знаков) и не написала текст (finish_reason={finish}): \
+         выключите у неё размышления или выберите модель без них"
+    )]
+    OnlyThinking { chars: usize, finish: String },
+    #[error("провайдер отфильтровал ответ (content_filter)")]
+    Filtered,
+    #[error("модель вернула пустой текст (finish_reason={finish})")]
+    Finished { finish: String },
+    #[error("модель вернула пустой текст без причины завершения")]
+    NoReason,
+    #[error("поток оборвался, не дав ни текста, ни причины завершения")]
+    Cut,
 }
 
 fn truncate(text: &str) -> String {

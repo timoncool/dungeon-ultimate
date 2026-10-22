@@ -12,6 +12,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::errors::UserError;
 use crate::routes::ApiError;
 use crate::state::AppState;
 
@@ -61,11 +62,11 @@ fn voice_reference(root: &Path, voice: &str) -> Option<(PathBuf, Option<String>)
 
 
 /// Голоса нет на диске: «Пак голосов» необязателен при установке, и без него локальная озвучка не звучит вовсе.
-fn no_voice(voice: &str) -> String {
+fn no_voice(voice: &str) -> UserError {
     if voice.trim().is_empty() {
-        "голосов для озвучки нет: поставьте «Пак голосов» в Настройках → Модели или добавьте свой голос".to_string()
+        UserError::NoVoices
     } else {
-        format!("голоса «{voice}» нет на диске: поставьте «Пак голосов» в Настройках → Модели, добавьте этот голос или выберите другой")
+        UserError::VoiceMissing(voice.to_string())
     }
 }
 
@@ -78,7 +79,7 @@ pub fn speak_sentence(
     sentence: &str,
     key: &str,
     index: usize,
-) -> Result<String, String> {
+) -> Result<String, UserError> {
     let name = format!("tts-{}-{index}-{}.wav", safe_name(key, 80), text_mark(sentence));
     let path = generated.join(&name);
     let url = format!("/generated/{name}");
@@ -88,9 +89,7 @@ pub fn speak_sentence(
     if playable_wav(&path) {
         return Ok(url);
     }
-    let (samples, rate) = engine
-        .voice_clone(sentence, &reference.to_string_lossy(), transcript, "{}")
-        .map_err(|error| error.to_string())?;
+    let (samples, rate) = engine.voice_clone(sentence, &reference.to_string_lossy(), transcript, "{}")?;
     let wav = du_tts::AudiocppEngine::encode_wav(&samples, rate, 1);
     std::fs::write(&path, wav).map_err(|error| error.to_string())?;
     Ok(url)
@@ -101,7 +100,7 @@ pub fn prepared_reference(
     root: &std::path::Path,
     voice: &str,
     seconds: u32,
-) -> Result<(std::path::PathBuf, Option<String>), String> {
+) -> Result<(std::path::PathBuf, Option<String>), UserError> {
     let (reference, transcript) = voice_reference(root, voice)
         .ok_or_else(|| no_voice(voice))?;
     Ok((ensure_wav_reference(&reference, seconds)?, transcript))
@@ -139,16 +138,16 @@ pub fn split_sentences(text: &str) -> Vec<String> {
     out
 }
 
-/// Привести эталонный клип к WAV 16 кГц. Результат кладётся рядом и переиспользуется.
-fn ensure_wav_reference(source: &std::path::Path, seconds: u32) -> Result<std::path::PathBuf, String> {
-    if source.extension().map(|e| e.eq_ignore_ascii_case("wav")).unwrap_or(false) {
-        return Ok(source.to_path_buf());
-    }
+/// Привести эталонный клип к WAV 16 кГц 16 бит. Результат кладётся рядом и переиспользуется.
+///
+/// WAV перегоняется так же, как mp3: движок читает только PCM 16 бит, а свой WAV игрока
+/// бывает и float, и extensible.
+fn ensure_wav_reference(source: &std::path::Path, seconds: u32) -> Result<std::path::PathBuf, UserError> {
     let prepared = source.with_extension(format!("ref{seconds}s.wav"));
     if prepared.is_file() {
         return Ok(prepared);
     }
-    crate::voice_clip::to_wav(source, seconds, &prepared).map_err(|error| format!("не удалось подготовить эталон голоса: {error}"))?;
+    crate::voice_clip::to_wav(source, seconds, &prepared).map_err(UserError::VoiceReference)?;
     Ok(prepared)
 }
 
@@ -165,7 +164,7 @@ pub fn synthesize(
     text: &str,
     voice: &str,
     key: &str,
-) -> Result<String, String> {
+) -> Result<String, UserError> {
     synthesize_with(root, generated, &crate::runtime::load(root), text, voice, key)
 }
 
@@ -190,7 +189,7 @@ pub fn synthesize_with(
     text: &str,
     voice: &str,
     key: &str,
-) -> Result<String, String> {
+) -> Result<String, UserError> {
     synthesize_streaming(root, generated, runtime, text, voice, key, &|_, _| {})
 }
 
@@ -204,10 +203,10 @@ pub fn synthesize_streaming(
     voice: &str,
     key: &str,
     on_clip: &dyn Fn(usize, &str),
-) -> Result<String, String> {
+) -> Result<String, UserError> {
     let text = text.trim();
     if text.is_empty() {
-        return Err("пустой текст для озвучки".into());
+        return Err(UserError::TtsEmptyText);
     }
 
     // Облачная озвучка карту не трогает и отдаёт весь ход одним файлом.
@@ -230,7 +229,7 @@ pub fn synthesize_streaming(
     let engine_dll = root.join("models").join("tts-engine").join("audiocpp_engine.dll");
     let model_root = root.join("models").join("tts");
     if !engine_dll.is_file() {
-        return Err("движок озвучки не установлен".into());
+        return Err(UserError::TtsEngineMissing);
     }
 
     let sentences = split_sentences(text);
@@ -248,7 +247,7 @@ pub fn synthesize_streaming(
             let engine = match engine.as_ref() {
                 Some(engine) => engine,
                 None => {
-                    let loaded = du_tts::AudiocppEngine::load(&engine_dll).map_err(|e| e.to_string())?;
+                    let loaded = du_tts::AudiocppEngine::load(&engine_dll)?;
                     loaded
                         // Где считать голос — общий выбор игрока. Раньше здесь намертво
                         // стояла карта, и на машине без неё озвучка просто падала.
@@ -259,14 +258,12 @@ pub fn synthesize_streaming(
                             0,
                             8,
                             None,
-                        )
-                        .map_err(|e| e.to_string())?;
+                        )?;
                     engine.insert(loaded)
                 }
             };
-            let (samples, rate) = engine
-                .voice_clone(sentence, &reference.to_string_lossy(), transcript.as_deref(), "{}")
-                .map_err(|e| e.to_string())?;
+            let (samples, rate) =
+                engine.voice_clone(sentence, &reference.to_string_lossy(), transcript.as_deref(), "{}")?;
             let wav = du_tts::AudiocppEngine::encode_wav(&samples, rate, 1);
             std::fs::write(&path, wav).map_err(|e| e.to_string())?;
         }
@@ -278,7 +275,7 @@ pub fn synthesize_streaming(
         }
     }
 
-    first.ok_or_else(|| "нечего озвучивать".to_string())
+    first.ok_or(UserError::TtsNothing)
 }
 
 pub async fn speak(state: State<AppState>, body: Json<TtsBody>) -> ApiResult<Json<Value>> {
@@ -312,7 +309,7 @@ async fn speak_inner(State(state): State<AppState>, Json(body): Json<TtsBody>) -
             synthesize(&root, &generated, &text, &voice, &key).map(|url| json!({ "url": url }))
         })
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal)?;
         return Ok(Json(value));
     }
@@ -326,7 +323,7 @@ async fn speak_inner(State(state): State<AppState>, Json(body): Json<TtsBody>) -
 
     let value = result
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal)?;
     Ok(Json(value))
 }
@@ -460,7 +457,7 @@ pub async fn upload_voice(
 
     match saved {
         Some(voice) => Ok(Json(json!({ "voice": voice }))),
-        None => Err(ApiError::bad_request("в запросе нет звукового файла")),
+        None => Err(ApiError::bad_request(crate::errors::UserError::NoAudioFile)),
     }
 }
 

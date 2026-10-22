@@ -55,7 +55,7 @@ pub async fn create(
 ) -> ApiResult<Json<Value>> {
     let name = body.name.unwrap_or_default().trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::bad_request("у персонажа должно быть имя"));
+        return Err(ApiError::bad_request(crate::errors::UserError::CharacterNameRequired));
     }
     let now = now_iso();
     let character = StoryCharacter {
@@ -85,7 +85,7 @@ pub async fn update(
         .list_characters(&chat_id)?
         .into_iter()
         .find(|character| character.id == character_id)
-        .ok_or_else(|| ApiError::not_found("персонаж не найден"))?;
+        .ok_or_else(|| ApiError::not_found(crate::errors::UserError::CharacterNotFound))?;
 
     // Сливаем: пришедшее поле заменяет, отсутствующее — оставляет прежнее. Иначе правка
     // одного портрета стирала бы весь лист персонажа.
@@ -162,7 +162,7 @@ pub async fn upload(
             data_url: None,
         }));
     }
-    Err(ApiError::bad_request("в запросе нет файла"))
+    Err(ApiError::bad_request(crate::errors::UserError::NoFile))
 }
 
 /// Что лежит на диске у игрока и сколько это занимает.

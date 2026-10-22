@@ -3,6 +3,7 @@ import { ChevronRight, Download, Loader2, Check, X } from "lucide-react";
 import { useUi, useUiLanguage } from "@/lib/ui-text-context";
 import { panelText } from "@/lib/ui-text-panels";
 import { componentText } from "@/lib/ui-text-components";
+import { errorText, type ServerError } from "@/lib/ui-text-errors";
 import { programName } from "@/lib/programs";
 import { hubChanged, setTelemetry, telemetryPreview, useHubState } from "@/lib/studioHub";
 
@@ -26,6 +27,8 @@ type Component = {
   selected: boolean;
   /// Чем сорвалась последняя закачка; null — не срывалась.
   error: string | null;
+  /// Та же причина с кодом и полями — для перевода на язык окна.
+  errorInfo: ServerError | null;
   /// Программа, у которой компонент взят в этом запуске вместо закачки.
   takenFrom: string | null;
   files: Array<{ bytes: number }>;
@@ -123,7 +126,7 @@ export default function SetupPanel() {
             if (poll.current) window.clearInterval(poll.current);
             setProgress(null);
             setBusy(false);
-            setNote(panel.downloadFailed.replace("{error}", failed.error ?? ""));
+            setNote(failed.errorInfo ? errorText(failed.errorInfo) : panel.downloadFailed.replace("{error}", failed.error ?? ""));
             return;
           }
           const have = watched.reduce((sum, component) => sum + component.haveBytes, 0);

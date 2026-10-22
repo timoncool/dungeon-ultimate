@@ -15,6 +15,7 @@ mod dialogue;
 pub mod cloud;
 pub mod cloud_models;
 pub mod credentials;
+pub mod errors;
 pub mod google_tts;
 pub mod runtime;
 pub mod game_tools;

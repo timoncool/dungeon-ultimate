@@ -16,47 +16,52 @@ use crate::scene;
 use crate::state::AppState;
 
 /// Ошибка запроса в том же виде, в каком её ждал прежний фронт: `{ "error": "…" }`.
-pub struct ApiError(StatusCode, String);
+pub struct ApiError(StatusCode, crate::errors::UserError);
 
 impl ApiError {
-    pub fn bad_request(message: impl Into<String>) -> Self {
+    pub fn bad_request(message: impl Into<crate::errors::UserError>) -> Self {
         Self(StatusCode::BAD_REQUEST, message.into())
     }
 
-    pub fn not_found(message: impl Into<String>) -> Self {
+    pub fn not_found(message: impl Into<crate::errors::UserError>) -> Self {
         Self(StatusCode::NOT_FOUND, message.into())
     }
 
     /// Действие противоречит текущему состоянию игры — например, ход после гибели героя.
-    pub fn conflict(message: impl Into<String>) -> Self {
+    pub fn conflict(message: impl Into<crate::errors::UserError>) -> Self {
         Self(StatusCode::CONFLICT, message.into())
     }
 
-    pub fn internal(message: impl Into<String>) -> Self {
+    pub fn internal(message: impl Into<crate::errors::UserError>) -> Self {
         Self(StatusCode::INTERNAL_SERVER_ERROR, message.into())
     }
 }
 
 impl ApiError {
-    pub fn message(&self) -> &str {
-        &self.1
+    /// Русский текст ошибки — для журнала и хаба.
+    pub fn message(&self) -> String {
+        self.1.to_string()
     }
 }
 
 /// Исход работы — в хаб: удача или сбой с причиной.
 pub(crate) fn report<T>(work: crate::hub::Work, result: &ApiResult<T>) {
-    crate::hub::ended(work, result.as_ref().map(|_| ()).map_err(ApiError::message));
+    let reason = result.as_ref().err().map(ApiError::message);
+    crate::hub::ended(work, match &reason {
+        Some(reason) => Err(reason.as_str()),
+        None => Ok(()),
+    });
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.0, Json(json!({ "error": self.1 }))).into_response()
+        (self.0, Json(self.1.to_json())).into_response()
     }
 }
 
 impl From<du_db::DbError> for ApiError {
     fn from(error: du_db::DbError) -> Self {
-        ApiError::internal(error.to_string())
+        ApiError::internal(crate::errors::UserError::from(error))
     }
 }
 
@@ -133,7 +138,7 @@ pub async fn try_tools(
         }
     })
     .await
-    .map_err(|_| ApiError::internal("задача пропала"))?
+    .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
     .map_err(ApiError::internal)?;
 
     Ok(Json(json!({ "text": text.0, "calls": text.1 })))
@@ -327,9 +332,8 @@ async fn create_image_inner(
                         Some(Box::new(move |step, steps, _| {
                             sink(json!({ "stage": "image", "step": step, "steps": steps }));
                         })),
-                    )
-                    .map_err(|error| error.to_string())?;
-                let image = images.into_iter().next().ok_or("движок не вернул кадр")?;
+                    )?;
+                let image = images.into_iter().next().ok_or(crate::errors::UserError::ImageNoFrame)?;
                 let name = format!("{}.png", uuid::Uuid::new_v4());
                 let path = gpu.generated.join(&name);
                 write_png(&path, &image).map_err(|error| error.to_string())?;
@@ -338,7 +342,7 @@ async fn create_image_inner(
             .await;
         result
             .await
-            .map_err(|_| ApiError::internal("задача пропала"))?
+            .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
             .map_err(ApiError::internal)?
     };
 
@@ -382,9 +386,9 @@ async fn draw_in_cloud(
     prompt: String,
     size: (u32, u32),
     references: Vec<std::path::PathBuf>,
-) -> Result<Value, String> {
+) -> Result<Value, crate::errors::UserError> {
     let (width, height) = size;
-    tokio::task::spawn_blocking(move || -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || -> Result<Value, crate::errors::UserError> {
         let path = inner.generated.join(format!("{}.png", uuid::Uuid::new_v4()));
         // Имя может смениться: формат кадра выбирает провайдер.
         let path =
@@ -393,7 +397,7 @@ async fn draw_in_cloud(
         Ok(json!({ "url": format!("/generated/{name}"), "width": width, "height": height }))
     })
     .await
-    .map_err(|_| "задача пропала".to_string())?
+    .map_err(|_| crate::errors::UserError::JobLost)?
 }
 
 /// Запомнить кадр за локацией, обновить облик показанных персонажей и портреты предметов.
@@ -563,7 +567,10 @@ pub async fn setup_download(
                     if !abort.load(std::sync::atomic::Ordering::SeqCst) {
                         crate::hub::setup_failed(crate::setup::failure_code(&error));
                     }
-                    return Err(format!("{title}: {error}"));
+                    return Err(crate::errors::UserError::Download {
+                        kind: crate::setup::failure_code(&error),
+                        detail: format!("{title}: {error}"),
+                    });
                 }
                 tracing::info!("компонент «{title}» готов");
                 let mut runtime = crate::runtime::load(&inner.root);
@@ -626,7 +633,7 @@ pub async fn runtime_put(
         }
     }
     let parsed: crate::runtime::Runtime = serde_json::from_value(merged)
-        .map_err(|error| ApiError::bad_request(format!("непонятная настройка: {error}")))?;
+        .map_err(|error| ApiError::bad_request(crate::errors::UserError::BadSetting(error.to_string())))?;
     let mut next = crate::runtime::sanitize(parsed);
     // Сменил модель озвучки — голос от прежней у новой не существует, и синтез падал бы на
     // каждой реплике. Если голос не из её набора, подставляем подходящий сами.
@@ -697,7 +704,7 @@ pub async fn cloud_model_list(
         .ok_or_else(|| ApiError::bad_request("укажи назначение: text, image, tts или stt"))?;
     let key = crate::runtime::load(&state.root).openrouter_key;
     if key.trim().is_empty() {
-        return Err(ApiError::bad_request("ключ OpenRouter не задан"));
+        return Err(ApiError::bad_request(crate::errors::UserError::OpenRouterKeyNotSet));
     }
     let models = crate::cloud_models::list(&key, kind).map_err(ApiError::internal)?;
     let voices = if matches!(kind, crate::cloud_models::Kind::Tts) {
@@ -728,7 +735,7 @@ async fn item_image_inner(
     let item = state
         .store
         .get_item(&chat_id, &item_id)?
-        .ok_or_else(|| ApiError::not_found("предмет не найден"))?;
+        .ok_or_else(|| ApiError::not_found(crate::errors::UserError::ItemNotFound))?;
     if item.image_url.is_some() {
         return Ok(Json(json!({ "item": item, "cached": true })));
     }
@@ -764,9 +771,8 @@ async fn item_image_inner(
         .enqueue_awaitable(Box::new(move |_, _| {
             let images = inner
                 .gpu
-                .generate_image(&params, None)
-                .map_err(|error| error.to_string())?;
-            let image = images.into_iter().next().ok_or("движок не вернул кадр")?;
+                .generate_image(&params, None)?;
+            let image = images.into_iter().next().ok_or(crate::errors::UserError::ImageNoFrame)?;
             let name = format!("item-{}.png", uuid::Uuid::new_v4());
             write_png(&inner.generated.join(&name), &image).map_err(|error| error.to_string())?;
             Ok(json!({ "url": format!("/generated/{name}") }))
@@ -775,7 +781,7 @@ async fn item_image_inner(
 
     let value = result
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal)?;
     finish_item_image(state, &chat_id, &item_id, value).await
 }
@@ -791,7 +797,7 @@ async fn finish_item_image(
     let item = state
         .store
         .set_item_image(chat_id, item_id, &url)?
-        .ok_or_else(|| ApiError::not_found("предмет пропал"))?;
+        .ok_or_else(|| ApiError::not_found(crate::errors::UserError::ItemGone))?;
     Ok(Json(json!({ "item": item, "cached": false })))
 }
 
@@ -851,6 +857,6 @@ pub async fn image_worker(
             let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
             Ok(Json(json!({ "path": path.to_string_lossy(), "message": "Папка модели открыта." })))
         }
-        other => Err(ApiError::bad_request(format!("неизвестное действие: {other}"))),
+        other => Err(ApiError::bad_request(crate::errors::UserError::UnknownAction(other.to_string()))),
     }
 }

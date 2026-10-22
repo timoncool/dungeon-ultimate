@@ -473,6 +473,8 @@ pub struct ComponentStatus {
     pub selected: bool,
     /// Чем кончилась последняя закачка, если сорвалась: интерфейс снимает шкалу и говорит причину.
     pub error: Option<String>,
+    /// Та же причина с кодом и полями — окно переводит её на язык игры.
+    pub error_info: Option<serde_json::Value>,
     /// Программа (yue2, dub...), у которой компонент взят в этом запуске вместо закачки.
     pub taken_from: Option<String>,
 }
@@ -730,7 +732,10 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
             };
             let have_bytes = live.map_or(on_disk, |live| live.max(on_disk));
             let selected = variant_selected(&runtime, component.id);
-            ComponentStatus { component, present, have_bytes, selected, error, taken_from }
+            let error_info = error.as_ref().map(|error| {
+                crate::errors::UserError::Download { kind: failure_code(error), detail: error.clone() }.to_json()
+            });
+            ComponentStatus { component, present, have_bytes, selected, error, error_info, taken_from }
         })
         .collect();
     // Стадия, уведённая в облако (или рассказчик — агенту), своих весов не требует: качать их

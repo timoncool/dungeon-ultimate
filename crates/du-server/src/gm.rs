@@ -20,11 +20,11 @@ pub async fn tool(
     if !crate::game_tools::all().iter().any(|tool| tool.name == name) {
         return Err(ApiError::not_found(format!("нет инструмента ведущего {name}")));
     }
-    state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found("чат не найден"))?;
+    state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found(crate::errors::UserError::ChatNotFound))?;
     let inner = state.0.clone();
     let answer = tokio::task::spawn_blocking(move || crate::game_tools::run(&inner, &chat_id, &name, &arguments))
         .await
-        .map_err(|_| ApiError::internal("задача пропала"))?;
+        .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?;
     Ok(Json(answer))
 }
 
@@ -52,7 +52,7 @@ pub async fn narrate(
     if text.is_empty() {
         return Err(ApiError::bad_request("пустой текст рассказчика"));
     }
-    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found("чат не найден"))?;
+    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found(crate::errors::UserError::ChatNotFound))?;
     let image_request = body
         .image_prompt
         .as_deref()
@@ -103,8 +103,9 @@ pub async fn narrate(
                             first.get_or_insert(url);
                         }
                         Err(error) => {
-                            crate::hub::ended(crate::hub::Work::Tts, Err(&error));
-                            background_failed("gm_narrate voice", &chat_for_log, &error);
+                            let reason = error.to_string();
+                            crate::hub::ended(crate::hub::Work::Tts, Err(&reason));
+                            background_failed("gm_narrate voice", &chat_for_log, &reason);
                             return Err(error);
                         }
                     }
@@ -157,7 +158,7 @@ pub async fn apply(
     Path(chat_id): Path<String>,
     Json(body): Json<Apply>,
 ) -> ApiResult<Json<Value>> {
-    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found("чат не найден"))?;
+    let chat = state.store.get_chat(&chat_id)?.ok_or_else(|| ApiError::not_found(crate::errors::UserError::ChatNotFound))?;
     let inner = state.0.clone();
     let (_, result) = state.queue.enqueue_awaitable(Box::new(move |_, _| {
         let characters = inner.store.list_characters(&chat_id).map_err(|e| e.to_string())?;
@@ -189,7 +190,7 @@ pub async fn apply(
         Ok(json!({ "events": events, "items": items }))
     }))
     .await;
-    let result = result.await.map_err(|_| ApiError::internal("задача пропала"))?.map_err(ApiError::internal)?;
+    let result = result.await.map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?.map_err(ApiError::internal)?;
     crate::mcp::announce("chat");
     Ok(Json(result))
 }
