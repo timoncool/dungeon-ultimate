@@ -76,6 +76,8 @@ const RU: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "Parakeet на видеокарте берёт {name} у движка озвучки, а его нет в {path} — скачайте «Parakeet на видеокарте» в «Что скачать» или переключите распознавание на процессор",
   needs_gpu: "{stage}: считается только на видеокарте, а её в компьютере нет",
+  gpu_missing: "видеокарты номер {index}, выбранной в «Движки и облако» → «Видеокарта», в компьютере нет (есть: {cards}) — выберите там другую карту",
+  gpu_missing_no_nvidia: "видеокарты номер {index}, выбранной в «Движки и облако» → «Видеокарта», в компьютере нет, и карт NVIDIA нет совсем",
   needs_nvidia: "{stage}: нужна видеокарта NVIDIA с драйвером от 525 — движок собран только под CUDA",
   cpu_floor: "процессор не подходит: {detail}",
   recording_empty: "пустая запись",
@@ -168,6 +170,8 @@ const EN: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "Parakeet on the graphics card takes {name} from the voice engine, and it is not in {path} — download “Parakeet on the graphics card” in “What to download” or switch recognition to the processor",
   needs_gpu: "{stage}: runs on a graphics card only, and this computer has none",
+  gpu_missing: "graphics card number {index}, chosen in «Engines and cloud» → «Graphics card», is not in this computer (present: {cards}) — choose another card there",
+  gpu_missing_no_nvidia: "graphics card number {index}, chosen in «Engines and cloud» → «Graphics card», is not in this computer, and there is no NVIDIA card at all",
   needs_nvidia: "{stage}: needs an NVIDIA graphics card with driver 525 or newer — the engine is built for CUDA only",
   cpu_floor: "this processor will not do: {detail}",
   recording_empty: "the recording is empty",
@@ -261,6 +265,8 @@ const ES: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "Parakeet en la tarjeta gráfica toma {name} del motor de voz, y no está en {path}: descarga «Parakeet en la tarjeta gráfica» en «Qué descargar» o pasa el reconocimiento al procesador",
   needs_gpu: "{stage}: solo funciona en una tarjeta gráfica, y este equipo no tiene",
+  gpu_missing: "la tarjeta gráfica número {index}, elegida en «Motores y nube» → «Tarjeta gráfica», no está en este equipo (hay: {cards}): elige otra tarjeta allí",
+  gpu_missing_no_nvidia: "la tarjeta gráfica número {index}, elegida en «Motores y nube» → «Tarjeta gráfica», no está en este equipo y no hay ninguna tarjeta NVIDIA",
   needs_nvidia: "{stage}: necesita una tarjeta gráfica NVIDIA con controlador 525 o posterior: el motor solo está compilado para CUDA",
   cpu_floor: "este procesador no sirve: {detail}",
   recording_empty: "la grabación está vacía",
@@ -356,6 +362,8 @@ const FR: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "Parakeet sur la carte graphique prend {name} au moteur de voix, et il n’est pas dans {path} — télécharge « Parakeet sur la carte graphique » dans « Que télécharger » ou passe la reconnaissance sur le processeur",
   needs_gpu: "{stage} : ne tourne que sur une carte graphique, et cet ordinateur n’en a pas",
+  gpu_missing: "la carte graphique numéro {index}, choisie dans « Moteurs et nuage » → « Carte graphique », n’est pas dans cet ordinateur (présentes : {cards}) — choisis-y une autre carte",
+  gpu_missing_no_nvidia: "la carte graphique numéro {index}, choisie dans « Moteurs et nuage » → « Carte graphique », n’est pas dans cet ordinateur, et il n’y a aucune carte NVIDIA",
   needs_nvidia: "{stage} : il faut une carte graphique NVIDIA avec un pilote 525 ou plus récent — le moteur n’est compilé que pour CUDA",
   cpu_floor: "ce processeur ne convient pas : {detail}",
   recording_empty: "l’enregistrement est vide",
@@ -451,6 +459,8 @@ const DE: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "Parakeet auf der Grafikkarte nimmt {name} von der Sprach-Engine, und es fehlt in {path} — lade „Parakeet auf der Grafikkarte“ unter „Was herunterladen“ oder stelle die Erkennung auf den Prozessor um",
   needs_gpu: "{stage}: läuft nur auf einer Grafikkarte, und dieser Computer hat keine",
+  gpu_missing: "Grafikkarte Nummer {index}, gewählt unter «Engines und Cloud» → «Grafikkarte», ist nicht in diesem Computer (vorhanden: {cards}) — wähle dort eine andere Karte",
+  gpu_missing_no_nvidia: "Grafikkarte Nummer {index}, gewählt unter «Engines und Cloud» → «Grafikkarte», ist nicht in diesem Computer, und es gibt gar keine NVIDIA-Karte",
   needs_nvidia: "{stage}: braucht eine NVIDIA-Grafikkarte mit Treiber 525 oder neuer — die Engine ist nur für CUDA gebaut",
   cpu_floor: "dieser Prozessor reicht nicht: {detail}",
   recording_empty: "die Aufnahme ist leer",
@@ -537,6 +547,8 @@ const ZH: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "显卡版 Parakeet 需要配音引擎中的 {name}，但 {path} 中没有：请在“下载什么”中下载“显卡版 Parakeet”，或把识别切换到处理器",
   needs_gpu: "{stage}：只能在显卡上运行，而这台电脑没有显卡",
+  gpu_missing: "在「引擎与云端」→「显卡」中选择的 {index} 号显卡不在这台电脑上（现有：{cards}）——请在那里选择另一张显卡",
+  gpu_missing_no_nvidia: "在「引擎与云端」→「显卡」中选择的 {index} 号显卡不在这台电脑上，而且完全没有 NVIDIA 显卡",
   needs_nvidia: "{stage}：需要驱动版本 525 及以上的 NVIDIA 显卡——引擎只为 CUDA 构建",
   cpu_floor: "处理器不满足要求：{detail}",
   recording_empty: "录音为空",
@@ -629,6 +641,8 @@ const JA: ErrorTexts = {
   parakeet_cuda_lib_missing:
     "グラフィックカード版 Parakeet は音声エンジンの {name} を使うが、{path} にない：「何を落とすか」で「グラフィックカード版 Parakeet」を落とすか、認識をプロセッサーに切り替えて",
   needs_gpu: "{stage}：グラフィックカードでしか動かないが、このコンピューターにはない",
+  gpu_missing: "「エンジンと雲」→「グラフィックカード」で選んだ {index} 番のカードがこのコンピューターにない（あるのは：{cards}）。そこで別のカードを選んで",
+  gpu_missing_no_nvidia: "「エンジンと雲」→「グラフィックカード」で選んだ {index} 番のカードがこのコンピューターにない。NVIDIA のカードは一枚もない",
   needs_nvidia: "{stage}：ドライバー 525 以降の NVIDIA グラフィックカードが要る。エンジンは CUDA 専用",
   cpu_floor: "このプロセッサーでは動かない：{detail}",
   recording_empty: "録音が空",

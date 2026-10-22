@@ -154,12 +154,17 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                 let text = crate::cloud::transcribe(&root, &runtime, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
+            let device = if by_whisper { crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr) } else { parakeet_device(&runtime, &root) };
+            if !device.is_cpu() {
+                if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
+                    return Err(problem);
+                }
+            }
             if !by_whisper {
                 let models_root = root.join("models");
-                let text = parakeet_text(&models_root, parakeet, &parakeet_path, parakeet_device(&runtime, &root), &path, lang)?;
+                let text = parakeet_text(&models_root, parakeet, &parakeet_path, device, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-            let device = crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr);
 
             use du_asr::AsrEngine as _;
             let segments = {

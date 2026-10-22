@@ -106,6 +106,9 @@ pub enum UserError {
     NeedsGpu(CloudStage),
     /// Движок стадии собран только под CUDA, а карта не NVIDIA (или CUDA на ней не идёт).
     NeedsNvidia(CloudStage),
+    /// Карты из настроек нет в компьютере: CUDA осталась бы без устройства, и движок молча ушёл бы на процессор.
+    /// `cards` — карты NVIDIA, которые есть («0: NVIDIA GeForce RTX 4090»).
+    GpuMissing { index: u32, cards: Vec<String> },
     /// Процессор без набора команд, под который собран движок; текст называет недостающие.
     CpuFloor(String),
     RecordingEmpty,
@@ -182,6 +185,8 @@ impl UserError {
             UserError::CpuFloor(_) => "cpu_floor",
             UserError::NeedsGpu(_) => "needs_gpu",
             UserError::NeedsNvidia(_) => "needs_nvidia",
+            UserError::GpuMissing { cards, .. } if cards.is_empty() => "gpu_missing_no_nvidia",
+            UserError::GpuMissing { .. } => "gpu_missing",
             UserError::RecordingEmpty => "recording_empty",
             UserError::NoAudioFile => "no_audio_file",
             UserError::NoFile => "no_file",
@@ -239,6 +244,10 @@ impl UserError {
             | UserError::NeedsGpu(stage)
             | UserError::NeedsNvidia(stage) => {
                 put("stage", json!(stage.key()))
+            }
+            UserError::GpuMissing { index, cards } => {
+                put("index", json!(index));
+                put("cards", json!(cards.join(", ")));
             }
             UserError::CloudSaid { stage, message } => {
                 put("stage", json!(stage.key()));
@@ -429,6 +438,15 @@ impl fmt::Display for UserError {
             UserError::NeedsNvidia(stage) => {
                 write!(f, "{}: нужна видеокарта NVIDIA с драйвером от 525 — движок собран только под CUDA", stage.ru())
             }
+            UserError::GpuMissing { index, cards } if cards.is_empty() => write!(
+                f,
+                "видеокарты номер {index}, выбранной в «Движки и облако» → «Видеокарта», в компьютере нет, и карт NVIDIA нет совсем"
+            ),
+            UserError::GpuMissing { index, cards } => write!(
+                f,
+                "видеокарты номер {index}, выбранной в «Движки и облако» → «Видеокарта», в компьютере нет (есть: {}) — выберите там другую карту",
+                cards.join(", ")
+            ),
             UserError::RecordingEmpty => f.write_str("пустая запись"),
             UserError::NoAudioFile => f.write_str("в запросе нет звукового файла"),
             UserError::NoFile => f.write_str("в запросе нет файла"),
@@ -565,6 +583,8 @@ mod tests {
             UserError::CpuFloor("x".into()),
             UserError::NeedsGpu(CloudStage::Image),
             UserError::NeedsNvidia(CloudStage::Tts),
+            UserError::GpuMissing { index: 1, cards: vec!["0: x".into()] },
+            UserError::GpuMissing { index: 1, cards: Vec::new() },
             UserError::RecordingEmpty,
             UserError::NoAudioFile,
             UserError::NoFile,
@@ -626,6 +646,7 @@ mod tests {
                 | UserError::CpuFloor(_)
                 | UserError::NeedsGpu(_)
                 | UserError::NeedsNvidia(_)
+                | UserError::GpuMissing { .. }
                 | UserError::RecordingEmpty
                 | UserError::NoAudioFile
                 | UserError::NoFile

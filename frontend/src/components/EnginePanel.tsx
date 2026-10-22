@@ -356,6 +356,7 @@ export default function EnginePanel() {
   );
 
   if (!runtime) return null;
+  const savedCardMissing = runtime.gpuIndex != null && !machine.nvidia.some((card) => card.index === runtime.gpuIndex);
 
   return (
     // Шапка повторяет общий раздел настроек один в один: рисованная иконка в рамке, название,
@@ -479,7 +480,7 @@ export default function EnginePanel() {
             <p className="text-[11px] leading-relaxed text-stone-600">
               {panel.asIsHint}
             </p>
-            {machine.nvidia.length > 1 && (
+            {(machine.nvidia.length > 1 || (savedCardMissing && machine.nvidia.length > 0)) && (
               <label className="block space-y-1 pt-1">
                 <span className="block text-xs text-stone-400">{panel.gpuCard}</span>
                 <select
@@ -491,6 +492,11 @@ export default function EnginePanel() {
                   }}
                   className="w-full rounded border border-stone-800 bg-stone-950 px-2 py-1 text-xs text-stone-200"
                 >
+                  {savedCardMissing && (
+                    <option value={String(runtime.gpuIndex)} disabled>
+                      {runtime.gpuIndex}: —
+                    </option>
+                  )}
                   {machine.nvidia.map((card) => (
                     <option key={card.index} value={card.index}>
                       {card.index}: {card.name} · {Math.round(card.vramGb)} GB

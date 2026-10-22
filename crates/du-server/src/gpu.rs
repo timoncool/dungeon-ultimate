@@ -181,6 +181,11 @@ impl Gpu {
         if !self.paths.text_ready() {
             return Err(UserError::TextModelMissing(self.paths.text_model.display().to_string()));
         }
+        if accel.nvidia() && opts.device.is_none() {
+            if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
+                return Err(problem);
+            }
+        }
         // Картинка обязана уйти с карты до загрузки нарратора.
         self.drop_image_context();
 
@@ -211,8 +216,12 @@ impl Gpu {
             }
         }
         // Движок голоса собран только под CUDA: на AMD, Intel и без карты он не загрузится.
-        if !crate::accel::accel(&crate::runtime::load(&self.root)).nvidia() {
+        let runtime = crate::runtime::load(&self.root);
+        if !crate::accel::accel(&runtime).nvidia() {
             return Err(UserError::NeedsNvidia(crate::errors::CloudStage::Tts));
+        }
+        if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
+            return Err(problem);
         }
         let dll = self.root.join("models").join("tts-engine").join("audiocpp_engine.dll");
         let model_root = self.root.join("models").join("tts");
@@ -227,7 +236,6 @@ impl Gpu {
         *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Speech;
 
         let engine = du_tts::AudiocppEngine::load(&dll)?;
-        let runtime = crate::runtime::load(&self.root);
         engine
             .load_model(
                 &model_root,
@@ -265,16 +273,20 @@ impl Gpu {
         if !self.paths.image_ready() {
             return Err(UserError::ImageWeightsMissing(self.paths.image_models.display().to_string()));
         }
-        self.release_text();
-        // Картинке нужна вся карта: и текст, и озвучка уходят с неё.
-        self.release_speech();
-        *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Image;
-
         let runtime = crate::runtime::load(&self.root);
         let accel = crate::accel::accel(&runtime);
         let Some(dir) = image_dir(&self.root, accel) else {
             return Err(UserError::NeedsGpu(crate::errors::CloudStage::Image));
         };
+        if accel.nvidia() {
+            if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
+                return Err(problem);
+            }
+        }
+        self.release_text();
+        // Картинке нужна вся карта: и текст, и озвучка уходят с неё.
+        self.release_speech();
+        *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Image;
         let mut engine_slot = self.engine.lock().unwrap_or_else(|e| e.into_inner());
         if engine_slot.is_none() {
             tracing::info!("картинки: sd.cpp из {} ({})", dir.display(), accel.key());

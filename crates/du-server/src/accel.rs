@@ -101,6 +101,21 @@ pub fn chosen_card(runtime: &crate::runtime::Runtime) -> Option<&'static Card> {
     runtime.gpu_index.and_then(|index| cards.iter().find(|card| card.index == index)).or_else(|| cards.first())
 }
 
+/// Карта из настроек, которой нет в компьютере: с ней в `CUDA_VISIBLE_DEVICES` CUDA не видит ни одного устройства, и
+/// движок без слова ушёл бы на процессор. Спрашивают те, кто идёт на карту через CUDA.
+pub fn missing_chosen_card(runtime: &crate::runtime::Runtime) -> Option<crate::errors::UserError> {
+    missing_card(runtime.gpu_index, &machine().nvidia)
+}
+
+fn missing_card(chosen: Option<u32>, cards: &[Card]) -> Option<crate::errors::UserError> {
+    let index = chosen?;
+    if cards.iter().any(|card| card.index == index) {
+        return None;
+    }
+    let cards = cards.iter().map(|card| format!("{}: {}", card.index, card.name)).collect();
+    Some(crate::errors::UserError::GpuMissing { index, cards })
+}
+
 /// Чем считать на этой машине. `DU_ACCEL` (cuda13 | cuda12 | vulkan | cpu) задаёт это руками — проверка сборок под
 /// чужое железо на своей машине.
 pub fn accel(runtime: &crate::runtime::Runtime) -> Accel {
@@ -150,6 +165,9 @@ pub fn apply_saved_gpu(root: &std::path::Path) {
         machine.other_adapter,
         accel(&runtime).key()
     );
+    if let Some(problem) = missing_chosen_card(&runtime) {
+        tracing::warn!("{problem}");
+    }
 }
 
 /// Видеокарта с наибольшей памятью из записи её драйвера: `HardwareInformation.qwMemorySize` — 64-битный размер,
@@ -213,6 +231,16 @@ mod tests {
         assert_eq!(cuda_build((5, 2), 530), Some(Accel::Cuda12), "Maxwell");
         assert_eq!(cuda_build((5, 0), 581), None);
         assert_eq!(cuda_build((8, 9), 470), None);
+    }
+
+    #[test]
+    fn a_chosen_card_that_is_not_there_is_said_not_left_to_the_processor() {
+        let cards = vec![Card { index: 0, name: "NVIDIA GeForce RTX 4090".into(), vram_gb: 24.0, compute: (8, 9) }];
+        assert!(missing_card(None, &cards).is_none());
+        assert!(missing_card(Some(0), &cards).is_none());
+        let missing = missing_card(Some(1), &cards).expect("карты 1 нет").to_string();
+        assert!(missing.contains("номер 1") && missing.contains("0: NVIDIA GeForce RTX 4090"), "{missing}");
+        assert_eq!(missing_card(Some(0), &[]).expect("карт нет совсем").code(), "gpu_missing_no_nvidia");
     }
 
     #[test]
