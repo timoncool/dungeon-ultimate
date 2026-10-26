@@ -1423,6 +1423,15 @@ fn unpack_if_archive(root: &Path, spec: &FileSpec, target: &Path) -> Result<(), 
     }
     let dir = root.join(spec.extract_dir);
     unpack(target, &dir, spec.extract)?;
+    // в архиве программа может прийти без бита исполнения (Linux-сборки audiocpp_server f476882e), а запускаться обязана
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let program = root.join(spec.marker);
+        if program.is_file() {
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).map_err(|error| format!("права {}: {error}", program.display()))?;
+        }
+    }
     if let Err(error) = std::fs::remove_file(target) {
         tracing::warn!("не убрать распакованный архив {}: {error}", target.display());
     }
@@ -1639,6 +1648,33 @@ mod tests {
         let libs = dir.path().join("libs");
         unpack(&archive, &libs, Extract::Libs).unwrap();
         assert!(!libs.join("llama-server").exists(), "программа — не библиотека");
+    }
+
+    /// Linux-сборки audiocpp_server f476882e приходят без бита исполнения: программа компонента после распаковки
+    /// запускается.
+    #[cfg(unix)]
+    #[test]
+    fn the_program_of_an_archive_is_executable_after_unpacking() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("server.tar.gz");
+        {
+            let gz = flate2::write::GzEncoder::new(File::create(&archive).unwrap(), flate2::Compression::fast());
+            let mut builder = tar::Builder::new(gz);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(3);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, "audiocpp_server", &b"exe"[..]).unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        let spec = FileSpec::archive("downloads/server.tar.gz", "https://example.invalid/server.tar.gz", 3, "x", Extract::Flat, "tools/audiocpp", "tools/audiocpp/audiocpp_server");
+        let target = dir.path().join("downloads/server.tar.gz");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::rename(&archive, &target).unwrap();
+        unpack_if_archive(dir.path(), &spec, &target).unwrap();
+        let mode = std::fs::metadata(dir.path().join("tools/audiocpp/audiocpp_server")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
     }
 
     /// Хост, где никто не слушает, бросается после трёх попыток, а не восьми, и ошибка называет его рядом с адресом.
