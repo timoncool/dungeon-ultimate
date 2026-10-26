@@ -16,6 +16,8 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 base64 = "0.23"
 # Нужен, чтобы находить и убирать процессы модели, оставшиеся от прошлого запуска.
 sysinfo = { workspace = true }
+# llama-server запускается без библиотек AppImage (dub_core::proc::host_command), как у Dub Studio
+dub-core = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
 
 # Windows-задание (job object): в нём живёт llama-server, и система убивает его вместе с
 # нами — даже если нас сняли силой и до штатного закрытия дело не дошло.

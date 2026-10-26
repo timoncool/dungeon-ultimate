@@ -258,10 +258,11 @@ mod platform {
 }
 
 /// Движки под macOS на Apple silicon: одна сборка каждого движка, Metal и процессор в ней; машина считается как
-/// процессорная (`Accel::Cpu`), и её сборки лежат в процессорных папках. Сервера голоса под macOS пока нет.
+/// процессорная (`Accel::Cpu`), и её сборки лежат в процессорных папках; сервер голоса — Metal-сборка audiocpp_server
+/// в процессорном компоненте голоса.
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{tcpp_engine, Extract, FileSpec};
+    use super::{audiocpp, tcpp_engine, Extract, FileSpec};
 
     // sd.cpp апстрима под Apple silicon: одна библиотека, ggml и Metal внутри
     pub const IMAGE_ENGINE: &[FileSpec] = &[
@@ -277,7 +278,7 @@ mod platform {
     pub const VOICE_ENGINE: &[FileSpec] = &[];
     pub const VOICE_ENGINE_CUDA12: &[FileSpec] = &[];
     pub const VOICE_ENGINE_VULKAN: &[FileSpec] = &[];
-    pub const VOICE_ENGINE_CPU: &[FileSpec] = &[];
+    pub const VOICE_ENGINE_CPU: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_MACOS, "downloads/audiocpp-metal.tar.gz", "tools/audiocpp-metal", "tools/audiocpp-metal/audiocpp_server")];
     pub const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/libtranscribe_engine.dylib");
     pub const ASR_GPU: &[FileSpec] = &[];
 }

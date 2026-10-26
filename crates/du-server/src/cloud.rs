@@ -9,7 +9,7 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde_json::{json, Value};
 
@@ -96,7 +96,7 @@ fn run_helper(root: &Path, key: &str, op: &str, payload: &Value) -> Result<Value
     if !bin.is_file() {
         return Err(format!("сайдкар OpenRouter не найден: {}", bin.display()));
     }
-    let mut child = Command::new(&bin)
+    let mut child = dub_core::proc::host_command(&bin)
         .arg(op)
         // Ключ только через окружение: аргументы командной строки видны в списке процессов.
         .env("OPENROUTER_API_KEY", key)

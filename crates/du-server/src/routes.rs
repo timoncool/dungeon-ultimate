@@ -860,11 +860,11 @@ pub async fn image_worker(
             let path = paths.image_models.clone();
             // Открываем каталог тем, чем открывает система: свой файловый менеджер у нас не нужен.
             #[cfg(windows)]
-            let _ = std::process::Command::new("explorer").arg(&path).spawn();
+            let _ = dub_core::proc::host_command("explorer").arg(&path).spawn();
             #[cfg(target_os = "macos")]
-            let _ = std::process::Command::new("open").arg(&path).spawn();
+            let _ = dub_core::proc::host_command("open").arg(&path).spawn();
             #[cfg(all(unix, not(target_os = "macos")))]
-            let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+            let _ = dub_core::proc::host_command("xdg-open").arg(&path).spawn();
             Ok(Json(json!({ "path": path.to_string_lossy(), "message": "Папка модели открыта." })))
         }
         other => Err(ApiError::bad_request(crate::errors::UserError::UnknownAction(other.to_string()))),

@@ -5,9 +5,11 @@ version = 4
 [[package]]
 name = "acpp-server"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=ecc1d03889ecca5675473f5dba426692f6aa299c#ecc1d03889ecca5675473f5dba426692f6aa299c"
+source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
 dependencies = [
  "base64",
+ "dub-core",
+ "dub-tcpp",
  "hound",
  "libc",
  "reqwest",
@@ -503,6 +505,7 @@ name = "du-llm"
 version = "0.13.4"
 dependencies = [
  "base64",
+ "dub-core",
  "reqwest",
  "serde",
  "serde_json",
@@ -552,6 +555,7 @@ dependencies = [
  "du-llm",
  "du-prompts",
  "du-rpg",
+ "dub-core",
  "dub-tcpp",
  "flate2",
  "futures-util",
@@ -585,9 +589,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dub-core"
+version = "2.0.0"
+source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dub-tcpp"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=ecc1d03889ecca5675473f5dba426692f6aa299c#ecc1d03889ecca5675473f5dba426692f6aa299c"
+source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
 dependencies = [
  "libloading 0.9.0",
 ]

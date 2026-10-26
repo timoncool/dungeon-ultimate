@@ -176,7 +176,7 @@ pub fn apply_saved_gpu(root: &std::path::Path) {
 fn display_adapter() -> Option<String> {
     const CLASS: &str = r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
     let query = |value: &str| -> Option<String> {
-        let mut command = std::process::Command::new("reg");
+        let mut command = dub_core::proc::host_command("reg");
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
         let output = command.args(["query", CLASS, "/s", "/v", value]).output().ok()?;

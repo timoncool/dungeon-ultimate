@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -130,7 +130,7 @@ impl LlamaServer {
             return Err(LlmError::ModelMissing(opts.model.clone()));
         }
         let port = free_port()?;
-        let mut cmd = Command::new(&opts.bin);
+        let mut cmd = dub_core::proc::host_command(&opts.bin);
         cmd.arg("-m")
             .arg(&opts.model)
             .arg("--host")
@@ -173,6 +173,8 @@ impl LlamaServer {
             if let Ok(joined) = std::env::join_paths(dirs) {
                 cmd.env(variable, joined);
             }
+            // путь библиотек собран из окружения процесса, где в AppImage первыми стоят папки образа
+            dub_core::proc::outside_appimage(&mut cmd);
         }
         if let Some(mmproj) = opts.mmproj.as_ref().filter(|path| path.is_file()) {
             cmd.arg("--mmproj").arg(mmproj);

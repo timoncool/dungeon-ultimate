@@ -1,5 +1,5 @@
 //! audiocpp_server игры (`acpp_server::SERVERS`, по процессу на бэкенд): голос Higgs и распознавание CrisperWhisper.
-//! Сборка сервера — по машине (`accel`), как у рассказчика: CUDA 13, CUDA 12, Vulkan или процессор.
+//! Сборка сервера — по машине (`accel`), как у рассказчика: CUDA 13, CUDA 12, Vulkan или процессор; на Mac — Metal.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,8 +21,12 @@ pub const HIGGS_GGUF: &str = "models/tts/q4_k_m.gguf";
 /// Сервер моделей на старте не грузит, поэтому отвечает быстро.
 const READY_WITHIN: Duration = Duration::from_secs(60);
 
-/// Сборка сервера для этой машины.
+/// Сборка сервера для этой машины. Mac на Apple silicon — Metal-сборка: машина там считается процессорной, а Metal
+/// и процессор у сервера в одной программе.
 pub fn build(accel: crate::accel::Accel) -> Build {
+    if let Some(mac) = Build::for_this_mac() {
+        return mac;
+    }
     match accel {
         crate::accel::Accel::Cuda13 => Build::Cuda13,
         crate::accel::Accel::Cuda12 => Build::Cuda12,
@@ -44,7 +48,7 @@ pub fn library_dir(root: &Path, build: Build) -> Option<PathBuf> {
     match build {
         Build::Cuda13 => Some(root.join("models").join(if cfg!(windows) { "tts-engine" } else { "higgs-engine" })),
         Build::Cuda12 => Some(root.join("models").join("cuda12-runtime")),
-        Build::Vulkan | Build::Cpu => None,
+        Build::Vulkan | Build::Cpu | Build::Metal => None,
     }
 }
 
@@ -68,6 +72,7 @@ fn config(root: &Path, build: Build, backend: Backend) -> ServerConfig {
         Backend::Cuda => "cuda",
         Backend::Vulkan => "vulkan",
         Backend::Cpu => "cpu",
+        Backend::Metal => "metal",
     };
     ServerConfig {
         exe: exe(root, build),
