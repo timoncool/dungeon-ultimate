@@ -50,6 +50,7 @@ mod voice_clip;
 mod voice_tags;
 pub mod turn;
 pub mod ui_lang;
+pub mod update_screen;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
@@ -117,6 +118,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hw", get(routes::hardware))
         .route("/api/setup/status", get(routes::setup_status))
         .route("/api/setup/download", post(routes::setup_download))
+        .route("/api/setup/update", get(routes::setup_update))
+        .route("/api/setup/update/apply", post(routes::setup_update_apply))
+        .route("/api/setup/update/seen", post(routes::setup_update_seen))
         .route("/api/asr", post(voice::transcribe))
         .route("/api/voices", get(voice::voices))
         .route("/api/cloud/voices", get(routes::cloud_voices))
@@ -166,11 +170,6 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {
         let state = AppState::new(root)?;
-        let retired = root.to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            setup::remove_retired_asr(&retired);
-            setup::remove_retired_references(&retired);
-        });
         hub::start(root);
         activity::start(root);
         narrator::set_port(port);

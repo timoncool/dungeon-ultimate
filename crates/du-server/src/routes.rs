@@ -527,23 +527,30 @@ pub async fn setup_download(
     State(state): State<AppState>,
     Json(body): Json<SetupDownload>,
 ) -> ApiResult<Json<Value>> {
-    crate::setup::forget_failures(&body.ids);
+    let job = spawn_download(&state, body.ids, false).await;
+    Ok(Json(json!({ "job": job })))
+}
+
+/// Задача закачки `ids` (пусто — всё нужное, чего нет); `retire_after` — кнопка экрана обновления: остатки прежних версий
+/// убираются, только когда всё скачалось.
+async fn spawn_download(state: &AppState, ids: Vec<String>, retire_after: bool) -> String {
+    crate::setup::forget_failures(&ids);
     let inner = state.0.clone();
     // Закачка идёт МИМО очереди к видеокарте: это сеть, и ждать чужого кадра ей незачем.
-    let job = state
+    state
         .queue
         .spawn_detached(Box::new(move |progress, abort| {
             // Флаг отмены — из очереди: «Прервать» обязан останавливать и закачку,
             // а не только отцеплять браузер.
             // Пустой список — всё нужное, чего нет: необязательные варианты сами не качаются.
-            let wanted: Vec<String> = if body.ids.is_empty() {
+            let wanted: Vec<String> = if ids.is_empty() {
                 crate::setup::status(&inner.root)
                     .into_iter()
                     .filter(|status| !status.present && status.component.requirement != crate::setup::Requirement::Optional)
                     .map(|status| status.component.id.to_string())
                     .collect()
             } else {
-                body.ids.clone()
+                ids.clone()
             };
             if let Some((need, free)) = crate::setup::missing_space(&inner.root, &wanted) {
                 let error = crate::errors::UserError::DiskSpace { need, free, path: inner.root.display().to_string() };
@@ -584,14 +591,59 @@ pub async fn setup_download(
                 let mut runtime = crate::runtime::load(&inner.root);
                 if crate::setup::select_variant(&mut runtime, component.id) {
                     crate::runtime::save(&inner.root, &runtime)?;
-                    tracing::info!("распознавание переключено на «{title}»");
+                    tracing::info!("выбран вариант «{title}»");
                 }
+            }
+            if retire_after {
+                crate::update_screen::remove_leftovers(&inner.root);
             }
             crate::hub::setup_ready();
             Ok(json!({ "ok": true }))
         }))
-        .await;
-    Ok(Json(json!({ "job": job })))
+        .await
+}
+
+/// GET /api/setup/update — план экрана обновления этого выпуска: {version, updated, added, retired, download, freed,
+/// show}. Только читает диск.
+pub async fn setup_update(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    let root = state.root.clone();
+    let plan = tokio::task::spawn_blocking(move || crate::update_screen::plan(&root, env!("CARGO_PKG_VERSION")))
+        .await
+        .map_err(|error| ApiError::internal(format!("план обновления: {error}")))?;
+    Ok(Json(json!(plan)))
+}
+
+/// POST /api/setup/update/apply — кнопка экрана обновления: качает обновлённое и новое и после этого убирает остатки
+/// прежних версий; качать нечего — убирает сразу. {job, plan}; план считается показанным.
+pub async fn setup_update_apply(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    let root = state.root.clone();
+    let plan = tokio::task::spawn_blocking(move || crate::update_screen::plan(&root, env!("CARGO_PKG_VERSION")))
+        .await
+        .map_err(|error| ApiError::internal(format!("план обновления: {error}")))?;
+    let ids = plan.ids();
+    let job = if ids.is_empty() {
+        let root = state.root.clone();
+        tokio::task::spawn_blocking(move || crate::update_screen::remove_leftovers(&root))
+            .await
+            .map_err(|error| ApiError::internal(format!("уборка: {error}")))?;
+        None
+    } else {
+        Some(spawn_download(&state, ids, true).await)
+    };
+    if let Err(error) = crate::update_screen::mark_seen(&state.root, env!("CARGO_PKG_VERSION")) {
+        tracing::error!("[ERROR] {error}");
+    }
+    let root = state.root.clone();
+    let plan = tokio::task::spawn_blocking(move || crate::update_screen::plan(&root, env!("CARGO_PKG_VERSION")))
+        .await
+        .map_err(|error| ApiError::internal(format!("план обновления: {error}")))?;
+    Ok(Json(json!({ "job": job, "plan": plan })))
+}
+
+/// POST /api/setup/update/seen — «Позже»: план этого выпуска на старте больше не показывается («Что скачать» его хранит).
+pub async fn setup_update_seen(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    crate::update_screen::mark_seen(&state.root, env!("CARGO_PKG_VERSION")).map_err(ApiError::internal)?;
+    Ok(Json(json!({ "seen": env!("CARGO_PKG_VERSION") })))
 }
 
 // ── Рантайм-настройки ──────────────────────────────────────────────────────────

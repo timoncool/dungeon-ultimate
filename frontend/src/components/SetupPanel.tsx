@@ -6,6 +6,8 @@ import { componentText } from "@/lib/ui-text-components";
 import { errorText, type ServerError } from "@/lib/ui-text-errors";
 import { programName } from "@/lib/programs";
 import { SELF_POLL, hubChanged, setTelemetry, telemetryPreview, useHubState } from "@/lib/studioHub";
+import { updateText } from "@/lib/ui-text-update";
+import UpdateScreen, { type UpdatePlan } from "./UpdateScreen";
 
 // Первый запуск: докачка того, чего нет на диске.
 //
@@ -49,6 +51,20 @@ export default function SetupPanel() {
   const [note, setNote] = useState("");
   /// Почему рассказчик идёт не на CUDA-сборке карты (glibc старше нужной); null — идёт на ней.
   const [narratorNote, setNarratorNote] = useState<ServerError | null>(null);
+  /// Экран обновления: «start» — сам на первом старте выпуска, «asked» — открыт игроком.
+  const [update, setUpdate] = useState<"start" | "asked" | null>(null);
+  const [updatePending, setUpdatePending] = useState(false);
+  const update_ = updateText(language);
+
+  useEffect(() => {
+    fetch("/api/setup/update", SELF_POLL)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
+      .then((plan: UpdatePlan) => {
+        setUpdatePending(plan.updated.length + plan.added.length + plan.retired.length > 0);
+        if (plan.show) setUpdate("start");
+      })
+      .catch((e: Error) => console.warn("[update] the plan was not read:", e.message));
+  }, []);
   const [progress, setProgress] = useState<{ title: string; have: number; total: number } | null>(null);
   /// Выбранный вариант в группе; null — ещё не трогали, берём выбранный в настройках.
   const [picked, setPicked] = useState<Record<string, string>>({});
@@ -251,6 +267,15 @@ export default function SetupPanel() {
 
   return (
     <section className="space-y-2.5">
+      {update && (
+        <UpdateScreen
+          asked={update === "asked"}
+          onClose={() => {
+            setUpdate(null);
+            void refresh();
+          }}
+        />
+      )}
       <button
         type="button"
         aria-expanded={open}
@@ -283,6 +308,11 @@ export default function SetupPanel() {
       {open && (
         <div className="space-y-3">
           {narratorNote && <p className="px-1 text-[11px] text-stone-500">{errorText(narratorNote)}</p>}
+          {updatePending && (
+            <button type="button" onClick={() => setUpdate("asked")} className="px-1 text-left text-[11px] text-amber-200/80 underline hover:text-amber-200">
+              {update_.open}
+            </button>
+          )}
           {toDownload.length > 0 && (
             <button
               type="button"

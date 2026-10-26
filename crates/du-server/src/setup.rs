@@ -87,7 +87,7 @@ impl FileSpec {
         Self { path, url, bytes, sha256, extract, extract_dir: dir, marker }
     }
 
-    fn is_archive(&self) -> bool {
+    pub fn is_archive(&self) -> bool {
         self.extract != Extract::None
     }
 }
@@ -593,7 +593,7 @@ pub fn parakeet_model(runtime: &crate::runtime::Runtime) -> &'static dub_tcpp::M
 
 /// Прежние движки, которых никто больше не читает: Parakeet на ONNX Runtime (0.13 и раньше) с самой onnxruntime,
 /// faster-whisper с его моделями и библиотеками CUDA 11, библиотека голоса Higgs (голос — в audiocpp_server).
-const RETIRED_ASR: [&str; 6] = [
+pub(crate) const RETIRED_ASR: [&str; 6] = [
     "models/asr",
     "models/asr-ultra",
     "models/runtime/onnxruntime-win-x64-1.28.2",
@@ -621,20 +621,26 @@ pub fn remove_retired_asr(root: &Path) {
 }
 
 /// Эталоны голосов прежних версий, `models/voices/<голос>.ref<N>s.wav`: игра резала первые N секунд клипа рядом с ним,
-/// теперь куски лежат в `voices/.work/refs`. В паке голосов таких файлов нет.
+/// теперь куски лежат в `voices/.work/refs`. В паке голосов таких файлов нет. Убирает их кнопка экрана обновления.
 pub fn remove_retired_references(root: &Path) {
-    let voices = root.join("models").join("voices");
-    let Ok(entries) = std::fs::read_dir(&voices) else { return };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !retired_reference(&name) {
-            continue;
-        }
-        match std::fs::remove_file(entry.path()) {
-            Ok(()) => tracing::info!("убран прежний эталон {}", entry.path().display()),
-            Err(error) => tracing::warn!("не убрать прежний эталон {}: {error}", entry.path().display()),
+    for path in retired_references(root) {
+        match std::fs::remove_file(&path) {
+            Ok(()) => tracing::info!("убран прежний эталон {}", path.display()),
+            Err(error) => tracing::warn!("не убрать прежний эталон {}: {error}", path.display()),
         }
     }
+}
+
+/// Прежние эталоны голосов на диске.
+pub(crate) fn retired_references(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root.join("models").join("voices")) else { return Vec::new() };
+    entries.flatten().filter(|entry| retired_reference(&entry.file_name().to_string_lossy())).map(|entry| entry.path()).collect()
+}
+
+/// Все компоненты игры, и те, у которых под этой системой нет файлов.
+#[cfg(test)]
+pub(crate) fn all_component_ids() -> Vec<&'static str> {
+    COMPONENTS.iter().map(|component| component.id).collect()
 }
 
 /// Имя прежнего эталона: `<голос>.ref<N>s.wav`.

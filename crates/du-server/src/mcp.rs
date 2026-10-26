@@ -204,6 +204,9 @@ fn tools() -> &'static Vec<Tool> {
             tool("hub_status", "Studio Hub in this game: the statistics choice, the feed source and the notices that fit now.", object(json!({ "lang": { "type": "string" } }), &[])),
             tool("hub_telemetry_set", "Turn the anonymous statistics on or off.", object(json!({ "enabled": { "type": "boolean" } }), &["enabled"])),
             tool("activity_list", "The Activity journal: what agents did in the game.", nothing()),
+            tool("setup_update_plan", "The update screen's plan of this release: what is updated (old → new, size), what is new and what is no longer needed and removed (space freed), each with its reason code, and whether the window shows it at start.", nothing()),
+            tool("setup_update_apply", "The update screen's button: download what is updated and new, then remove what former releases left; with nothing to download it removes them at once. The plan counts as shown. Returns the download job (if any) and the new plan.", nothing()),
+            tool("setup_update_later", "«Later» on the update screen: this release's plan is not shown at start again; «What to download» keeps it.", nothing()),
             tool("diagnostics", "The game's diagnostics as Support shows them: version, system, cards and the builds the game runs on, memory, every component and whether it is on disk, what the voice server's libraries miss, and the latest log lines; as text to paste into an issue and as data.", nothing()),
             tool("diagnostics_report", "Pack a bug report into the data folder (reports/*.zip: the diagnostics, the activity journal and the log, keys masked) and answer its path.", nothing()),
             tool("diagnostics_report_reveal", "Show the folder of a report from diagnostics_report in the computer's file manager.", object(json!({ "path": { "type": "string" } }), &["path"])),
@@ -309,6 +312,9 @@ fn route(name: &str, args: &Value) -> Result<Call, String> {
         "hub_status" => get(format!("/v1/hub/state{}", query(&[("lang", args.get("lang").and_then(Value::as_str).map(str::to_string))])))?,
         "hub_telemetry_set" => send(Method::POST, "/v1/hub/telemetry".into(), json!({ "enabled": args.get("enabled").and_then(Value::as_bool).ok_or("'enabled' is required")?, "acknowledge": true }))?,
         "activity_list" => get("/api/activity".into())?,
+        "setup_update_plan" => get("/api/setup/update".into())?,
+        "setup_update_apply" => send(Method::POST, "/api/setup/update/apply".into(), json!({}))?,
+        "setup_update_later" => send(Method::POST, "/api/setup/update/seen".into(), json!({}))?,
         "diagnostics" => get("/api/diagnostics".into())?,
         "diagnostics_report" => send(Method::POST, "/api/diagnostics/report".into(), json!({}))?,
         "diagnostics_report_reveal" => send(Method::POST, "/api/diagnostics/report/reveal".into(), json!({ "path": text(args, "path")? }))?,
@@ -1147,6 +1153,7 @@ mod tests {
             "/api/image-style", "/api/character", "/api/upload", "/api/local-data", "/api/settings/defaults", "/api/where",
             "/api/tools/try", "/api/jobs/j/stop", "/api/runtime", "/api/hw", "/api/setup/status", "/api/setup/download",
             "/api/asr", "/api/voices", "/api/cloud/voices", "/api/cloud/models", "/api/tts", "/api/images",
+            "/api/setup/update", "/api/setup/update/apply", "/api/setup/update/seen",
             "/api/diagnostics", "/api/diagnostics/report", "/api/diagnostics/report/reveal", "/api/diagnostics/logs/reveal",
         ];
         let sample = json!({
