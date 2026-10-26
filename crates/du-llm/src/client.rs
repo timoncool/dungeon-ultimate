@@ -403,7 +403,7 @@ impl ChatClient {
                 }
                 Err(error) => {
                     if error.is_timeout() || attempt >= MAX_ATTEMPTS {
-                        return Err(LlmError::StreamSend(error.to_string()));
+                        return Err(LlmError::StreamSend(send_failure(&error)));
                     }
                 }
             }
@@ -513,6 +513,33 @@ fn truncate(text: &str) -> String {
     text.chars().take(500).collect()
 }
 
+/// Почему запрос не дошёл до сервера модели: верхний текст reqwest («error sending request for url (…)») причины не
+/// называет, она — в цепочке источников (отказ соединения, таймаут, DNS, TLS).
+fn send_failure(error: &reqwest::Error) -> String {
+    let what = if error.is_timeout() {
+        "нет ответа (таймаут)"
+    } else if error.is_connect() {
+        "нет соединения"
+    } else {
+        "запрос не ушёл"
+    };
+    let host = error
+        .url()
+        .and_then(|url| url.host_str().map(|host| url.port().map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))))
+        .unwrap_or_default();
+    let mut causes: Vec<String> = Vec::new();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !causes.iter().any(|known| known.contains(&text)) {
+            causes.push(text);
+        }
+        source = cause.source();
+    }
+    let cause = if causes.is_empty() { error.to_string() } else { causes.join(": ") };
+    format!("{what} с {host}: {}", truncate(&cause))
+}
+
 /// Разобрать JSON, при неудаче попробовать первый блок в фигурных скобках.
 pub fn parse_json_lenient(raw: &str) -> Option<Value> {
     if let Ok(value) = serde_json::from_str::<Value>(raw.trim()) {
@@ -533,6 +560,19 @@ mod tests {
     #[test]
     fn a_bare_host_gets_the_full_endpoint() {
         assert_eq!(chat_endpoint("http://127.0.0.1:8080"), "http://127.0.0.1:8080/v1/chat/completions");
+    }
+
+    #[test]
+    fn a_stream_to_a_dead_server_names_the_refused_connection() {
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let client = ChatClient::new(&format!("http://127.0.0.1:{port}"), Duration::from_secs(5)).unwrap();
+        let error = client.chat_stream(&[Message::user("hi")], &Sampling::new(0.7, 16), |_| true).unwrap_err();
+        let text = error.to_string();
+        assert!(matches!(error, LlmError::StreamSend(_)), "{text}");
+        assert!(text.contains(&format!("нет соединения с 127.0.0.1:{port}")) && !text.contains("error sending request"), "{text}");
     }
 
     /// Поднять разовый HTTP-сервер, отвечающий потоком SSE из готовых строк.
