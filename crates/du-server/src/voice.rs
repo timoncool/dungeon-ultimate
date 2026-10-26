@@ -148,7 +148,9 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
         .await
         .map_err(|_| ApiError::internal(crate::errors::UserError::JobLost))?
         .map_err(ApiError::internal);
-    let _ = std::fs::remove_file(&temp);
+    if let Err(error) = std::fs::remove_file(&temp) {
+        tracing::warn!("не убрать запись голосового ввода {}: {error}", temp.display());
+    }
     Ok(Json(value?))
 }
 
@@ -178,7 +180,9 @@ fn crisperwhisper_text(root: &std::path::Path, device: crate::backend::Backend, 
         };
         server.transcribe_details(&request).map_err(UserError::Acpp)
     });
-    let _ = std::fs::remove_file(&mono);
+    if let Err(error) = std::fs::remove_file(&mono) {
+        tracing::warn!("не убрать запись для CrisperWhisper {}: {error}", mono.display());
+    }
     if !device.is_cpu() {
         crate::acpp::unload(&[crate::acpp::CRISPERWHISPER]);
     }
