@@ -1,0 +1,69 @@
+name: macOS build
+
+# The game for Apple silicon (Metal), built by hand. With a tag the .dmg is attached to that release. Linux is built on
+# the release machine: scripts/build-linux-docker.sh.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the builds to; empty builds only"
+        required: false
+
+concurrency:
+  group: macos-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  RUSTUP_TOOLCHAIN: stable
+  CARGO_TERM_COLOR: never
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
+      - name: Build
+        run: bash scripts/build-release-macos.sh
+      - name: The game's server starts
+        run: |
+          set -e
+          root="$RUNNER_TEMP/du-root"
+          mkdir -p "$root"
+          DU_ROOT="$root" DU_PORT=8799 ./target/release/du-server > "$RUNNER_TEMP/du-server.log" 2>&1 &
+          pid=$!
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8799/api/health && break; sleep 1; done
+          curl -sf http://127.0.0.1:8799/api/setup/status | head -c 400
+          kill "$pid"
+          cat "$RUNNER_TEMP/du-server.log" | head -n 20
+      - name: Collect
+        run: |
+          set -e
+          mkdir -p out
+          dmg="$(find desktop/src-tauri/target/release/bundle/dmg -name '*.dmg' | head -n 1)"
+          version="$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")"
+          cp "$dmg" "out/DungeonUltimate-${version}-macos-arm64.dmg"
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dungeon-ultimate-macos-arm64
+          path: out/*
+          retention-days: 1
+      - name: Attach to the release
+        if: ${{ inputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" out/* --clobber

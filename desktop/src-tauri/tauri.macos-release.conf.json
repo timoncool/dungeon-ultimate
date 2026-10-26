@@ -1,0 +1,11 @@
+{
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": false,
+    "targets": ["app", "dmg"],
+    "resources": {},
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}
