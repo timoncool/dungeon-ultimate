@@ -20,11 +20,6 @@ fn app_root_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Корень, в котором игра держит своё добро: модели, сохранения, кадры.
-///
-/// В разработке это корень репозитория — иначе разработчик качал бы модели заново рядом с
-/// каждой сборкой. У установленной игры — каталог рядом с exe: интерфейс вшит в сам бинарь,
-/// поэтому никаких папок рядом не требуется, а всё скачанное лежит там же, где приложение.
 fn resolve_repo_root() -> PathBuf {
     // Явное переопределение (dev / тесты).
     if let Ok(root) = std::env::var("DU_ROOT") {
@@ -42,7 +37,35 @@ fn resolve_repo_root() -> PathBuf {
             None => break,
         }
     }
-    exe_dir
+    if cfg!(windows) {
+        return exe_dir;
+    }
+    // Пакет Linux (/usr/bin, AppImage) и программа macOS только для чтения: данные — в каталоге пользователя.
+    package_data_dir().unwrap_or_else(|why| {
+        eprintln!("[ERROR] {why}");
+        std::process::exit(1);
+    })
+}
+
+/// Данные установленной игры: на Linux $XDG_DATA_HOME/dungeon-ultimate, иначе ~/.local/share/dungeon-ultimate; на macOS
+/// ~/Library/Application Support/Dungeon Ultimate — как у Speech Studio.
+fn package_data_dir() -> Result<PathBuf, String> {
+    if !cfg!(target_os = "macos") {
+        if let Some(root) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
+            return Ok(PathBuf::from(root).join("dungeon-ultimate"));
+        }
+    }
+    let home = std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| "Neither XDG_DATA_HOME nor HOME is set: there is nowhere to keep the models.".to_string())?;
+    let dir = if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support").join("Dungeon Ultimate")
+    } else {
+        home.join(".local").join("share").join("dungeon-ultimate")
+    };
+    std::fs::create_dir_all(&dir).map_err(|error| format!("{}: {error}", dir.display()))?;
+    Ok(dir)
 }
 
 /// Порт MCP и окна по умолчанию — постоянный, как у студий (YuE2 8791, Dub 8793): по нему агент
