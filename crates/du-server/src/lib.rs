@@ -14,7 +14,8 @@ mod casting;
 mod characters;
 mod chats;
 mod dialogue;
-#[cfg(test)]
+// таблицы импорта PE — проверка установки под Windows
+#[cfg(all(test, windows))]
 mod dll_imports;
 pub mod cloud;
 pub mod cloud_models;

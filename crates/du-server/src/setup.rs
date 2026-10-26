@@ -1592,7 +1592,8 @@ mod tests {
         }
         let gpu = COMPONENTS.iter().find(|c| c.id == "asr-gpu").unwrap();
         assert!(gpu.files.iter().any(|f| std::path::Path::new(f.path) == dub_tcpp::engine_dir(models, dub_tcpp::Build::Cuda).join(dub_tcpp::LIBRARY)));
-        assert!(gpu.files.iter().any(|f| f.marker.ends_with("cublas64_13.dll")) && gpu.files.iter().any(|f| f.marker.ends_with("cudart64_13.dll")));
+        let (cublas, cudart) = if cfg!(windows) { ("cublas64_13.dll", "cudart64_13.dll") } else { ("libcublas.so.13", "libcudart.so.13") };
+        assert!(gpu.files.iter().any(|f| f.marker.ends_with(cublas)) && gpu.files.iter().any(|f| f.marker.ends_with(cudart)));
     }
 
     #[test]
