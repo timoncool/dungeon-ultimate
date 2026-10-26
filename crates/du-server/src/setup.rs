@@ -573,6 +573,30 @@ pub fn remove_retired_asr(root: &Path) {
     }
 }
 
+/// Эталоны голосов прежних версий, `models/voices/<голос>.ref<N>s.wav`: игра резала первые N секунд клипа рядом с ним,
+/// теперь куски лежат в `voices/.work/refs`. В паке голосов таких файлов нет.
+pub fn remove_retired_references(root: &Path) {
+    let voices = root.join("models").join("voices");
+    let Ok(entries) = std::fs::read_dir(&voices) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !retired_reference(&name) {
+            continue;
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => tracing::info!("убран прежний эталон {}", entry.path().display()),
+            Err(error) => tracing::warn!("не убрать прежний эталон {}: {error}", entry.path().display()),
+        }
+    }
+}
+
+/// Имя прежнего эталона: `<голос>.ref<N>s.wav`.
+fn retired_reference(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix("s.wav") else { return false };
+    let Some((voice, seconds)) = stem.rsplit_once(".ref") else { return false };
+    !voice.is_empty() && !seconds.is_empty() && seconds.chars().all(|c| c.is_ascii_digit())
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComponentStatus {
@@ -1681,6 +1705,26 @@ mod tests {
         unpack_if_archive(dir.path(), &spec, &target).unwrap();
         let mode = std::fs::metadata(dir.path().join("tools/audiocpp/audiocpp_server")).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o755);
+    }
+
+    #[test]
+    fn only_the_games_former_references_are_retired() {
+        assert!(retired_reference("RU_Male_Gorshok.ref12s.wav"));
+        assert!(retired_reference("Narrator.ref3s.wav"));
+        assert!(!retired_reference("RU_Male_Gorshok.mp3"));
+        assert!(!retired_reference("RU_Male_Gorshok.wav"));
+        assert!(!retired_reference("Voice.refs.wav"));
+        assert!(!retired_reference(".ref12s.wav"));
+        let dir = tempfile::tempdir().unwrap();
+        let voices = dir.path().join("models").join("voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        for name in ["A.mp3", "A.txt", "A.ref12s.wav", "B.wav", "B.ref30s.wav"] {
+            std::fs::write(voices.join(name), b"x").unwrap();
+        }
+        remove_retired_references(dir.path());
+        let mut left: Vec<String> = std::fs::read_dir(&voices).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["A.mp3", "A.txt", "B.wav"]);
     }
 
     /// Хост, где никто не слушает, бросается после трёх попыток, а не восьми, и ошибка называет его рядом с адресом.
