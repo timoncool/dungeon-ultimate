@@ -127,6 +127,8 @@ pub enum UserError {
     BadSetting(String),
     /// Закачка сорвалась; `kind` — тот же код, что уходит в хаб (`setup::failure_code`).
     Download { kind: &'static str, detail: String },
+    /// Места на томе игры меньше, чем займут выбранные компоненты: байты нужно и свободно, путь тома.
+    DiskSpace { need: u64, free: u64, path: String },
 }
 
 impl UserError {
@@ -206,8 +208,10 @@ impl UserError {
                 "network" => "download_network",
                 "archive" => "download_archive",
                 "disk" => "download_disk",
+                "disk_space" => "download_disk_space",
                 _ => "download_other",
             },
+            UserError::DiskSpace { .. } => "disk_space",
         }
     }
 
@@ -285,6 +289,11 @@ impl UserError {
             UserError::UnknownField(field) => put("field", json!(field)),
             UserError::UnknownAction(action) => put("action", json!(action)),
             UserError::Download { detail, .. } => put("detail", json!(detail)),
+            UserError::DiskSpace { need, free, path } => {
+                put("need", json!(gigabytes(*need)));
+                put("free", json!(gigabytes(*free)));
+                put("path", json!(path));
+            }
             _ => {}
         }
         params
@@ -316,6 +325,11 @@ fn llm_code(error: &du_llm::LlmError) -> &'static str {
             EmptyStream::Cut => "llm_cut",
         },
     }
+}
+
+/// Байты в гигабайтах с одной цифрой после точки — так их показывает «Что скачать».
+fn gigabytes(bytes: u64) -> String {
+    format!("{:.1}", bytes as f64 / (1u64 << 30) as f64)
 }
 
 fn llm_params(error: &du_llm::LlmError, put: &mut impl FnMut(&str, Value)) {
@@ -462,6 +476,12 @@ impl fmt::Display for UserError {
             UserError::UnknownAction(action) => write!(f, "неизвестное действие: {action}"),
             UserError::BadSetting(detail) => write!(f, "непонятная настройка: {detail}"),
             UserError::Download { detail, .. } => f.write_str(detail),
+            UserError::DiskSpace { need, free, path } => write!(
+                f,
+                "не хватает места на диске: нужно {} ГБ, свободно {} ГБ ({path}) — освободите место и скачайте снова",
+                gigabytes(*need),
+                gigabytes(*free)
+            ),
         }
     }
 }
@@ -604,6 +624,8 @@ mod tests {
             UserError::Download { kind: "archive", detail: "x".into() },
             UserError::Download { kind: "disk", detail: "x".into() },
             UserError::Download { kind: "other", detail: "x".into() },
+            UserError::Download { kind: "disk_space", detail: "x".into() },
+            UserError::DiskSpace { need: 3_000_000_000, free: 1_000_000_000, path: "x".into() },
         ];
         for error in &all {
             match error {
@@ -661,7 +683,8 @@ mod tests {
                 | UserError::UnknownField(_)
                 | UserError::UnknownAction(_)
                 | UserError::BadSetting(_)
-                | UserError::Download { .. } => {}
+                | UserError::Download { .. }
+                | UserError::DiskSpace { .. } => {}
             }
         }
         all

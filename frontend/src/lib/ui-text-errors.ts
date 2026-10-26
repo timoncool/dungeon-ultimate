@@ -99,6 +99,8 @@ const RU: ErrorTexts = {
   download_archive: "архив не распаковался: {detail}",
   download_disk: "не удалось записать на диск — проверьте свободное место: {detail}",
   download_other: "не скачалось: {detail}",
+  download_disk_space: "диск заполнился посреди закачки — освободите место и скачайте снова: {detail}",
+  disk_space: "не хватает места на диске: нужно {need} ГБ, свободно {free} ГБ ({path}) — освободите место и скачайте снова",
 };
 
 const EN: ErrorTexts = {
@@ -193,6 +195,8 @@ const EN: ErrorTexts = {
   download_archive: "the archive did not unpack: {detail}",
   download_disk: "could not write to disk — check the free space: {detail}",
   download_other: "download failed: {detail}",
+  download_disk_space: "the disk filled up during the download — free some space and download again: {detail}",
+  disk_space: "not enough disk space: {need} GB needed, {free} GB free ({path}) — free some space and download again",
 };
 
 const ES: ErrorTexts = {
@@ -288,6 +292,8 @@ const ES: ErrorTexts = {
   download_archive: "el archivo comprimido no se descomprimió: {detail}",
   download_disk: "no se pudo escribir en el disco: revisa el espacio libre: {detail}",
   download_other: "la descarga falló: {detail}",
+  download_disk_space: "el disco se llenó durante la descarga: libera espacio y descarga de nuevo: {detail}",
+  disk_space: "no hay espacio suficiente: se necesitan {need} GB, hay {free} GB libres ({path}): libera espacio y descarga de nuevo",
 };
 
 const FR: ErrorTexts = {
@@ -385,6 +391,8 @@ const FR: ErrorTexts = {
   download_archive: "l’archive ne s’est pas décompressée : {detail}",
   download_disk: "impossible d’écrire sur le disque — vérifie l’espace libre : {detail}",
   download_other: "téléchargement échoué : {detail}",
+  download_disk_space: "le disque s’est rempli pendant le téléchargement — libère de l’espace et relance : {detail}",
+  disk_space: "espace insuffisant : {need} Go nécessaires, {free} Go libres ({path}) — libère de l’espace et relance le téléchargement",
 };
 
 const DE: ErrorTexts = {
@@ -482,6 +490,8 @@ const DE: ErrorTexts = {
   download_archive: "das Archiv ließ sich nicht entpacken: {detail}",
   download_disk: "auf die Festplatte ließ sich nicht schreiben — prüfe den freien Speicher: {detail}",
   download_other: "Download fehlgeschlagen: {detail}",
+  download_disk_space: "die Festplatte ist beim Download voll gelaufen — schaffe Platz und lade erneut: {detail}",
+  disk_space: "nicht genug Speicherplatz: {need} GB nötig, {free} GB frei ({path}) — schaffe Platz und lade erneut",
 };
 
 const ZH: ErrorTexts = {
@@ -570,6 +580,8 @@ const ZH: ErrorTexts = {
   download_archive: "压缩包解压失败：{detail}",
   download_disk: "无法写入磁盘，请检查剩余空间：{detail}",
   download_other: "下载失败：{detail}",
+  download_disk_space: "下载过程中磁盘已满——请腾出空间后重新下载：{detail}",
+  disk_space: "磁盘空间不足：需要 {need} GB，剩余 {free} GB（{path}）——请腾出空间后重新下载",
 };
 
 const JA: ErrorTexts = {
@@ -664,6 +676,8 @@ const JA: ErrorTexts = {
   download_archive: "アーカイブを展開できなかった：{detail}",
   download_disk: "ディスクに書き込めない：空き容量を確かめて：{detail}",
   download_other: "ダウンロードに失敗した：{detail}",
+  download_disk_space: "ダウンロード中にディスクがいっぱいになった。空きを作ってもう一度ダウンロードして：{detail}",
+  disk_space: "ディスクの空きが足りない：必要 {need} GB、空き {free} GB（{path}）。空きを作ってもう一度ダウンロードして",
 };
 
 // Стадия, о которой говорит ошибка облака, — подставляется вместо {stage}.

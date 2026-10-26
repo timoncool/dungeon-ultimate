@@ -541,6 +541,7 @@ dependencies = [
  "dub-tcpp",
  "futures-util",
  "hound",
+ "libc",
  "mime_guess",
  "nvml-wrapper",
  "png",

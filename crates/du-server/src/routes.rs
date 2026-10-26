@@ -544,6 +544,13 @@ pub async fn setup_download(
             } else {
                 body.ids.clone()
             };
+            if let Some((need, free)) = crate::setup::missing_space(&inner.root, &wanted) {
+                let error = crate::errors::UserError::DiskSpace { need, free, path: inner.root.display().to_string() };
+                tracing::warn!("{error}");
+                crate::hub::setup_failed("disk_space");
+                crate::setup::record_failure(&wanted, &error);
+                return Err(error);
+            }
             for component in crate::setup::manifest() {
                 if !wanted.iter().any(|id| id == component.id) {
                     continue;

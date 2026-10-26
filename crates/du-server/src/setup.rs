@@ -525,7 +525,16 @@ pub struct ComponentStatus {
 #[derive(Default)]
 struct Downloads {
     live: std::collections::HashMap<&'static str, u64>,
-    failed: std::collections::HashMap<&'static str, String>,
+    /// Текст сбоя и он же с кодом и полями, как его переводит окно.
+    failed: std::collections::HashMap<&'static str, (String, serde_json::Value)>,
+}
+
+/// Закачка компонентов `ids` не началась: каждый из них показывает эту причину, как свой сорвавшийся файл.
+pub fn record_failure(ids: &[String], error: &crate::errors::UserError) {
+    let mut downloads = downloads();
+    for component in manifest().into_iter().filter(|component| ids.iter().any(|id| id == component.id)) {
+        downloads.failed.insert(component.id, (error.to_string(), error.to_json()));
+    }
 }
 
 /// Новая закачка начинается без старых сбоев: иначе первый же опрос окна принял бы прошлую
@@ -585,6 +594,9 @@ fn sha256_matches(path: &Path, spec: &FileSpec, abort: &AtomicBool) -> bool {
 pub fn failure_code(error: &str) -> &'static str {
     if error.contains("контрольная сумма") {
         "hash_mismatch"
+    } else if error.contains("os error 112") || error.contains("os error 28") {
+        // ERROR_DISK_FULL на Windows, ENOSPC в Linux и macOS
+        "disk_space"
     } else if error.contains("диапазон") || error.contains("не удалось узнать размер") {
         "network"
     } else if error.contains("архив") || error.contains("распаковка") {
@@ -594,6 +606,59 @@ pub fn failure_code(error: &str) -> &'static str {
     } else {
         "other"
     }
+}
+
+/// Сколько места ещё займёт файл: остаток закачки (файл `.part` размечается на полный размер сразу), а архив —
+/// ещё и распакованным рядом с собой.
+fn space_needed(root: &Path, file: &FileSpec) -> u64 {
+    if file_present(root, file) {
+        return 0;
+    }
+    let target = root.join(file.path);
+    let started = std::fs::metadata(part_path(&target)).map(|meta| meta.len()).unwrap_or(0).min(file.bytes);
+    let rest = file.bytes - started;
+    if file.is_archive() { rest + 2 * file.bytes } else { rest }
+}
+
+/// Не хватает места под закачку компонентов `ids`: (нужно, свободно) в байтах. Проверка до первого байта — иначе
+/// закачка гигабайтов обрывается посреди файла ошибкой записи.
+pub fn missing_space(root: &Path, ids: &[String]) -> Option<(u64, u64)> {
+    let need: u64 = manifest()
+        .iter()
+        .filter(|component| ids.iter().any(|id| id == component.id))
+        .flat_map(|component| component.files.iter())
+        .map(|file| space_needed(root, file))
+        .sum();
+    let free = free_bytes(root)?;
+    (free < need).then_some((need, free))
+}
+
+/// Свободное для этого пользователя место на томе пути (с учётом квот). Путь может ещё не существовать — берётся
+/// ближайший существующий каталог.
+#[cfg(windows)]
+pub fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(dir: *const u16, free_to_caller: *mut u64, total: *mut u64, total_free: *mut u64) -> i32;
+    }
+    let dir = path.ancestors().find(|ancestor| ancestor.is_dir())?;
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut available = 0u64;
+    // SAFETY: строка с нулём на конце живёт до конца вызова; необязательные выходы — нулевые указатели.
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut available, std::ptr::null_mut(), std::ptr::null_mut()) };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(unix)]
+pub fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = path.ancestors().find(|ancestor| ancestor.is_dir())?;
+    let c_path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: путь с нулём на конце, структура принадлежит нам.
+    let ok = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0;
+    ok.then(|| stat.f_bavail as u64 * stat.f_frsize as u64)
 }
 
 /// Взятое у соседей в этом запуске: id компонента → программа, для пометки в окне.
@@ -773,9 +838,7 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
             };
             let have_bytes = live.map_or(on_disk, |live| live.max(on_disk));
             let selected = variant_selected(&runtime, component.id);
-            let error_info = error.as_ref().map(|error| {
-                crate::errors::UserError::Download { kind: failure_code(error), detail: error.clone() }.to_json()
-            });
+            let (error, error_info) = error.map_or((None, None), |(text, info)| (Some(text), Some(info)));
             ComponentStatus { component, present, have_bytes, selected, error, error_info, taken_from }
         })
         .collect();
@@ -1012,7 +1075,8 @@ pub fn download_component(
     let mut downloads = downloads();
     downloads.live.remove(id);
     if let Err(error) = &result {
-        downloads.failed.insert(id, error.clone());
+        let coded = crate::errors::UserError::Download { kind: failure_code(error), detail: error.clone() }.to_json();
+        downloads.failed.insert(id, (error.clone(), coded));
     }
     result
 }
@@ -1322,6 +1386,7 @@ mod tests {
         assert_eq!(failure_code("models/x.gguf: контрольная сумма не совпала (ждали a, получили b)"), "hash_mismatch");
         assert_eq!(failure_code("диапазон 0-100 не дался за 5 попыток: timeout"), "network");
         assert_eq!(failure_code("создать каталог: Отказано в доступе"), "disk");
+        assert_eq!(failure_code("финализация: There is not enough space on the disk. (os error 112)"), "disk_space");
         assert_eq!(failure_code("это не архив: x.whl"), "archive");
         assert_eq!(failure_code("что-то ещё"), "other");
     }
