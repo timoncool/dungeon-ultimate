@@ -5,9 +5,10 @@ version = 4
 [[package]]
 name = "acpp-server"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=5440c78#5440c7833ed359431e5447a177b0af16a31a2723"
+source = "git+https://github.com/timoncool/dub-studio?rev=61fd051#61fd0519cd9d96690695efa665e9580170818a4a"
 dependencies = [
  "base64",
+ "dub-tcpp",
  "hound",
  "libc",
  "reqwest",
@@ -585,7 +586,7 @@ dependencies = [
 [[package]]
 name = "dub-tcpp"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=5440c78#5440c7833ed359431e5447a177b0af16a31a2723"
+source = "git+https://github.com/timoncool/dub-studio?rev=61fd051#61fd0519cd9d96690695efa665e9580170818a4a"
 dependencies = [
  "libloading 0.9.0",
 ]
