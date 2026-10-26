@@ -144,6 +144,35 @@ pub fn chat_endpoint(base_url: &str) -> String {
     }
 }
 
+fn alternating(messages: &[Message]) -> Vec<Message> {
+    fn parts_of(message: &Message) -> Vec<Part> {
+        match (&message.text, &message.parts) {
+            (Some(text), _) => vec![Part::Text(text.clone())],
+            (None, Some(parts)) => parts.clone(),
+            _ => Vec::new(),
+        }
+    }
+    let mut merged: Vec<Message> = Vec::with_capacity(messages.len());
+    for message in messages {
+        match merged.last_mut() {
+            Some(previous) if previous.role == message.role => match (previous.text.as_mut(), &message.text) {
+                (Some(previous_text), Some(text)) => {
+                    previous_text.push_str("\n\n");
+                    previous_text.push_str(text);
+                }
+                _ => {
+                    let mut parts = parts_of(previous);
+                    parts.extend(parts_of(message));
+                    previous.text = None;
+                    previous.parts = Some(parts);
+                }
+            },
+            _ => merged.push(message.clone()),
+        }
+    }
+    merged
+}
+
 impl ChatClient {
     pub fn new(base_url: &str, timeout: Duration) -> Result<Self, LlmError> {
         let http = reqwest::blocking::Client::builder()
@@ -196,7 +225,7 @@ impl ChatClient {
         }
         body.insert(
             "messages".into(),
-            Value::Array(messages.iter().map(Message::to_value).collect()),
+            Value::Array(alternating(messages).iter().map(Message::to_value).collect()),
         );
         body.insert("temperature".into(), json!(sampling.temperature));
         body.insert("top_p".into(), json!(sampling.top_p));
@@ -560,6 +589,34 @@ mod tests {
     #[test]
     fn a_bare_host_gets_the_full_endpoint() {
         assert_eq!(chat_endpoint("http://127.0.0.1:8080"), "http://127.0.0.1:8080/v1/chat/completions");
+    }
+
+    #[test]
+    fn a_reply_left_without_an_answer_is_joined_with_the_next_one() {
+        let messages = [
+            Message::system("a"),
+            Message::system("b"),
+            Message::user("сорвавшийся ход"),
+            Message::user("новый ход"),
+            Message::assistant("ответ"),
+            Message::user_parts(vec![Part::Text("с картинкой".into())]),
+            Message::user("ещё"),
+        ];
+        let roles: Vec<(String, Value)> = alternating(&messages)
+            .iter()
+            .map(|message| {
+                let value = message.to_value();
+                (value["role"].as_str().unwrap().to_string(), value["content"].clone())
+            })
+            .collect();
+        assert_eq!(roles[0], ("system".into(), json!("a\n\nb")));
+        assert_eq!(roles[1], ("user".into(), json!("сорвавшийся ход\n\nновый ход")));
+        assert_eq!(roles[2].0, "assistant");
+        assert_eq!(
+            roles[3],
+            ("user".into(), json!([{ "type": "text", "text": "с картинкой" }, { "type": "text", "text": "ещё" }]))
+        );
+        assert_eq!(roles.len(), 4);
     }
 
     #[test]
