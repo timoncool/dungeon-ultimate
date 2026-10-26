@@ -200,7 +200,9 @@ pub fn run() {
         );
     }
 
+    du_server::diagnostics::init_logging();
     let repo_root = resolve_repo_root();
+    du_server::diagnostics::log_to_file(&repo_root);
     let port = pick_port().expect("нет свободного порта на 127.0.0.1");
 
     // axum-бэкенд поднимается В ЭТОМ ЖЕ процессе на фоновом потоке — ОДИН exe, без сервер.exe-сайдкара.

@@ -13,6 +13,7 @@ pub mod bytes;
 mod casting;
 mod characters;
 mod chats;
+pub mod diagnostics;
 mod dialogue;
 // таблицы импорта PE — проверка установки под Windows
 #[cfg(all(test, windows))]

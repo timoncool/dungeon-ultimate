@@ -3,11 +3,10 @@
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
-        .init();
+    du_server::diagnostics::init_logging();
 
     let root = std::env::var("DU_ROOT").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    du_server::diagnostics::log_to_file(&root);
     // Порт MCP и окна — тот же, что у оболочки.
     let port = std::env::var("DU_PORT")
         .ok()

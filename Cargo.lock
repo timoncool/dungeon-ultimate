@@ -560,6 +560,7 @@ dependencies = [
  "mime_guess",
  "nvml-wrapper",
  "png",
+ "regex",
  "reqwest",
  "rubato",
  "rust-embed",
@@ -579,6 +580,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "uuid",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

@@ -66,6 +66,21 @@ fn new_job_id() -> String {
     uuid::Uuid::new_v4().simple().to_string().chars().take(12).collect()
 }
 
+/// Каждый новый шаг задачи — в лог: после падения его последняя строка говорит, где шла работа.
+fn log_step(job: &str, last: &std::sync::Mutex<Option<String>>, fields: &serde_json::Map<String, Value>) {
+    let stage = fields.get("stage").and_then(Value::as_str).unwrap_or_default();
+    let msg = fields.get("msg").and_then(Value::as_str).unwrap_or_default();
+    let step = format!("{stage} {msg}").trim().to_string();
+    if step.is_empty() {
+        return;
+    }
+    let mut last = last.lock().unwrap_or_else(|p| p.into_inner());
+    if last.as_deref() != Some(step.as_str()) {
+        tracing::info!("[job {job}] {step}");
+        *last = Some(step);
+    }
+}
+
 impl JobQueue {
     pub fn new() -> Self {
         let jobs: Arc<Mutex<HashMap<String, Job>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -91,6 +106,8 @@ impl JobQueue {
                 };
 
                 let sink = events.clone();
+                let step_job = id.clone();
+                let last_step = std::sync::Mutex::new(None);
                 let progress: ProgressFn = Arc::new(move |event: Value| {
                     let mut fields = match event {
                         Value::Object(map) => map,
@@ -100,6 +117,7 @@ impl JobQueue {
                             map
                         }
                     };
+                    log_step(&step_job, &last_step, &fields);
                     fields.insert("type".into(), json!("progress"));
                     // Без подписчиков отправка не удаётся — это нормально, задача идёт дальше.
                     let _ = sink.send(Value::Object(fields));
@@ -120,6 +138,7 @@ impl JobQueue {
                                 let _ = events.send(json!({ "type": "done", "result": value }));
                             }
                             Err(error) => {
+                                tracing::warn!("[ERROR] job {id} failed: {error}");
                                 let event = error_event(error);
                                 job.status = JobStatus::Error;
                                 job.error = Some(event.clone());
@@ -175,7 +194,9 @@ impl JobQueue {
         let jobs = self.jobs.clone();
         let done_id = id.clone();
         let sink = events.clone();
+        let step_job = id.clone();
         tokio::spawn(async move {
+            let last_step = std::sync::Mutex::new(None);
             let progress: ProgressFn = Arc::new(move |event: Value| {
                 let mut fields = match event {
                     Value::Object(map) => map,
@@ -185,6 +206,7 @@ impl JobQueue {
                         map
                     }
                 };
+                log_step(&step_job, &last_step, &fields);
                 fields.insert("type".into(), json!("progress"));
                 let _ = sink.send(Value::Object(fields));
             });
@@ -200,6 +222,7 @@ impl JobQueue {
                         let _ = events.send(json!({ "type": "done", "result": value }));
                     }
                     Err(error) => {
+                        tracing::warn!("[ERROR] job {done_id} failed: {error}");
                         let event = error_event(error);
                         job.status = JobStatus::Error;
                         job.error = Some(event.clone());

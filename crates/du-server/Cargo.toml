@@ -27,6 +27,8 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# ключи в логе маскируются
+regex = "1"
 
 axum = { version = "0.8", features = ["multipart"] }
 tower-http = { version = "0.7", features = ["cors"] }
@@ -57,6 +59,10 @@ hound = "3.5"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# необработанное исключение в логе: код и модуль, где оно случилось
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 tempfile = "3"
