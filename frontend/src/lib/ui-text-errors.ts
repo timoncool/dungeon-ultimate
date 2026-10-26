@@ -28,7 +28,8 @@ const RU: ErrorTexts = {
   llm_empty: "модель вернула пустой текст (finish_reason={finish})",
   llm_empty_no_reason: "модель вернула пустой текст без причины завершения",
   llm_cut: "поток оборвался, не дав ни текста, ни причины завершения",
-  text_model_missing: "не хватает файлов модели: нет модели нарратора ({path}) или llama-server",
+  text_model_missing:
+    "не хватает файлов модели: нет модели нарратора ({path}) или llama-server — скачайте их в «Что скачать» или уведите рассказчика в облако в «Движки и облако»",
   local_server_url_empty: "в настройках истории выбран локальный сервер, но его адрес пуст: впишите адрес сервера",
   agent_not_connected:
     "рассказчик — агент, но агент не подключён к MCP игры: подключите его или выберите рассказчика на своей карте",
@@ -56,7 +57,8 @@ const RU: ErrorTexts = {
   voice_reference: "не удалось подготовить эталон голоса: {detail}",
   tts_empty_text: "пустой текст для озвучки",
   tts_nothing: "нечего озвучивать",
-  image_weights_missing: "не хватает файлов модели: нет весов картинок в {path}",
+  image_weights_missing:
+    "не хватает файлов модели: нет весов картинок в {path} — скачайте их в «Что скачать» или уведите кадр в облако в «Движки и облако»",
   image_engine_missing: "движок картинок не найден: {path}",
   image_engine_load: "не удалось загрузить движок картинок: {detail}",
   image_bad_path: "в пути к модели недопустимый нулевой байт: {detail}",
@@ -124,7 +126,8 @@ const EN: ErrorTexts = {
   llm_empty: "the model returned empty text (finish_reason={finish})",
   llm_empty_no_reason: "the model returned empty text with no finish reason",
   llm_cut: "the stream broke off with no text and no finish reason",
-  text_model_missing: "model files are missing: no narrator model ({path}) or llama-server",
+  text_model_missing:
+    "model files are missing: no narrator model ({path}) or llama-server — download them in «What to download» or move the narrator to the cloud in «Engines and cloud»",
   local_server_url_empty: "the story is set to a local server, but its address is empty: enter the server address",
   agent_not_connected:
     "the narrator is an agent, but no agent is connected to the game's MCP: connect it or choose the narrator on your own card",
@@ -152,7 +155,8 @@ const EN: ErrorTexts = {
   voice_reference: "could not prepare the voice sample: {detail}",
   tts_empty_text: "there is no text to voice",
   tts_nothing: "nothing to voice",
-  image_weights_missing: "model files are missing: no image weights in {path}",
+  image_weights_missing:
+    "model files are missing: no image weights in {path} — download them in «What to download» or move the frame to the cloud in «Engines and cloud»",
   image_engine_missing: "the image engine was not found: {path}",
   image_engine_load: "could not load the image engine: {detail}",
   image_bad_path: "the model path contains a forbidden zero byte: {detail}",
@@ -220,7 +224,8 @@ const ES: ErrorTexts = {
   llm_empty: "el modelo devolvió texto vacío (finish_reason={finish})",
   llm_empty_no_reason: "el modelo devolvió texto vacío sin motivo de cierre",
   llm_cut: "el flujo se cortó sin texto ni motivo de cierre",
-  text_model_missing: "faltan archivos del modelo: no hay modelo del narrador ({path}) o llama-server",
+  text_model_missing:
+    "faltan archivos del modelo: no hay modelo del narrador ({path}) o llama-server: descárgalos en «Qué descargar» o pasa el narrador a la nube en «Motores y nube»",
   local_server_url_empty:
     "la historia usa un servidor local, pero su dirección está vacía: escribe la dirección del servidor",
   agent_not_connected:
@@ -249,7 +254,8 @@ const ES: ErrorTexts = {
   voice_reference: "no se pudo preparar la muestra de voz: {detail}",
   tts_empty_text: "no hay texto que leer",
   tts_nothing: "no hay nada que leer",
-  image_weights_missing: "faltan archivos del modelo: no hay pesos de imágenes en {path}",
+  image_weights_missing:
+    "faltan archivos del modelo: no hay pesos de imágenes en {path}: descárgalos en «Qué descargar» o pasa la imagen a la nube en «Motores y nube»",
   image_engine_missing: "no se encontró el motor de imágenes: {path}",
   image_engine_load: "no se pudo cargar el motor de imágenes: {detail}",
   image_bad_path: "la ruta del modelo contiene un byte nulo no permitido: {detail}",
@@ -317,7 +323,8 @@ const FR: ErrorTexts = {
   llm_empty: "le modèle a renvoyé un texte vide (finish_reason={finish})",
   llm_empty_no_reason: "le modèle a renvoyé un texte vide sans raison de fin",
   llm_cut: "le flux s’est coupé sans texte ni raison de fin",
-  text_model_missing: "fichiers du modèle manquants : pas de modèle du narrateur ({path}) ou de llama-server",
+  text_model_missing:
+    "fichiers du modèle manquants : pas de modèle du narrateur ({path}) ou de llama-server — télécharge-les dans « Que télécharger » ou passe le narrateur dans le nuage dans « Moteurs et nuage »",
   local_server_url_empty:
     "l’histoire utilise un serveur local, mais son adresse est vide : saisis l’adresse du serveur",
   agent_not_connected:
@@ -346,7 +353,8 @@ const FR: ErrorTexts = {
   voice_reference: "impossible de préparer l’échantillon de voix : {detail}",
   tts_empty_text: "aucun texte à lire",
   tts_nothing: "rien à lire",
-  image_weights_missing: "fichiers du modèle manquants : pas de poids d’images dans {path}",
+  image_weights_missing:
+    "fichiers du modèle manquants : pas de poids d’images dans {path} — télécharge-les dans « Que télécharger » ou passe l’image dans le nuage dans « Moteurs et nuage »",
   image_engine_missing: "moteur d’images introuvable : {path}",
   image_engine_load: "impossible de charger le moteur d’images : {detail}",
   image_bad_path: "le chemin du modèle contient un octet nul interdit : {detail}",
@@ -416,7 +424,8 @@ const DE: ErrorTexts = {
   llm_empty: "das Modell lieferte leeren Text (finish_reason={finish})",
   llm_empty_no_reason: "das Modell lieferte leeren Text ohne Abschlussgrund",
   llm_cut: "der Datenstrom brach ab, ohne Text und ohne Abschlussgrund",
-  text_model_missing: "Modelldateien fehlen: kein Erzählermodell ({path}) oder kein llama-server",
+  text_model_missing:
+    "Modelldateien fehlen: kein Erzählermodell ({path}) oder kein llama-server — lade sie unter «Was herunterladen» oder verlege den Erzähler unter «Engines und Cloud» in die Cloud",
   local_server_url_empty:
     "die Geschichte nutzt einen lokalen Server, aber seine Adresse ist leer: trage die Serveradresse ein",
   agent_not_connected:
@@ -445,7 +454,8 @@ const DE: ErrorTexts = {
   voice_reference: "die Stimmprobe ließ sich nicht vorbereiten: {detail}",
   tts_empty_text: "kein Text zum Vorlesen",
   tts_nothing: "nichts zum Vorlesen",
-  image_weights_missing: "Modelldateien fehlen: keine Bildgewichte in {path}",
+  image_weights_missing:
+    "Modelldateien fehlen: keine Bildgewichte in {path} — lade sie unter «Was herunterladen» oder verlege das Bild unter «Engines und Cloud» in die Cloud",
   image_engine_missing: "die Bild-Engine wurde nicht gefunden: {path}",
   image_engine_load: "die Bild-Engine ließ sich nicht laden: {detail}",
   image_bad_path: "der Modellpfad enthält ein verbotenes Nullbyte: {detail}",
@@ -515,7 +525,7 @@ const ZH: ErrorTexts = {
   llm_empty: "模型返回了空文本（finish_reason={finish}）",
   llm_empty_no_reason: "模型返回了空文本，没有结束原因",
   llm_cut: "数据流中断，既没有文本也没有结束原因",
-  text_model_missing: "缺少模型文件：没有讲述者模型（{path}）或 llama-server",
+  text_model_missing: "缺少模型文件：没有讲述者模型（{path}）或 llama-server——请在「下载什么」中下载，或在「引擎与云端」中把讲述者切换到云端",
   local_server_url_empty: "故事设置为本地服务器，但地址为空：请填写服务器地址",
   agent_not_connected: "讲述者是智能体，但没有智能体连接到游戏的 MCP：请连接它，或选择在本机显卡上运行讲述者",
   cloud_key_missing: "{stage}设为云端，但未填写 OpenRouter 密钥：请填写密钥，或为此阶段关闭云端",
@@ -538,7 +548,7 @@ const ZH: ErrorTexts = {
   voice_reference: "无法准备声音样本：{detail}",
   tts_empty_text: "没有要朗读的文本",
   tts_nothing: "没有可朗读的内容",
-  image_weights_missing: "缺少模型文件：{path} 中没有图像权重",
+  image_weights_missing: "缺少模型文件：{path} 中没有图像权重——请在「下载什么」中下载，或在「引擎与云端」中把出图切换到云端",
   image_engine_missing: "找不到图像引擎：{path}",
   image_engine_load: "无法加载图像引擎：{detail}",
   image_bad_path: "模型路径中含有不允许的空字节：{detail}",
@@ -605,7 +615,8 @@ const JA: ErrorTexts = {
   llm_empty: "モデルが空の本文を返した（finish_reason={finish}）",
   llm_empty_no_reason: "モデルが終了理由なしで空の本文を返した",
   llm_cut: "本文も終了理由もないままストリームが途切れた",
-  text_model_missing: "モデルのファイルが足りない：語り手のモデル（{path}）か llama-server がない",
+  text_model_missing:
+    "モデルのファイルが足りない：語り手のモデル（{path}）か llama-server がない。「何を落とすか」でダウンロードするか、「エンジンと雲」で語り手をクラウドに切り替えて",
   local_server_url_empty: "物語はローカルサーバーを使う設定だが、アドレスが空：サーバーのアドレスを入力して",
   agent_not_connected:
     "語り手はエージェントだが、ゲームの MCP にエージェントがつながっていない：つなぐか、手元のカードで動く語り手を選んで",
@@ -633,7 +644,8 @@ const JA: ErrorTexts = {
   voice_reference: "声のサンプルを用意できない：{detail}",
   tts_empty_text: "読み上げる文がない",
   tts_nothing: "読み上げるものがない",
-  image_weights_missing: "モデルのファイルが足りない：{path} に画像の重みがない",
+  image_weights_missing:
+    "モデルのファイルが足りない：{path} に画像の重みがない。「何を落とすか」でダウンロードするか、「エンジンと雲」でカット生成をクラウドに切り替えて",
   image_engine_missing: "画像エンジンが見つからない：{path}",
   image_engine_load: "画像エンジンを読み込めない：{detail}",
   image_bad_path: "モデルのパスに使えないヌル文字がある：{detail}",

@@ -372,7 +372,10 @@ impl fmt::Display for UserError {
             UserError::Llm { error, starting: true } => write!(f, "текстовая модель: {error}"),
             UserError::Llm { error, starting: false } => write!(f, "{error}"),
             UserError::TextModelMissing(path) => {
-                write!(f, "не хватает файлов модели: нет модели нарратора ({path}) или llama-server")
+                write!(
+                    f,
+                    "не хватает файлов модели: нет модели нарратора ({path}) или llama-server — скачайте их в «Что скачать» или уведите рассказчика в облако в «Движки и облако»"
+                )
             }
             UserError::AgentNotConnected => f.write_str(
                 "рассказчик — агент, но агент не подключён к MCP игры: подключите его или выберите рассказчика на своей карте",
@@ -418,7 +421,10 @@ impl fmt::Display for UserError {
             UserError::VoiceReference(detail) => write!(f, "не удалось подготовить эталон голоса: {detail}"),
             UserError::TtsEmptyText => f.write_str("пустой текст для озвучки"),
             UserError::TtsNothing => f.write_str("нечего озвучивать"),
-            UserError::ImageWeightsMissing(path) => write!(f, "не хватает файлов модели: нет весов картинок в {path}"),
+            UserError::ImageWeightsMissing(path) => write!(
+                f,
+                "не хватает файлов модели: нет весов картинок в {path} — скачайте их в «Что скачать» или уведите кадр в облако в «Движки и облако»"
+            ),
             UserError::Image(error) => write!(f, "движок картинок: {error}"),
             UserError::ImageNoFrame => f.write_str("движок не вернул кадр"),
             UserError::AsrFailed(detail) => write!(f, "Parakeet не распознал запись: {detail}"),
