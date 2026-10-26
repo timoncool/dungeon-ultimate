@@ -47,6 +47,8 @@ export default function SetupPanel() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  /// Почему рассказчик идёт не на CUDA-сборке карты (glibc старше нужной); null — идёт на ней.
+  const [narratorNote, setNarratorNote] = useState<ServerError | null>(null);
   const [progress, setProgress] = useState<{ title: string; have: number; total: number } | null>(null);
   /// Выбранный вариант в группе; null — ещё не трогали, берём выбранный в настройках.
   const [picked, setPicked] = useState<Record<string, string>>({});
@@ -66,6 +68,7 @@ export default function SetupPanel() {
     try {
       const data = await (await fetch("/api/setup/status", SELF_POLL)).json();
       setComponents(data.components ?? []);
+      setNarratorNote(data.narratorNote ?? null);
       return (data.components ?? []) as Component[];
     } catch {
       setNote(panel.componentsUnreadable);
@@ -268,6 +271,7 @@ export default function SetupPanel() {
 
       {open && (
         <div className="space-y-3">
+          {narratorNote && <p className="px-1 text-[11px] text-stone-500">{errorText(narratorNote)}</p>}
           {toDownload.length > 0 && (
             <button
               type="button"

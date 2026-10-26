@@ -510,7 +510,8 @@ pub async fn setup_status(State(state): State<AppState>) -> ApiResult<Json<Value
     let components = tokio::task::spawn_blocking(move || crate::setup::status(&root))
         .await
         .map_err(|error| ApiError::internal(format!("статус настройки: {error}")))?;
-    Ok(Json(json!({ "components": components })))
+    let narrator_note = crate::accel::narrator_note(crate::accel::accel(&crate::runtime::load(&state.root)));
+    Ok(Json(json!({ "components": components, "narratorNote": narrator_note })))
 }
 
 #[derive(Deserialize)]

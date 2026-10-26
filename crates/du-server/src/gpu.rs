@@ -73,7 +73,7 @@ impl Paths {
     }
 
     pub fn text_ready(&self) -> bool {
-        let accel = crate::accel::accel(&crate::runtime::load(&self.root));
+        let accel = crate::accel::narrator_accel(crate::accel::accel(&crate::runtime::load(&self.root)));
         self.text_model.is_file() && du_llm::resolve_llama_bin(&llama_dir(&self.root, accel)).is_file()
     }
 }
@@ -153,7 +153,10 @@ impl Gpu {
         // Настройки читаем при КАЖДОМ обращении: изменил устройство или контекст — следующий
         // запрос уже идёт на сервер с ними.
         let runtime = crate::runtime::load(&self.root);
-        let accel = crate::accel::accel(&runtime);
+        let accel = crate::accel::narrator_accel(crate::accel::accel(&runtime));
+        if let Some(note) = crate::accel::narrator_note(crate::accel::accel(&runtime)) {
+            tracing::info!("рассказчик на Vulkan вместо CUDA: {note}");
+        }
         let bin = du_llm::resolve_llama_bin(&llama_dir(&self.root, accel));
         let mut opts = ServerOpts::new(bin, self.paths.text_model.clone())
             // Зрение подключаем, только если файл кто-то положил руками: игра картинки

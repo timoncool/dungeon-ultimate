@@ -141,6 +141,58 @@ pub fn accel(runtime: &crate::runtime::Runtime) -> Accel {
     }
 }
 
+/// Самая старая glibc, на которой стартуют готовые CUDA-сборки llama.cpp апстрима под Linux (b11900 требует
+/// GLIBC_2.38 и GLIBCXX_3.4.32).
+const LLAMA_CUDA_GLIBC: (u32, u32) = (2, 38);
+
+/// Сборка llama.cpp рассказчика, как в Speech Studio (speech-13): сборка машины, кроме CUDA на Linux с glibc старше
+/// 2.38 — тогда карта считает рассказчика через Vulkan.
+pub fn narrator_accel(accel: Accel) -> Accel {
+    narrator_accel_for(accel, glibc_version())
+}
+
+fn narrator_accel_for(accel: Accel, glibc: Option<(u32, u32)>) -> Accel {
+    match (accel, glibc) {
+        (Accel::Cuda13 | Accel::Cuda12, Some(version)) if version < LLAMA_CUDA_GLIBC => Accel::Vulkan,
+        _ => accel,
+    }
+}
+
+/// Почему рассказчик идёт не на CUDA-сборке карты, для окна (текст, код и поля, как у ошибки); None — идёт на ней.
+pub fn narrator_note(accel: Accel) -> Option<serde_json::Value> {
+    let glibc = glibc_version()?;
+    (narrator_accel(accel) != accel).then(|| {
+        let (have, need) = (format!("{}.{}", glibc.0, glibc.1), format!("{}.{}", LLAMA_CUDA_GLIBC.0, LLAMA_CUDA_GLIBC.1));
+        serde_json::json!({
+            "error": format!("рассказчик идёт на видеокарте через Vulkan: CUDA-сборке llama.cpp нужна glibc {need} или новее, в системе {have}"),
+            "code": "narrator_vulkan_glibc",
+            "params": { "glibc": have, "need": need },
+        })
+    })
+}
+
+/// Версия C-библиотеки этого Linux (`gnu_get_libc_version`); None на других системах.
+pub fn glibc_version() -> Option<(u32, u32)> {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        // SAFETY: glibc returns a static NUL-terminated string.
+        let text = unsafe { std::ffi::CStr::from_ptr(libc::gnu_get_libc_version()) };
+        parse_glibc(text.to_str().ok()?)
+    }
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    {
+        None
+    }
+}
+
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), test))]
+fn parse_glibc(text: &str) -> Option<(u32, u32)> {
+    let mut parts = text.trim().split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()?;
+    Some((major, minor))
+}
+
 /// Выбранная в настройках карта — до первого обращения к CUDA: и движки в процессе игры, и llama-server читают
 /// `CUDA_VISIBLE_DEVICES` один раз. Порядок карт — по шине PCI, как их нумерует NVML. В журнал — что найдено и чем
 /// игра будет считать.
@@ -274,5 +326,20 @@ mod tests {
         let (name, vram) = best_adapter(names, sizes).unwrap();
         assert_eq!(name, "AMD Radeon RX 7800 XT");
         assert_eq!(vram, 16.0);
+    }
+
+    #[test]
+    fn a_linux_older_than_glibc_2_38_tells_the_narrator_on_vulkan_instead_of_cuda() {
+        assert_eq!(parse_glibc("2.35"), Some((2, 35)));
+        assert_eq!(parse_glibc("2.39\n"), Some((2, 39)));
+        assert_eq!(parse_glibc("2.38-ubuntu"), Some((2, 38)));
+        assert_eq!(parse_glibc("x"), None);
+        for card in [Accel::Cuda13, Accel::Cuda12] {
+            assert_eq!(narrator_accel_for(card, Some((2, 35))), Accel::Vulkan);
+            assert_eq!(narrator_accel_for(card, Some((2, 38))), card);
+            assert_eq!(narrator_accel_for(card, None), card);
+        }
+        assert_eq!(narrator_accel_for(Accel::Cpu, Some((2, 35))), Accel::Cpu);
+        assert_eq!(narrator_accel_for(Accel::Vulkan, Some((2, 35))), Accel::Vulkan);
     }
 }

@@ -55,6 +55,7 @@ const RU: ErrorTexts = {
   tts_empty_text: "пустой текст для озвучки",
   tts_nothing: "нечего озвучивать",
   voice_runaway: "голос не нашёл конца фразы ни в одной попытке: «{detail}»",
+  narrator_vulkan_glibc: "Рассказчик идёт на видеокарте через Vulkan: CUDA-сборке llama.cpp нужна glibc {need} или новее, в системе {glibc}",
   image_weights_missing:
     "не хватает файлов модели: нет весов картинок в {path} — скачайте их в «Что скачать» или уведите кадр в облако в «Движки и облако»",
   image_engine_missing: "движок картинок не найден: {path}",
@@ -154,6 +155,7 @@ const EN: ErrorTexts = {
   tts_empty_text: "there is no text to voice",
   tts_nothing: "nothing to voice",
   voice_runaway: "the voice found no end to the phrase in any attempt: “{detail}”",
+  narrator_vulkan_glibc: "The narrator runs on the graphics card through Vulkan: the CUDA build of llama.cpp needs glibc {need} or newer, this system has {glibc}",
   image_weights_missing:
     "model files are missing: no image weights in {path} — download them in «What to download» or move the frame to the cloud in «Engines and cloud»",
   image_engine_missing: "the image engine was not found: {path}",
@@ -254,6 +256,7 @@ const ES: ErrorTexts = {
   tts_empty_text: "no hay texto que leer",
   tts_nothing: "no hay nada que leer",
   voice_runaway: "la voz no encontró el final de la frase en ningún intento: «{detail}»",
+  narrator_vulkan_glibc: "El narrador va en la tarjeta gráfica por Vulkan: la versión CUDA de llama.cpp necesita glibc {need} o más reciente, el sistema tiene {glibc}",
   image_weights_missing:
     "faltan archivos del modelo: no hay pesos de imágenes en {path}: descárgalos en «Qué descargar» o pasa la imagen a la nube en «Motores y nube»",
   image_engine_missing: "no se encontró el motor de imágenes: {path}",
@@ -354,6 +357,7 @@ const FR: ErrorTexts = {
   tts_empty_text: "aucun texte à lire",
   tts_nothing: "rien à lire",
   voice_runaway: "la voix n’a trouvé la fin de la phrase à aucun essai : « {detail} »",
+  narrator_vulkan_glibc: "Le narrateur tourne sur la carte graphique via Vulkan : la version CUDA de llama.cpp demande glibc {need} ou plus récente, le système a {glibc}",
   image_weights_missing:
     "fichiers du modèle manquants : pas de poids d’images dans {path} — télécharge-les dans « Que télécharger » ou passe l’image dans le nuage dans « Moteurs et nuage »",
   image_engine_missing: "moteur d’images introuvable : {path}",
@@ -456,6 +460,7 @@ const DE: ErrorTexts = {
   tts_empty_text: "kein Text zum Vorlesen",
   tts_nothing: "nichts zum Vorlesen",
   voice_runaway: "die Stimme fand in keinem Versuch das Ende des Satzes: „{detail}“",
+  narrator_vulkan_glibc: "Der Erzähler läuft über Vulkan auf der Grafikkarte: die CUDA-Version von llama.cpp braucht glibc {need} oder neuer, das System hat {glibc}",
   image_weights_missing:
     "Modelldateien fehlen: keine Bildgewichte in {path} — lade sie unter «Was herunterladen» oder verlege das Bild unter «Engines und Cloud» in die Cloud",
   image_engine_missing: "die Bild-Engine wurde nicht gefunden: {path}",
@@ -551,6 +556,7 @@ const ZH: ErrorTexts = {
   tts_empty_text: "没有要朗读的文本",
   tts_nothing: "没有可朗读的内容",
   voice_runaway: "语音在每次尝试中都没能读完这句话：“{detail}”",
+  narrator_vulkan_glibc: "讲述者通过 Vulkan 在显卡上运行：llama.cpp 的 CUDA 版本需要 glibc {need} 或更新，本系统为 {glibc}",
   image_weights_missing: "缺少模型文件：{path} 中没有图像权重——请在「下载什么」中下载，或在「引擎与云端」中把出图切换到云端",
   image_engine_missing: "找不到图像引擎：{path}",
   image_engine_load: "无法加载图像引擎：{detail}",
@@ -648,6 +654,7 @@ const JA: ErrorTexts = {
   tts_empty_text: "読み上げる文がない",
   tts_nothing: "読み上げるものがない",
   voice_runaway: "どの試行でも音声が文の終わりを見つけられなかった：「{detail}」",
+  narrator_vulkan_glibc: "語り手は Vulkan でグラフィックカード上で動いています：llama.cpp の CUDA 版には glibc {need} 以降が必要で、このシステムは {glibc} です",
   image_weights_missing:
     "モデルのファイルが足りない：{path} に画像の重みがない。「何を落とすか」でダウンロードするか、「エンジンと雲」でカット生成をクラウドに切り替えて",
   image_engine_missing: "画像エンジンが見つからない：{path}",

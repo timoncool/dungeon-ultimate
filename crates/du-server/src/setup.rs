@@ -951,11 +951,17 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
 
 fn fits_this_machine(id: &str, accel: crate::accel::Accel) -> bool {
     use crate::accel::Accel;
-    let (narrator, voice) = match accel {
-        Accel::Cuda13 => ("narrator-engine", "voice-engine"),
-        Accel::Cuda12 => ("narrator-engine-cuda12", "voice-engine-cuda12"),
-        Accel::Vulkan => ("narrator-engine-vulkan", "voice-engine-vulkan"),
-        Accel::Cpu => ("narrator-engine-cpu", "voice-engine-cpu"),
+    let narrator = match crate::accel::narrator_accel(accel) {
+        Accel::Cuda13 => "narrator-engine",
+        Accel::Cuda12 => "narrator-engine-cuda12",
+        Accel::Vulkan => "narrator-engine-vulkan",
+        Accel::Cpu => "narrator-engine-cpu",
+    };
+    let voice = match accel {
+        Accel::Cuda13 => "voice-engine",
+        Accel::Cuda12 => "voice-engine-cuda12",
+        Accel::Vulkan => "voice-engine-vulkan",
+        Accel::Cpu => "voice-engine-cpu",
     };
     match id {
         "narrator-engine" | "narrator-engine-cuda12" | "narrator-engine-vulkan" | "narrator-engine-cpu" => id == narrator,
