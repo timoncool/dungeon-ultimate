@@ -517,6 +517,7 @@ fn run_turn(
         let key = format!("{chat_id}-{}", chat.messages.len());
         let sink = progress.clone();
         let gpu = state.gpu_handle();
+        let voice_abort = abort.clone();
         Some(std::thread::spawn(move || -> Option<String> {
             // Один путь для обоих режимов: фразы приходят по очереди и озвучиваются каждая
             // своим голосом. Раньше облако склеивало ход в один запрос — и весь текст,
@@ -525,8 +526,10 @@ fn run_turn(
             let engine = if in_cloud {
                 None
             } else {
-                if text_on_card {
-                    let _ = text_done_rx.recv();
+                // Ход, оборвавшийся до конца текстовых проходов (прерван игроком, упал), голос не грузит:
+                // поток пережил бы задачу, и загрузка голоса заглушила бы рассказчика уже следующего хода.
+                if text_on_card && text_done_rx.recv().is_err() {
+                    return None;
                 }
                 match gpu.speech_engine() {
                     Ok(engine) => Some(engine),
@@ -550,6 +553,10 @@ fn run_turn(
             let side_by_side = in_cloud && runtime_for_tts.tts_parallel;
             let mut flying: Vec<FlyingClip> = Vec::new();
             for (index, sentence, line_voice) in sentences_rx {
+                // прерванный ход больше не озвучивается: карта уже нужна следующей задаче
+                if voice_abort.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
                 if side_by_side {
                     // Больше четырёх запросов разом провайдер не любит, а игрок всё равно
                     // столько вперёд не прослушает.
@@ -1008,7 +1015,9 @@ fn run_turn(
         }
     }
 
-    drop(text_done_tx);
+    if text_done_tx.send(()).is_err() {
+        tracing::debug!("озвучка этого хода уже закончилась");
+    }
 
     // Дожидаемся озвучки: она шла параллельно механике и кадру. Не удалась — ход всё равно
     // состоялся: текст и картинка важнее звука.
