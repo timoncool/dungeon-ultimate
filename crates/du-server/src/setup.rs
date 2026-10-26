@@ -29,6 +29,10 @@ const POOL_SLOTS: usize = 4;
 const CHUNK: u64 = 16 * 1024 * 1024;
 /// Сколько раз повторяем ОДИН диапазон, прежде чем признать закачку неудачной.
 const RANGE_RETRIES: u32 = 8;
+/// Попыток до хоста, с которым не открывается соединение (нет DNS, маршрута, отказ, таймаут подключения), прежде
+/// чем сказать об этом: каждая стоит до таймаута подключения, а закрытый хост так и остаётся закрытым — восемь
+/// таких держали игрока перед стоящей шкалой минутами.
+const CONNECT_RETRIES: u32 = 3;
 
 /// Что делать с файлом после закачки.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -597,6 +601,9 @@ pub fn failure_code(error: &str) -> &'static str {
     } else if error.contains("os error 112") || error.contains("os error 28") {
         // ERROR_DISK_FULL на Windows, ENOSPC в Linux и macOS
         "disk_space"
+    } else if error.contains("запись:") || error.contains("запись не продвинулась") {
+        // раньше сетевых: ошибка записи посреди диапазона несёт и слово «диапазон»
+        "disk"
     } else if error.contains("диапазон") || error.contains("не удалось узнать размер") {
         "network"
     } else if error.contains("архив") || error.contains("распаковка") {
@@ -931,29 +938,76 @@ fn write_at(file: &File, buf: &[u8], offset: u64) -> std::io::Result<usize> {
     file.write_at(buf, offset)
 }
 
-/// Размер файла и поддержка докачки по диапазонам: однобайтовый пробник.
-fn probe_size(agent: &ureq::Agent, url: &str) -> (u64, bool) {
-    match agent.get(url).header("Range", "bytes=0-0").call() {
-        Ok(response) if response.status().as_u16() == 206 => {
-            let total = response
-                .headers()
-                .get("content-range")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.rsplit('/').next())
-                .and_then(|value| value.trim().parse::<u64>().ok())
-                .unwrap_or(0);
-            (total, total > 0)
+/// Размер файла и поддержка докачки по диапазонам: однобайтовый пробник, с повторами, как у диапазона.
+fn probe_size(agent: &ureq::Agent, url: &str) -> Result<(u64, bool), String> {
+    let mut last = String::new();
+    let mut unreachable = 0;
+    let mut attempts = 0;
+    for attempt in 0..RANGE_RETRIES {
+        attempts = attempt + 1;
+        match agent.get(url).header("Range", "bytes=0-0").call() {
+            Ok(response) if response.status().as_u16() == 206 => {
+                let total = response
+                    .headers()
+                    .get("content-range")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.rsplit('/').next())
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .unwrap_or(0);
+                if total > 0 {
+                    return Ok((total, true));
+                }
+                last = "в ответе нет размера (content-range)".into();
+            }
+            Ok(response) => {
+                let total = response
+                    .headers()
+                    .get("content-length")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(0);
+                if total > 0 {
+                    return Ok((total, false));
+                }
+                last = format!("ответ {} без размера", response.status());
+            }
+            Err(error) => {
+                last = error.to_string();
+                if cannot_connect(&error) {
+                    unreachable += 1;
+                    if unreachable == CONNECT_RETRIES {
+                        break;
+                    }
+                }
+            }
         }
-        Ok(response) => {
-            let total = response
-                .headers()
-                .get("content-length")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(0);
-            (total, false)
-        }
-        Err(_) => (0, false),
+        std::thread::sleep(std::time::Duration::from_millis(400 * (attempt as u64 + 1)));
+    }
+    Err(start_failure(url, attempts, unreachable == CONNECT_RETRIES, &last))
+}
+
+/// Запрос не дошёл до сервера: соединение не открылось — не ответ и не оборванная передача.
+fn cannot_connect(error: &ureq::Error) -> bool {
+    use std::io::ErrorKind;
+    match error {
+        ureq::Error::HostNotFound | ureq::Error::ConnectionFailed | ureq::Error::ConnectProxyFailed(_) => true,
+        ureq::Error::Timeout(timeout) => matches!(timeout, ureq::Timeout::Connect | ureq::Timeout::Resolve),
+        ureq::Error::Io(error) => matches!(
+            error.kind(),
+            ErrorKind::ConnectionRefused | ErrorKind::AddrNotAvailable | ErrorKind::NetworkUnreachable | ErrorKind::HostUnreachable
+        ),
+        _ => false,
+    }
+}
+
+/// Почему закачка не пошла. Хост назван отдельно от адреса: статистика адреса вырезает, а какой сервер не
+/// достаётся из сети игрока — весь вопрос.
+fn start_failure(url: &str, attempts: u32, unreachable: bool, last: &str) -> String {
+    let host = url.split("://").nth(1).and_then(|rest| rest.split(['/', ':']).next()).unwrap_or_default();
+    if unreachable {
+        format!("нет соединения с {host} ({attempts} попытки) для {url}: {last}")
+    } else {
+        format!("{url} с {host} не дался за {attempts} попыток: {last}")
     }
 }
 
@@ -981,11 +1035,14 @@ fn download_range(
 ) -> Result<(), String> {
     let want = end - start + 1;
     let mut last = String::new();
+    let mut unreachable = 0;
+    let mut attempts = 0;
 
     for attempt in 0..RANGE_RETRIES {
         if abort.load(Ordering::Relaxed) {
             return Err("отменено".into());
         }
+        attempts = attempt + 1;
         let mut got = 0u64;
         match download_range_once(agent, url, file, start, end, downloaded, abort, &mut got) {
             Ok(()) if got == want => {
@@ -1000,16 +1057,25 @@ fn download_range(
                 return Ok(());
             }
             Ok(()) => last = format!("неполный диапазон: {got} из {want} байт"),
-            Err(error) if error == "отменено" => return Err(error),
-            Err(error) => last = error,
+            Err((error, _)) if error == "отменено" => return Err(error),
+            Err((error, no_connection)) => {
+                last = error;
+                if no_connection {
+                    unreachable += 1;
+                }
+            }
         }
         // Откатываем вклад неудачной попытки, иначе повтор задвоил бы прогресс.
         downloaded.fetch_sub(got.min(downloaded.load(Ordering::Relaxed)), Ordering::Relaxed);
+        if unreachable == CONNECT_RETRIES {
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(400 * (attempt as u64 + 1)));
     }
-    Err(format!("диапазон {start}-{end} не дался за {RANGE_RETRIES} попыток: {last}"))
+    Err(format!("диапазон {start}-{end}: {}", start_failure(url, attempts, unreachable == CONNECT_RETRIES, &last)))
 }
 
+/// Одна попытка диапазона. Ошибка несёт признак, что соединение с хостом не открылось вовсе.
 #[allow(clippy::too_many_arguments)]
 fn download_range_once(
     agent: &ureq::Agent,
@@ -1020,14 +1086,14 @@ fn download_range_once(
     downloaded: &Arc<AtomicU64>,
     abort: &Arc<AtomicBool>,
     got: &mut u64,
-) -> Result<(), String> {
+) -> Result<(), (String, bool)> {
     let response = agent
         .get(url)
         .header("Range", &format!("bytes={start}-{end}"))
         .call()
-        .map_err(|error| format!("диапазон {start}-{end}: {error}"))?;
+        .map_err(|error| (format!("диапазон {start}-{end}: {error}"), cannot_connect(&error)))?;
     if response.status().as_u16() != 206 {
-        return Err(format!("диапазон {start}-{end}: ответ {}", response.status()));
+        return Err((format!("диапазон {start}-{end}: ответ {}", response.status()), false));
     }
 
     let mut reader = response.into_body().into_reader();
@@ -1035,18 +1101,18 @@ fn download_range_once(
     let mut offset = start;
     loop {
         if abort.load(Ordering::Relaxed) {
-            return Err("отменено".into());
+            return Err(("отменено".into(), false));
         }
-        let read = reader.read(&mut buffer).map_err(|error| format!("чтение: {error}"))?;
+        let read = reader.read(&mut buffer).map_err(|error| (format!("чтение: {error}"), false))?;
         if read == 0 {
             break;
         }
         let mut written = 0;
         while written < read {
             let step = write_at(file, &buffer[written..read], offset + written as u64)
-                .map_err(|error| format!("запись: {error}"))?;
+                .map_err(|error| (format!("запись: {error}"), false))?;
             if step == 0 {
-                return Err("запись не продвинулась".into());
+                return Err(("запись не продвинулась".into(), false));
             }
             written += step;
         }
@@ -1145,10 +1211,7 @@ fn download_file(
     }
 
     let agent = ureq::Agent::new_with_defaults();
-    let (total, ranged) = probe_size(&agent, spec.url);
-    if total == 0 {
-        return Err(format!("не удалось узнать размер {title}"));
-    }
+    let (total, ranged) = probe_size(&agent, spec.url).map_err(|error| format!("не удалось узнать размер {title}: {error}"))?;
 
     let part = part_path(&target);
     let done_file = done_path(&target);
@@ -1387,6 +1450,21 @@ mod tests {
         assert_eq!(failure_code("диапазон 0-100 не дался за 5 попыток: timeout"), "network");
         assert_eq!(failure_code("создать каталог: Отказано в доступе"), "disk");
         assert_eq!(failure_code("финализация: There is not enough space on the disk. (os error 112)"), "disk_space");
+        assert_eq!(failure_code("диапазон 0-9: x не дался за 8 попыток: запись: Отказано в доступе"), "disk");
+        assert_eq!(failure_code("не удалось узнать размер X: нет соединения с huggingface.co (3 попытки) для u: x"), "network");
+        assert_eq!(failure_code("запись архива ведёт за каталог назначения: a"), "archive");
+    }
+
+    /// Хост, где никто не слушает, бросается после трёх попыток, а не восьми, и ошибка называет его рядом с адресом.
+    #[test]
+    fn a_host_that_cannot_be_reached_is_named_and_not_retried_eight_times() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let url = format!("http://127.0.0.1:{port}/model.gguf");
+        let error = probe_size(&ureq::Agent::new_with_defaults(), &url).unwrap_err();
+        assert!(error.starts_with(&format!("нет соединения с 127.0.0.1 (3 попытки) для {url}: ")), "{error}");
+        assert_eq!(start_failure("https://github.com/a/b.zip", 8, false, "x"), "https://github.com/a/b.zip с github.com не дался за 8 попыток: x");
         assert_eq!(failure_code("это не архив: x.whl"), "archive");
         assert_eq!(failure_code("что-то ещё"), "other");
     }
