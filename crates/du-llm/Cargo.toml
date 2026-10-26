@@ -17,7 +17,7 @@ base64 = "0.23"
 # Нужен, чтобы находить и убирать процессы модели, оставшиеся от прошлого запуска.
 sysinfo = { workspace = true }
 # llama-server запускается без библиотек AppImage (dub_core::proc::host_command), как у Dub Studio
-dub-core = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
+dub-core = { git = "https://github.com/timoncool/dub-studio", rev = "ed1f2d62ad649c83d30b3eae35957077d79e37f1" }
 
 # Windows-задание (job object): в нём живёт llama-server, и система убивает его вместе с
 # нами — даже если нас сняли силой и до штатного закрытия дело не дошло.

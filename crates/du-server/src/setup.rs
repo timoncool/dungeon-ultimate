@@ -1056,7 +1056,8 @@ fn fits_this_machine(id: &str, accel: crate::accel::Accel) -> bool {
         "image-engine" => accel.nvidia(),
         "image-engine-vulkan" => accel == Accel::Vulkan,
         _ if id.starts_with("image-") => accel != Accel::Cpu,
-        "asr-gpu" => accel.nvidia(),
+        // сборка transcribe.cpp под карту в этом компоненте — CUDA 13; Parakeet v3 на других картах считает сервер
+        "asr-gpu" => accel == Accel::Cuda13,
         _ => true,
     }
 }

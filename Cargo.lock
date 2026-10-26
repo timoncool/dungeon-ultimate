@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "acpp-server"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
+source = "git+https://github.com/timoncool/dub-studio?rev=ed1f2d62ad649c83d30b3eae35957077d79e37f1#ed1f2d62ad649c83d30b3eae35957077d79e37f1"
 dependencies = [
  "base64 0.23.1",
  "dub-core",
@@ -707,7 +707,7 @@ dependencies = [
 [[package]]
 name = "dub-asr"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
+source = "git+https://github.com/timoncool/dub-studio?rev=ed1f2d62ad649c83d30b3eae35957077d79e37f1#ed1f2d62ad649c83d30b3eae35957077d79e37f1"
 dependencies = [
  "acpp-server",
  "audioadapter",
@@ -727,7 +727,7 @@ dependencies = [
 [[package]]
 name = "dub-core"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
+source = "git+https://github.com/timoncool/dub-studio?rev=ed1f2d62ad649c83d30b3eae35957077d79e37f1#ed1f2d62ad649c83d30b3eae35957077d79e37f1"
 dependencies = [
  "libc",
  "serde",
@@ -737,7 +737,7 @@ dependencies = [
 [[package]]
 name = "dub-tcpp"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=b63f1ef589f8969a23939d16019bac17c745dc7a#b63f1ef589f8969a23939d16019bac17c745dc7a"
+source = "git+https://github.com/timoncool/dub-studio?rev=ed1f2d62ad649c83d30b3eae35957077d79e37f1#ed1f2d62ad649c83d30b3eae35957077d79e37f1"
 dependencies = [
  "libloading 0.9.0",
 ]
