@@ -154,7 +154,7 @@ export default function SetupPanel() {
         ? { asrEngine: "parakeet", asrModel: "int8" }
         : component.id === "asr-ultra"
           ? { asrEngine: "parakeet", asrModel: "ultra" }
-          : { asrEngine: "whisper", whisperModel: component.id.replace(/^whisper-/, "") };
+          : { asrEngine: "crisperwhisper" };
     try {
       const response = await fetch("/api/runtime", {
         method: "PUT",

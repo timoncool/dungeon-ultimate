@@ -195,7 +195,7 @@ fn model_in_use(runtime: &crate::runtime::Runtime, stage: &str, story: Option<&d
         "tts" if stage_enabled(runtime, Stage::Tts) => format!("tts:openrouter:{}", runtime.openrouter_tts_model),
         "tts" => "tts:higgs-q4_k_m".into(),
         "asr" if stage_enabled(runtime, Stage::Asr) => format!("asr:openrouter:{}", runtime.openrouter_asr_model),
-        "asr" if runtime.asr_engine == "whisper" => format!("asr:whisper-{}", runtime.whisper_model),
+        "asr" if runtime.asr_engine == crate::runtime::ASR_CRISPERWHISPER => "asr:crisperwhisper-2-turbo".into(),
         "asr" => format!("asr:parakeet-{}", if runtime.asr_model.is_empty() { "int8" } else { &runtime.asr_model }),
         other => format!("{other}:unknown"),
     }
@@ -215,13 +215,12 @@ mod tests {
             openrouter_tts_on: true,
             cloud_tts_provider: "google".into(),
             google_tts_model: "gemini-3.8-flash-tts".into(),
-            asr_engine: "whisper".into(),
-            whisper_model: "large-v3-turbo".into(),
+            asr_engine: crate::runtime::ASR_CRISPERWHISPER.into(),
             narrator_provider: "agent".into(),
             ..Runtime::default()
         };
         assert_eq!(model_in_use(&google, "tts", None), "tts:google:gemini-3.8-flash-tts");
-        assert_eq!(model_in_use(&google, "asr", None), "asr:whisper-large-v3-turbo");
+        assert_eq!(model_in_use(&google, "asr", None), "asr:crisperwhisper-2-turbo");
         assert_eq!(model_in_use(&google, "narrator", None), "narrator:agent");
     }
 

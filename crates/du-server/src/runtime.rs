@@ -28,16 +28,14 @@ pub struct Runtime {
     pub tts_backend: String,
     /// Переопределение для распознавания речи.
     pub asr_backend: String,
-    /// Каким движком распознавать речь: `parakeet` (в процессе, быстрый) или `whisper`
-    /// (отдельная программа, точнее на шумной записи и на смеси языков).
+    /// Каким движком распознавать речь: `parakeet` (transcribe.cpp в процессе, быстрый) или `crisperwhisper`
+    /// ([`ASR_CRISPERWHISPER`], в audiocpp_server: почти все языки мира, дословная запись).
     pub asr_engine: String,
     /// Кто пишет текст игры: пусто — своя карта или облако по флагам ниже, `agent` — агент,
     /// подключённый к MCP игры (Claude Code и т.п.): каждый проход хода уходит ему вопросом.
     pub narrator_provider: String,
     /// Вариант Parakeet: `int8` (по умолчанию) или `ultra`.
     pub asr_model: String,
-    /// Модель Whisper: tiny|base|small|medium|large-v3|large-v3-turbo.
-    pub whisper_model: String,
     /// Номер карты NVIDIA (в порядке шины PCI), на которой считает игра; пусто — первая. Действует с запуска игры:
     /// CUDA читает выбор один раз на процесс.
     pub gpu_index: Option<u32>,
@@ -100,7 +98,6 @@ impl Default for Runtime {
             asr_engine: "parakeet".to_string(),
             narrator_provider: String::new(),
             asr_model: "int8".to_string(),
-            whisper_model: "large-v3-turbo".to_string(),
             gpu_index: None,
             narrator_ctx: 16_384,
             narrator_gpu_layers: -1,
@@ -137,6 +134,7 @@ pub fn load(root: &Path) -> Runtime {
     std::fs::read_to_string(path_of(root))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
+        .map(sanitize)
         .unwrap_or_default()
 }
 
@@ -152,7 +150,6 @@ pub fn save(root: &Path, runtime: &Runtime) -> Result<(), String> {
     std::fs::rename(&temp, &path).map_err(|error| error.to_string())
 }
 
-/// Привести пришедшие извне значения к работоспособным.
 pub fn sanitize(mut runtime: Runtime) -> Runtime {
     runtime.openrouter_key = runtime.openrouter_key.trim().to_string();
     runtime.narrator_ctx = runtime.narrator_ctx.clamp(2_048, 131_072);
@@ -163,8 +160,15 @@ pub fn sanitize(mut runtime: Runtime) -> Runtime {
     if runtime.image_max_vram.trim().is_empty() {
         runtime.image_max_vram = "-1".into();
     }
+    // faster-whisper ушёл: выбравший Whisper распознаёт CrisperWhisper — тот же Whisper в audiocpp_server
+    if runtime.asr_engine.trim().eq_ignore_ascii_case("whisper") {
+        runtime.asr_engine = ASR_CRISPERWHISPER.into();
+    }
     runtime
 }
+
+/// Распознавание CrisperWhisper в audiocpp_server.
+pub const ASR_CRISPERWHISPER: &str = "crisperwhisper";
 
 #[cfg(test)]
 mod tests {
@@ -177,6 +181,19 @@ mod tests {
         assert_eq!(runtime.image_steps, 8, "модель дистиллирована под восемь шагов");
         assert_eq!(runtime.image_cfg, 1.0);
         assert!(runtime.image_offload_to_cpu);
+    }
+
+    #[test]
+    fn a_saved_whisper_choice_reads_as_crisperwhisper() {
+        let dir = tempfile::tempdir().unwrap();
+        save(dir.path(), &Runtime { asr_engine: "whisper".into(), ..Runtime::default() }).unwrap();
+        assert_eq!(load(dir.path()).asr_engine, ASR_CRISPERWHISPER);
+        let mut runtime = Runtime::default();
+        assert!(crate::setup::select_variant(&mut runtime, "asr-crisperwhisper"));
+        assert!(crate::setup::variant_selected(&runtime, "asr-crisperwhisper"));
+        assert!(!crate::setup::variant_selected(&runtime, "asr"));
+        assert!(crate::setup::select_variant(&mut runtime, "asr-ultra"));
+        assert_eq!((runtime.asr_engine.as_str(), runtime.asr_model.as_str()), ("parakeet", "ultra"));
     }
 
     #[test]

@@ -50,10 +50,7 @@ const RU: ErrorTexts = {
     "голоса «{voice}» нет на диске: поставьте «Набор голосов» в «Что скачать», добавьте этот голос или выберите другой",
   no_voices: "голосов для озвучки нет: поставьте «Набор голосов» в «Что скачать» или добавьте свой голос",
   tts_engine_missing: "движок озвучки не установлен",
-  tts_engine_load: "не удалось загрузить движок: {detail}",
   tts_cancelled: "генерация отменена",
-  tts_failed: "генерация не удалась: {detail}",
-  tts_bad_param: "неверный параметр: {detail}",
   voice_reference: "не удалось подготовить эталон голоса: {detail}",
   tts_empty_text: "пустой текст для озвучки",
   tts_nothing: "нечего озвучивать",
@@ -66,11 +63,14 @@ const RU: ErrorTexts = {
   image_failed: "движок картинок: генерация не удалась: {detail}",
   image_no_frame: "движок не вернул кадр",
   asr_failed: "Parakeet не распознал запись: {detail}",
-  whisper_bin_missing:
-    "выбран Whisper, но его программы нет в {path} — скачайте вариант Whisper в «Что скачать» или выберите Parakeet",
-  whisper_model_missing: "выбран Whisper {model}, но модели нет в {path} — скачайте её в «Что скачать»",
-  whisper_cuda_missing:
-    "Whisper должен считать на видеокарте, но библиотек CUDA для него нет — скачайте «Whisper на видеокарте» в «Что скачать» или переключите распознавание на процессор",
+  crisperwhisper_missing: "выбран CrisperWhisper, но его модели нет в {path} — скачайте её в «Что скачать» или выберите Parakeet",
+  voice_model_missing: "нет модели голоса ({path}) — скачайте «Голос» в «Что скачать»",
+  acpp_missing: "нет сервера голоса и распознавания ({path}) — скачайте «Программа озвучки» в «Что скачать»",
+  acpp_libraries_missing:
+    "серверу голоса и распознавания не хватает библиотек CUDA ({files}) — скачайте «Программа озвучки» в «Что скачать» заново",
+  acpp_start: "сервер голоса и распознавания не запустился: {detail}",
+  acpp_stalled: "сервер голоса и распознавания замолчал посреди ответа: {detail}",
+  acpp_failed: "сервер голоса и распознавания: {detail}",
   parakeet_model_missing: "нет модели распознавания {path} — либо скачайте её в «Что скачать», либо включите облако",
   asr_engine_missing: "нет движка распознавания в {path} — скачайте Parakeet в «Что скачать»",
   asr_engine_gpu_missing:
@@ -148,10 +148,7 @@ const EN: ErrorTexts = {
     "the voice “{voice}” is not on disk: install the “Voice set” in “What to download”, add this voice or choose another",
   no_voices: "there are no voices to speak with: install the “Voice set” in “What to download” or add your own voice",
   tts_engine_missing: "the voice engine is not installed",
-  tts_engine_load: "could not load the voice engine: {detail}",
   tts_cancelled: "voicing was cancelled",
-  tts_failed: "voicing failed: {detail}",
-  tts_bad_param: "wrong voice parameter: {detail}",
   voice_reference: "could not prepare the voice sample: {detail}",
   tts_empty_text: "there is no text to voice",
   tts_nothing: "nothing to voice",
@@ -164,11 +161,14 @@ const EN: ErrorTexts = {
   image_failed: "image engine: drawing failed: {detail}",
   image_no_frame: "the engine returned no picture",
   asr_failed: "Parakeet could not recognise the recording: {detail}",
-  whisper_bin_missing:
-    "Whisper is chosen, but its program is not in {path} — download a Whisper variant in “What to download” or choose Parakeet",
-  whisper_model_missing: "Whisper {model} is chosen, but the model is not in {path} — download it in “What to download”",
-  whisper_cuda_missing:
-    "Whisper is set to the graphics card, but its CUDA libraries are missing — download “Whisper on the graphics card” in “What to download” or switch recognition to the processor",
+  crisperwhisper_missing: "CrisperWhisper is chosen, but its model is not in {path} — download it in “What to download” or choose Parakeet",
+  voice_model_missing: "the voice model is missing ({path}) — download “The voice” in “What to download”",
+  acpp_missing: "the voice and recognition server is missing ({path}) — download the “Voice program” in “What to download”",
+  acpp_libraries_missing:
+    "the voice and recognition server lacks CUDA libraries ({files}) — download the “Voice program” in “What to download” again",
+  acpp_start: "the voice and recognition server did not start: {detail}",
+  acpp_stalled: "the voice and recognition server went silent mid-answer: {detail}",
+  acpp_failed: "the voice and recognition server: {detail}",
   parakeet_model_missing: "no recognition model at {path} — download it in “What to download” or turn the cloud on",
   asr_engine_missing: "no recognition engine in {path} — download Parakeet in “What to download”",
   asr_engine_gpu_missing:
@@ -247,10 +247,7 @@ const ES: ErrorTexts = {
     "la voz «{voice}» no está en el disco: instala el «Juego de voces» en «Qué descargar», añade esta voz o elige otra",
   no_voices: "no hay voces para hablar: instala el «Juego de voces» en «Qué descargar» o añade tu propia voz",
   tts_engine_missing: "el motor de voz no está instalado",
-  tts_engine_load: "no se pudo cargar el motor de voz: {detail}",
   tts_cancelled: "la voz se canceló",
-  tts_failed: "la voz falló: {detail}",
-  tts_bad_param: "parámetro de voz incorrecto: {detail}",
   voice_reference: "no se pudo preparar la muestra de voz: {detail}",
   tts_empty_text: "no hay texto que leer",
   tts_nothing: "no hay nada que leer",
@@ -263,11 +260,14 @@ const ES: ErrorTexts = {
   image_failed: "motor de imágenes: el dibujo falló: {detail}",
   image_no_frame: "el motor no devolvió ninguna imagen",
   asr_failed: "Parakeet no pudo reconocer la grabación: {detail}",
-  whisper_bin_missing:
-    "Whisper está elegido, pero su programa no está en {path}: descarga una variante de Whisper en «Qué descargar» o elige Parakeet",
-  whisper_model_missing: "Whisper {model} está elegido, pero el modelo no está en {path}: descárgalo en «Qué descargar»",
-  whisper_cuda_missing:
-    "Whisper debe usar la tarjeta gráfica, pero faltan sus bibliotecas CUDA: descarga «Whisper en la tarjeta gráfica» en «Qué descargar» o pasa el reconocimiento al procesador",
+  crisperwhisper_missing: "CrisperWhisper está elegido, pero su modelo no está en {path}: descárgalo en «Qué descargar» o elige Parakeet",
+  voice_model_missing: "falta el modelo de voz ({path}): descarga «La voz» en «Qué descargar»",
+  acpp_missing: "falta el servidor de voz y reconocimiento ({path}): descarga el «Programa de voz» en «Qué descargar»",
+  acpp_libraries_missing:
+    "al servidor de voz y reconocimiento le faltan bibliotecas CUDA ({files}): vuelve a descargar el «Programa de voz» en «Qué descargar»",
+  acpp_start: "el servidor de voz y reconocimiento no arrancó: {detail}",
+  acpp_stalled: "el servidor de voz y reconocimiento se quedó callado a mitad de respuesta: {detail}",
+  acpp_failed: "el servidor de voz y reconocimiento: {detail}",
   parakeet_model_missing: "no hay modelo de reconocimiento en {path}: descárgalo en «Qué descargar» o activa la nube",
   asr_engine_missing: "no hay motor de reconocimiento en {path}: descarga Parakeet en «Qué descargar»",
   asr_engine_gpu_missing:
@@ -346,10 +346,7 @@ const FR: ErrorTexts = {
     "la voix « {voice} » n’est pas sur le disque : installe le « Jeu de voix » dans « Que télécharger », ajoute cette voix ou choisis-en une autre",
   no_voices: "aucune voix pour parler : installe le « Jeu de voix » dans « Que télécharger » ou ajoute ta propre voix",
   tts_engine_missing: "le moteur de voix n’est pas installé",
-  tts_engine_load: "impossible de charger le moteur de voix : {detail}",
   tts_cancelled: "la voix a été annulée",
-  tts_failed: "la voix a échoué : {detail}",
-  tts_bad_param: "paramètre de voix incorrect : {detail}",
   voice_reference: "impossible de préparer l’échantillon de voix : {detail}",
   tts_empty_text: "aucun texte à lire",
   tts_nothing: "rien à lire",
@@ -362,12 +359,15 @@ const FR: ErrorTexts = {
   image_failed: "moteur d’images : le dessin a échoué : {detail}",
   image_no_frame: "le moteur n’a renvoyé aucune image",
   asr_failed: "Parakeet n’a pas pu reconnaître l’enregistrement : {detail}",
-  whisper_bin_missing:
-    "Whisper est choisi, mais son programme n’est pas dans {path} — télécharge une variante de Whisper dans « Que télécharger » ou choisis Parakeet",
-  whisper_model_missing:
-    "Whisper {model} est choisi, mais le modèle n’est pas dans {path} — télécharge-le dans « Que télécharger »",
-  whisper_cuda_missing:
-    "Whisper doit utiliser la carte graphique, mais ses bibliothèques CUDA manquent — télécharge « Whisper sur la carte graphique » dans « Que télécharger » ou passe la reconnaissance sur le processeur",
+  crisperwhisper_missing:
+    "CrisperWhisper est choisi, mais son modèle n’est pas dans {path} — télécharge-le dans « Que télécharger » ou choisis Parakeet",
+  voice_model_missing: "le modèle de voix manque ({path}) — télécharge « La voix » dans « Que télécharger »",
+  acpp_missing: "le serveur de voix et de reconnaissance manque ({path}) — télécharge le « Programme de voix » dans « Que télécharger »",
+  acpp_libraries_missing:
+    "il manque des bibliothèques CUDA au serveur de voix et de reconnaissance ({files}) — retélécharge le « Programme de voix » dans « Que télécharger »",
+  acpp_start: "le serveur de voix et de reconnaissance n’a pas démarré : {detail}",
+  acpp_stalled: "le serveur de voix et de reconnaissance s’est tu au milieu de la réponse : {detail}",
+  acpp_failed: "le serveur de voix et de reconnaissance : {detail}",
   parakeet_model_missing:
     "pas de modèle de reconnaissance dans {path} — télécharge-le dans « Que télécharger » ou active le nuage",
   asr_engine_missing: "pas de moteur de reconnaissance dans {path} — télécharge Parakeet dans « Que télécharger »",
@@ -447,10 +447,7 @@ const DE: ErrorTexts = {
     "die Stimme „{voice}“ ist nicht auf der Festplatte: installiere das „Stimmen-Set“ unter „Was herunterladen“, füge diese Stimme hinzu oder wähle eine andere",
   no_voices: "keine Stimmen zum Sprechen: installiere das „Stimmen-Set“ unter „Was herunterladen“ oder füge eine eigene Stimme hinzu",
   tts_engine_missing: "die Sprach-Engine ist nicht installiert",
-  tts_engine_load: "die Sprach-Engine ließ sich nicht laden: {detail}",
   tts_cancelled: "die Vertonung wurde abgebrochen",
-  tts_failed: "die Vertonung ist fehlgeschlagen: {detail}",
-  tts_bad_param: "falscher Stimmparameter: {detail}",
   voice_reference: "die Stimmprobe ließ sich nicht vorbereiten: {detail}",
   tts_empty_text: "kein Text zum Vorlesen",
   tts_nothing: "nichts zum Vorlesen",
@@ -463,12 +460,15 @@ const DE: ErrorTexts = {
   image_failed: "Bild-Engine: das Zeichnen ist fehlgeschlagen: {detail}",
   image_no_frame: "die Engine hat kein Bild geliefert",
   asr_failed: "Parakeet konnte die Aufnahme nicht erkennen: {detail}",
-  whisper_bin_missing:
-    "Whisper ist gewählt, aber sein Programm liegt nicht in {path} — lade eine Whisper-Variante unter „Was herunterladen“ oder wähle Parakeet",
-  whisper_model_missing:
-    "Whisper {model} ist gewählt, aber das Modell liegt nicht in {path} — lade es unter „Was herunterladen“",
-  whisper_cuda_missing:
-    "Whisper soll auf der Grafikkarte rechnen, aber seine CUDA-Bibliotheken fehlen — lade „Whisper auf der Grafikkarte“ unter „Was herunterladen“ oder stelle die Erkennung auf den Prozessor um",
+  crisperwhisper_missing:
+    "CrisperWhisper ist gewählt, aber sein Modell liegt nicht in {path} — lade es unter «Was herunterladen» oder wähle Parakeet",
+  voice_model_missing: "das Stimmmodell fehlt ({path}) — lade «Die Stimme» unter «Was herunterladen»",
+  acpp_missing: "der Server für Stimme und Erkennung fehlt ({path}) — lade die «Sprachprogramm» unter «Was herunterladen»",
+  acpp_libraries_missing:
+    "dem Server für Stimme und Erkennung fehlen CUDA-Bibliotheken ({files}) — lade die «Sprachprogramm» unter «Was herunterladen» erneut",
+  acpp_start: "der Server für Stimme und Erkennung ist nicht gestartet: {detail}",
+  acpp_stalled: "der Server für Stimme und Erkennung ist mitten in der Antwort verstummt: {detail}",
+  acpp_failed: "der Server für Stimme und Erkennung: {detail}",
   parakeet_model_missing:
     "kein Erkennungsmodell in {path} — lade es unter „Was herunterladen“ oder schalte die Cloud ein",
   asr_engine_missing: "keine Erkennungs-Engine in {path} — lade Parakeet unter „Was herunterladen“",
@@ -541,10 +541,7 @@ const ZH: ErrorTexts = {
   voice_missing: "磁盘上没有声音“{voice}”：请在“下载什么”中安装“声音包”，添加这个声音或换一个",
   no_voices: "没有可用的声音：请在“下载什么”中安装“声音包”，或添加你自己的声音",
   tts_engine_missing: "未安装配音引擎",
-  tts_engine_load: "无法加载配音引擎：{detail}",
   tts_cancelled: "配音已取消",
-  tts_failed: "配音失败：{detail}",
-  tts_bad_param: "配音参数错误：{detail}",
   voice_reference: "无法准备声音样本：{detail}",
   tts_empty_text: "没有要朗读的文本",
   tts_nothing: "没有可朗读的内容",
@@ -556,10 +553,13 @@ const ZH: ErrorTexts = {
   image_failed: "图像引擎：绘制失败：{detail}",
   image_no_frame: "引擎没有返回图片",
   asr_failed: "Parakeet 无法识别录音：{detail}",
-  whisper_bin_missing: "已选择 Whisper，但 {path} 中没有它的程序：请在“下载什么”中下载 Whisper，或选择 Parakeet",
-  whisper_model_missing: "已选择 Whisper {model}，但 {path} 中没有模型：请在“下载什么”中下载",
-  whisper_cuda_missing:
-    "Whisper 需要在显卡上运行，但缺少它的 CUDA 库：请在“下载什么”中下载“显卡版 Whisper”，或把识别切换到处理器",
+  crisperwhisper_missing: "已选择 CrisperWhisper，但 {path} 中没有它的模型：请在“下载什么”中下载，或选择 Parakeet",
+  voice_model_missing: "缺少声音模型（{path}）：请在“下载什么”中下载“声音”",
+  acpp_missing: "缺少语音与识别服务器（{path}）：请在“下载什么”中下载“配音程序”",
+  acpp_libraries_missing: "语音与识别服务器缺少 CUDA 库（{files}）：请在“下载什么”中重新下载“配音程序”",
+  acpp_start: "语音与识别服务器没有启动：{detail}",
+  acpp_stalled: "语音与识别服务器在回答中途没有了响应：{detail}",
+  acpp_failed: "语音与识别服务器：{detail}",
   parakeet_model_missing: "{path} 中没有识别模型：请在“下载什么”中下载，或开启云端",
   asr_engine_missing: "{path} 中没有识别引擎：请在“下载什么”中下载 Parakeet",
   asr_engine_gpu_missing:
@@ -637,10 +637,7 @@ const JA: ErrorTexts = {
     "声「{voice}」がディスクにない：「何を落とすか」で「声のセット」を入れるか、この声を追加するか、別の声を選んで",
   no_voices: "読み上げに使える声がない：「何を落とすか」で「声のセット」を入れるか、自分の声を追加して",
   tts_engine_missing: "音声エンジンが入っていない",
-  tts_engine_load: "音声エンジンを読み込めない：{detail}",
   tts_cancelled: "読み上げを取り消した",
-  tts_failed: "読み上げに失敗した：{detail}",
-  tts_bad_param: "音声のパラメーターが正しくない：{detail}",
   voice_reference: "声のサンプルを用意できない：{detail}",
   tts_empty_text: "読み上げる文がない",
   tts_nothing: "読み上げるものがない",
@@ -653,11 +650,13 @@ const JA: ErrorTexts = {
   image_failed: "画像エンジン：描画に失敗した：{detail}",
   image_no_frame: "エンジンが画像を返さなかった",
   asr_failed: "Parakeet が録音を認識できなかった：{detail}",
-  whisper_bin_missing:
-    "Whisper を選んでいるが、{path} にプログラムがない：「何を落とすか」で Whisper を落とすか、Parakeet を選んで",
-  whisper_model_missing: "Whisper {model} を選んでいるが、{path} にモデルがない：「何を落とすか」で落として",
-  whisper_cuda_missing:
-    "Whisper はグラフィックカードで動かす設定だが、CUDA ライブラリがない：「何を落とすか」で「グラフィックカード版 Whisper」を落とすか、認識をプロセッサーに切り替えて",
+  crisperwhisper_missing: "CrisperWhisper を選んでいるが、{path} にモデルがない：「何を落とすか」で落とすか、Parakeet を選んで",
+  voice_model_missing: "声のモデルがない（{path}）：「何を落とすか」で「声」を落として",
+  acpp_missing: "音声と認識のサーバーがない（{path}）：「何を落とすか」で「音声プログラム」を落として",
+  acpp_libraries_missing: "音声と認識のサーバーに CUDA ライブラリが足りない（{files}）：「何を落とすか」で「音声プログラム」を落とし直して",
+  acpp_start: "音声と認識のサーバーが起動しなかった：{detail}",
+  acpp_stalled: "音声と認識のサーバーが返答の途中で黙った：{detail}",
+  acpp_failed: "音声と認識のサーバー：{detail}",
   parakeet_model_missing: "{path} に認識モデルがない：「何を落とすか」で落とすか、クラウドをオンにして",
   asr_engine_missing: "{path} に認識エンジンがない：「何を落とすか」で Parakeet を落として",
   asr_engine_gpu_missing:

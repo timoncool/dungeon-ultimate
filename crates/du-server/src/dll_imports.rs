@@ -98,14 +98,21 @@ pub const BESIDE_THE_GAME: &[&str] = &[
 
 /// Что грузит игра: (компонент, файл). ggml-cuda и ggml-vulkan грузятся LoadLibrary'ем, поэтому проверяются
 /// отдельными точками входа. llama-server — отдельный процесс: каталог exe игры ему передаётся в PATH.
-pub const ENTRY_POINTS: &[(&str, &str)] = &[
-    ("narrator-engine", "tools/llama/llama-server.exe"),
-    ("narrator-engine", "tools/llama/ggml-cuda.dll"),
-    ("image-engine", "models/runtime/sd/stable-diffusion.dll"),
-    ("image-engine", "models/runtime/sd/ggml-cuda.dll"),
-    ("voice-engine", "models/tts-engine/audiocpp_engine.dll"),
-    ("asr-gpu", "models/transcribe-engine/transcribe_engine.dll"),
-    ("asr", "models/transcribe-engine-cpu/transcribe_engine.dll"),
+pub const ENTRY_POINTS: &[(&str, &str, &[&str])] = &[
+    ("narrator-engine", "tools/llama/llama-server.exe", &[]),
+    ("narrator-engine", "tools/llama/ggml-cuda.dll", &[]),
+    ("narrator-engine-cuda12", "tools/llama-cuda12/llama-server.exe", &[]),
+    ("narrator-engine-vulkan", "tools/llama-vulkan/llama-server.exe", &[]),
+    ("narrator-engine-cpu", "tools/llama-cpu/llama-server.exe", &[]),
+    ("image-engine", "models/runtime/sd/stable-diffusion.dll", &[]),
+    ("image-engine", "models/runtime/sd/ggml-cuda.dll", &[]),
+    // CUDA-библиотеки сервер находит через PATH, который игра ставит ему на запуске (`acpp::server`)
+    ("voice-engine", "tools/audiocpp/audiocpp_server.exe", &["models/tts-engine"]),
+    ("voice-engine-cuda12", "tools/audiocpp-cuda12/audiocpp_server.exe", &["models/cuda12-runtime"]),
+    ("voice-engine-vulkan", "tools/audiocpp-vulkan/audiocpp_server.exe", &[]),
+    ("voice-engine-cpu", "tools/audiocpp-cpu/audiocpp_server.exe", &[]),
+    ("asr-gpu", "models/transcribe-engine/transcribe_engine.dll", &[]),
+    ("asr", "models/transcribe-engine-cpu/transcribe_engine.dll", &[]),
 ];
 
 /// Итог проверки одной точки входа.
@@ -148,12 +155,13 @@ pub fn resolve(entry: &Path, dirs: &[PathBuf]) -> Result<Resolution, String> {
 /// библиотек рядом с exe игры, ни в системе. Не установленные компоненты пропускаются.
 pub fn check_root(root: &Path) -> Result<Vec<String>, String> {
     let mut problems = Vec::new();
-    for (component, rel) in ENTRY_POINTS {
+    for (component, rel, dirs) in ENTRY_POINTS {
         let entry = root.join(rel);
         if !entry.is_file() {
             continue;
         }
-        for name in resolve(&entry, &[])?.missing {
+        let dirs: Vec<PathBuf> = dirs.iter().map(|dir| root.join(dir)).collect();
+        for name in resolve(&entry, &dirs)?.missing {
             if !BESIDE_THE_GAME.contains(&name.to_ascii_lowercase().as_str()) {
                 problems.push(format!("{component}: {rel} imports {name}, and it is neither beside it, nor beside the game, nor in Windows"));
             }

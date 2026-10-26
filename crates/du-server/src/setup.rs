@@ -144,6 +144,26 @@ impl Component {
 /// Рантайм CUDA 13 и cuBLAS 13 из колёс NVIDIA: их импортируют движок озвучки и сборка transcribe.cpp под
 /// видеокарту, путь один, поэтому файлы качаются один раз на оба компонента.
 const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
+// cuFFT 12 — третья библиотека CUDA 13, которую импортирует audiocpp_server (cudart в нём слинкован статически)
+const CUFFT12: FileSpec = FileSpec::archive("downloads/tts-cufft.zip", "https://developer.download.nvidia.com/compute/cuda/redist/libcufft/windows-x86_64/libcufft-windows-x86_64-12.4.0.43-archive.zip", 159_602_693, "69d0ad8dc3a1be66f01a748a8206d0ceaafa56939474663fbe790dc3e91d2009", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cufft64_12.dll");
+
+/// Сборка audiocpp_server (голос Higgs и CrisperWhisper) — архив релиза, закреплённый в крейте `acpp-server`.
+const fn audiocpp(asset: acpp_server::asset::Asset, download: &'static str, dir: &'static str, marker: &'static str) -> FileSpec {
+    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::ZipFlat, dir, marker)
+}
+const AUDIOCPP_CUDA13: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CUDA13, "downloads/audiocpp.zip", "tools/audiocpp", "tools/audiocpp/audiocpp_server.exe");
+const AUDIOCPP_CUDA12: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CUDA12, "downloads/audiocpp-cuda12.zip", "tools/audiocpp-cuda12", "tools/audiocpp-cuda12/audiocpp_server.exe");
+const AUDIOCPP_VULKAN: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_VULKAN, "downloads/audiocpp-vulkan.zip", "tools/audiocpp-vulkan", "tools/audiocpp-vulkan/audiocpp_server.exe");
+const AUDIOCPP_CPU: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CPU, "downloads/audiocpp-cpu.zip", "tools/audiocpp-cpu", "tools/audiocpp-cpu/audiocpp_server.exe");
+
+/// CUDA 12.9 для сборки сервера под CUDA 12 (колёса PyPI, их `.dll` раскладываются плоско) — те же файлы и папка, что у Dub.
+const fn cuda12_runtime(asset: acpp_server::asset::Asset, download: &'static str, marker: &'static str) -> FileSpec {
+    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::ZipDlls, "models/cuda12-runtime", marker)
+}
+const CUDA12_CUDART: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[0], "downloads/cuda12-cudart.whl", "models/cuda12-runtime/cudart64_12.dll");
+const CUDA12_CUBLAS: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[1], "downloads/cuda12-cublas.whl", "models/cuda12-runtime/cublas64_12.dll");
+const CUDA12_CUFFT: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[2], "downloads/cuda12-cufft.whl", "models/cuda12-runtime/cufft64_11.dll");
+
 const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
 
 /// Сборки transcribe.cpp (видеокарта и процессор) в папках и с файлами Dub Studio: процессорная идёт с моделью,
@@ -282,15 +302,35 @@ static COMPONENTS: &[Component] = &[
         Component {
             id: "voice-engine",
             title: "Движок озвучки",
-            note: "Higgs: читает текст голосом из пака",
+            note: "audiocpp_server под CUDA 13: Higgs читает текст голосом из пака, он же распознаёт CrisperWhisper",
             requirement: Requirement::Recommended,
             variant_of: "",
-            files: &[
-                FileSpec::plain("models/tts-engine/audiocpp_engine.dll", "https://github.com/timoncool/Higgs-Ultimate/releases/download/engine-0.2.3-turing/audiocpp_engine.dll", 129_390_080, "c3608613bd54bdd41c85cc90412d4add67b928b07b32be24f26d91cb9626f46d"),
-                // the engine imports cublas64_13.dll, which loads cudart64_13 and cublasLt64_13: without them beside it Windows refuses the DLL
-                CUDART13,
-                CUBLAS13,
-            ],
+            // программа импортирует cuBLAS 13 и cuFFT 12: без них Windows её не запустит
+            files: &[AUDIOCPP_CUDA13, CUBLAS13, CUFFT12],
+        },
+        Component {
+            id: "voice-engine-cuda12",
+            title: "Движок озвучки",
+            note: "audiocpp_server под CUDA 12.9 с её библиотеками — для карт и драйверов, которым CUDA 13 не подходит",
+            requirement: Requirement::Recommended,
+            variant_of: "",
+            files: &[AUDIOCPP_CUDA12, CUDA12_CUDART, CUDA12_CUBLAS, CUDA12_CUFFT],
+        },
+        Component {
+            id: "voice-engine-vulkan",
+            title: "Движок озвучки",
+            note: "audiocpp_server под Vulkan — для видеокарт AMD и Intel",
+            requirement: Requirement::Recommended,
+            variant_of: "",
+            files: &[AUDIOCPP_VULKAN],
+        },
+        Component {
+            id: "voice-engine-cpu",
+            title: "Движок озвучки",
+            note: "audiocpp_server на процессоре — для компьютера без видеокарты",
+            requirement: Requirement::Recommended,
+            variant_of: "",
+            files: &[AUDIOCPP_CPU],
         },
         Component {
             id: "voice-model",
@@ -339,90 +379,28 @@ static COMPONENTS: &[Component] = &[
                 TCPP_CPU,
             ],
         },
+        // CrisperWhisper 2.0 turbo (nyralabs, лицензия nyra health Non-Commercial, LICENSE.md рядом): репозиторий Hugging
+        // Face как есть, ревизия закреплена, папка Dub Studio; считает audiocpp_server движка озвучки.
         Component {
-            id: "whisper-tiny",
-            title: "Распознавание речи: Whisper tiny",
-            note: "самая лёгкая, для слабого компьютера; понимает почти все языки мира",
+            id: "asr-crisperwhisper",
+            title: "Распознавание речи: CrisperWhisper",
+            note: "Whisper, дообученный на дословную запись, почти все языки мира; работает в движке озвучки — нужен и он; лицензия некоммерческая",
             requirement: Requirement::Optional,
             variant_of: "asr",
             files: &[
-                FileSpec::archive("downloads/whisper.zip", "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip", 87_654_143, "8150ad257fd8e46d817bb7e667260c2ce4c493d9e58973862e6409c592b44ba5", Extract::ZipFlat, "tools/whisper", "tools/whisper/whisper-faster.exe"),
-                FileSpec::plain("models/whisper/faster-whisper-tiny/model.bin", "https://huggingface.co/Systran/faster-whisper-tiny/resolve/d90ca5fe260221311c53c58e660288d3deb8d356/model.bin", 75_538_270, "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"),
-                FileSpec::plain("models/whisper/faster-whisper-tiny/config.json", "https://huggingface.co/Systran/faster-whisper-tiny/resolve/d90ca5fe260221311c53c58e660288d3deb8d356/config.json", 2_249, "a73a28cdfe1c43ccc7202fa333d1f89c202477271407ae9a7f19afa52039cac8"),
-                FileSpec::plain("models/whisper/faster-whisper-tiny/tokenizer.json", "https://huggingface.co/Systran/faster-whisper-tiny/resolve/d90ca5fe260221311c53c58e660288d3deb8d356/tokenizer.json", 2_203_239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"),
-                FileSpec::plain("models/whisper/faster-whisper-tiny/vocabulary.txt", "https://huggingface.co/Systran/faster-whisper-tiny/resolve/d90ca5fe260221311c53c58e660288d3deb8d356/vocabulary.txt", 459_861, "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"),
-            ],
-        },
-        Component {
-            id: "whisper-base",
-            title: "Распознавание речи: Whisper base",
-            note: "лёгкая; понимает почти все языки мира",
-            requirement: Requirement::Optional,
-            variant_of: "asr",
-            files: &[
-                FileSpec::archive("downloads/whisper.zip", "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip", 87_654_143, "8150ad257fd8e46d817bb7e667260c2ce4c493d9e58973862e6409c592b44ba5", Extract::ZipFlat, "tools/whisper", "tools/whisper/whisper-faster.exe"),
-                FileSpec::plain("models/whisper/faster-whisper-base/model.bin", "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/model.bin", 145_217_532, "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9"),
-                FileSpec::plain("models/whisper/faster-whisper-base/config.json", "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/config.json", 2_309, "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a"),
-                FileSpec::plain("models/whisper/faster-whisper-base/tokenizer.json", "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/tokenizer.json", 2_203_239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"),
-                FileSpec::plain("models/whisper/faster-whisper-base/vocabulary.txt", "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/vocabulary.txt", 459_861, "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"),
-            ],
-        },
-        Component {
-            id: "whisper-small",
-            title: "Распознавание речи: Whisper small",
-            note: "средняя по весу и точности; понимает почти все языки мира",
-            requirement: Requirement::Optional,
-            variant_of: "asr",
-            files: &[
-                FileSpec::archive("downloads/whisper.zip", "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip", 87_654_143, "8150ad257fd8e46d817bb7e667260c2ce4c493d9e58973862e6409c592b44ba5", Extract::ZipFlat, "tools/whisper", "tools/whisper/whisper-faster.exe"),
-                FileSpec::plain("models/whisper/faster-whisper-small/model.bin", "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/model.bin", 483_546_902, "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671"),
-                FileSpec::plain("models/whisper/faster-whisper-small/config.json", "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/config.json", 2_370, "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828"),
-                FileSpec::plain("models/whisper/faster-whisper-small/tokenizer.json", "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/tokenizer.json", 2_203_239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"),
-                FileSpec::plain("models/whisper/faster-whisper-small/vocabulary.txt", "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/vocabulary.txt", 459_861, "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"),
-            ],
-        },
-        Component {
-            id: "whisper-medium",
-            title: "Распознавание речи: Whisper medium",
-            note: "точнее, тяжелее; понимает почти все языки мира",
-            requirement: Requirement::Optional,
-            variant_of: "asr",
-            files: &[
-                FileSpec::archive("downloads/whisper.zip", "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip", 87_654_143, "8150ad257fd8e46d817bb7e667260c2ce4c493d9e58973862e6409c592b44ba5", Extract::ZipFlat, "tools/whisper", "tools/whisper/whisper-faster.exe"),
-                FileSpec::plain("models/whisper/faster-whisper-medium/model.bin", "https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/model.bin", 1_527_906_378, "9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae"),
-                FileSpec::plain("models/whisper/faster-whisper-medium/config.json", "https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/config.json", 2_257, "3622a2ddc41ec0e0fd4e68c13c6830f03b90c38d89aaad184de02c8c642cf807"),
-                FileSpec::plain("models/whisper/faster-whisper-medium/tokenizer.json", "https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/tokenizer.json", 2_203_239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"),
-                FileSpec::plain("models/whisper/faster-whisper-medium/vocabulary.txt", "https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/vocabulary.txt", 459_861, "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"),
-            ],
-        },
-        Component {
-            id: "whisper-large-v3",
-            title: "Распознавание речи: Whisper large-v3",
-            note: "самая точная из Whisper; понимает почти все языки мира",
-            requirement: Requirement::Optional,
-            variant_of: "asr",
-            files: &[
-                FileSpec::archive("downloads/whisper.zip", "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip", 87_654_143, "8150ad257fd8e46d817bb7e667260c2ce4c493d9e58973862e6409c592b44ba5", Extract::ZipFlat, "tools/whisper", "tools/whisper/whisper-faster.exe"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3/model.bin", "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/model.bin", 3_087_284_237, "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3/config.json", "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/config.json", 2_394, "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3/preprocessor_config.json", "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/preprocessor_config.json", 340, "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3/tokenizer.json", "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/tokenizer.json", 2_480_617, "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3/vocabulary.json", "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/vocabulary.json", 1_068_114, "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"),
-            ],
-        },
-        Component {
-            id: "whisper-large-v3-turbo",
-            title: "Распознавание речи: Whisper large-v3 turbo",
-            note: "почти как large-v3, но в разы быстрее; понимает почти все языки мира",
-            requirement: Requirement::Optional,
-            variant_of: "asr",
-            files: &[
-                FileSpec::archive("downloads/whisper.zip", "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r192.3_windows.zip", 87_654_143, "8150ad257fd8e46d817bb7e667260c2ce4c493d9e58973862e6409c592b44ba5", Extract::ZipFlat, "tools/whisper", "tools/whisper/whisper-faster.exe"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/model.bin", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/model.bin", 1_617_884_929, "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/config.json", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/config.json", 2_263, "b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/preprocessor_config.json", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/preprocessor_config.json", 340, "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/tokenizer.json", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/tokenizer.json", 2_710_337, "297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd"),
-                FileSpec::plain("models/whisper/faster-whisper-large-v3-turbo/vocabulary.json", "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/vocabulary.json", 1_068_114, "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"),
+                FileSpec::plain("models/crisperwhisper2-turbo/LICENSE.md", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/LICENSE.md", 17_784, "42f43bf4dc72ef422f91f6ca143f4514e21a68b353940d99091c1addcd0aee79"),
+                FileSpec::plain("models/crisperwhisper2-turbo/README.md", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/README.md", 10_974, "ddc82a301a1b59035eefcc1a8b2ec90d56257104df7365b00493c58135a6b029"),
+                FileSpec::plain("models/crisperwhisper2-turbo/added_tokens.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/added_tokens.json", 35_319, "228ddf33a2c2b94033dc0fad8e7847b554b1c9f7d2054f5455ffd562b6a30dc7"),
+                FileSpec::plain("models/crisperwhisper2-turbo/config.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/config.json", 1_211, "9d823d0eacddfc5ee920fac73897abfd29fbecac7d9e49b5d8e7f0bd63a56144"),
+                FileSpec::plain("models/crisperwhisper2-turbo/generation_config.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/generation_config.json", 3_880, "e20fb70a44ce2b3cb3b2bbbea852e064638563b072719640a286d2a6865066e1"),
+                FileSpec::plain("models/crisperwhisper2-turbo/merges.txt", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/merges.txt", 493_869, "2df2990a395e35e8dfbc7511e08c12d56018d8d04691e0133e5d63b21e154dc6"),
+                FileSpec::plain("models/crisperwhisper2-turbo/model.safetensors", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/model.safetensors", 1_617_907_538, "0121a185b87ada7497f22dfbcd6c86b5f599b69dfcc8676e37f36447caf0b630"),
+                FileSpec::plain("models/crisperwhisper2-turbo/normalizer.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/normalizer.json", 52_666, "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd"),
+                FileSpec::plain("models/crisperwhisper2-turbo/preprocessor_config.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/preprocessor_config.json", 357, "654cf18d3e163b948ceaf9766da56ce0b52de265d58673cf61c9376f126bd499"),
+                FileSpec::plain("models/crisperwhisper2-turbo/special_tokens_map.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/special_tokens_map.json", 2_186, "baea4ea09372eb4fca86b4e4346139fd73cb807d5087e9de0948e971739c3e74"),
+                FileSpec::plain("models/crisperwhisper2-turbo/tokenizer.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/tokenizer.json", 3_937_105, "00e6dce8d06acafefaea8d5d1e57e89c69b3237d08ecbe2bf6eb7124e248bcde"),
+                FileSpec::plain("models/crisperwhisper2-turbo/tokenizer_config.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/tokenizer_config.json", 288_287, "3089ab61ce4745667a41e91620081cd3e7d61a9ae1f79fdf91b1bc8983916f4e"),
+                FileSpec::plain("models/crisperwhisper2-turbo/vocab.json", "https://huggingface.co/nyralabs/CrisperWhisper2.0_turbo/resolve/de0369c8a68025b7f6e86387b6eb5a3b369787c8/vocab.json", 835_528, "6788c80b082e9b0d1393147d3a3e62ba19285ac0c82ace8e5ef00f37ead58971"),
             ],
         },
         Component {
@@ -433,53 +411,35 @@ static COMPONENTS: &[Component] = &[
             variant_of: "",
             files: &[TCPP_CUDA, CUDART13, CUBLAS13],
         },
-        Component {
-            id: "whisper-cuda",
-            title: "Whisper на видеокарте",
-            note: "библиотеки CUDA 11 для Whisper; без них Whisper считает только на процессоре",
-            requirement: Requirement::Optional,
-            variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/whisper-cublas.zip", "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-11.11.3.6-archive.zip", 420_850_025, "67b0934a6359e4ee26fff823c356021589d392c4fd49ca12624f570edc08e2b9", Extract::ZipDlls, "tools/whisper", "tools/whisper/cublas64_11.dll"),
-                FileSpec::archive("downloads/whisper-cudnn.zip", "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-8.9.7.29_cuda11-archive.zip", 704_240_064, "5e45478efe71a96329e6c0d2a3a2f79c747c15b2a51fead4b84c89b02cbf1671", Extract::ZipDlls, "tools/whisper", "tools/whisper/cudnn64_8.dll"),
-            ],
-        },
     ];
 
 pub fn manifest() -> Vec<Component> {
     COMPONENTS.to_vec()
 }
 
-/// Какие настройки распознавания включает вариант: движок и его модель. Скачанный вариант сразу
-/// становится активным — иначе выбор на первом запуске ничего бы не менял.
 pub fn variant_selection(id: &str) -> Option<(&'static str, String)> {
     match id {
         "asr" => Some(("parakeet", "int8".into())),
         "asr-ultra" => Some(("parakeet", "ultra".into())),
-        other => other.strip_prefix("whisper-").filter(|model| WHISPER_MODELS.contains(model)).map(|model| ("whisper", model.to_string())),
+        "asr-crisperwhisper" => Some((crate::runtime::ASR_CRISPERWHISPER, String::new())),
+        _ => None,
     }
 }
 
-/// Модели Whisper в порядке показа.
-pub const WHISPER_MODELS: [&str; 6] = ["large-v3-turbo", "large-v3", "medium", "small", "base", "tiny"];
-
-/// Записать выбор варианта в настройки.
 pub fn select_variant(runtime: &mut crate::runtime::Runtime, id: &str) -> bool {
     let Some((engine, model)) = variant_selection(id) else { return false };
     runtime.asr_engine = engine.to_string();
-    if engine == "whisper" {
-        runtime.whisper_model = model;
-    } else {
+    if engine != crate::runtime::ASR_CRISPERWHISPER {
         runtime.asr_model = model;
     }
     true
 }
 
-/// Этот ли вариант сейчас выбран.
 pub fn variant_selected(runtime: &crate::runtime::Runtime, id: &str) -> bool {
+    let crisper = runtime.asr_engine == crate::runtime::ASR_CRISPERWHISPER;
     match variant_selection(id) {
-        Some(("whisper", model)) => runtime.asr_engine == "whisper" && runtime.whisper_model == model,
-        Some((_, model)) => runtime.asr_engine != "whisper" && runtime.asr_model == model,
+        Some((crate::runtime::ASR_CRISPERWHISPER, _)) => crisper,
+        Some((_, model)) => !crisper && runtime.asr_model == model,
         None => false,
     }
 }
@@ -489,19 +449,31 @@ pub fn parakeet_model(runtime: &crate::runtime::Runtime) -> &'static dub_tcpp::M
     dub_tcpp::chosen("parakeet", Some(&runtime.asr_model)).expect("Parakeet v3 и Ultra есть в dub_tcpp::MODELS")
 }
 
-/// Папки Parakeet на ONNX Runtime (0.13 и раньше) и сама onnxruntime: с transcribe.cpp их никто не читает.
-const RETIRED_ASR: [&str; 3] = ["models/asr", "models/asr-ultra", "models/runtime/onnxruntime-win-x64-1.28.2"];
+/// Прежние движки, которых никто больше не читает: Parakeet на ONNX Runtime (0.13 и раньше) с самой onnxruntime,
+/// faster-whisper с его моделями и библиотеками CUDA 11, библиотека голоса Higgs (голос — в audiocpp_server).
+const RETIRED_ASR: [&str; 6] = [
+    "models/asr",
+    "models/asr-ultra",
+    "models/runtime/onnxruntime-win-x64-1.28.2",
+    "tools/whisper",
+    "models/whisper",
+    "models/tts-engine/audiocpp_engine.dll",
+];
 
-/// Убрать папки [`RETIRED_ASR`], что остались от прежней версии.
+/// Убрать то из [`RETIRED_ASR`], что осталось от прежней версии.
 pub fn remove_retired_asr(root: &Path) {
     for rel in RETIRED_ASR {
-        let dir = root.join(rel);
-        if !dir.is_dir() {
+        let path = root.join(rel);
+        let removed = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else if path.is_file() {
+            std::fs::remove_file(&path)
+        } else {
             continue;
-        }
-        match std::fs::remove_dir_all(&dir) {
-            Ok(()) => tracing::info!("убрана прежняя модель распознавания {}", dir.display()),
-            Err(error) => tracing::warn!("не убрать прежнюю модель распознавания {}: {error}", dir.display()),
+        };
+        match removed {
+            Ok(()) => tracing::info!("убран прежний движок {}", path.display()),
+            Err(error) => tracing::warn!("не убрать прежний движок {}: {error}", path.display()),
         }
     }
 }
@@ -874,22 +846,21 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
     statuses
 }
 
-/// Нужна ли этой машине сборка: из сборок движка нужна одна — под её карту, а то, что считается только на CUDA
-/// (голос, распознавание на карте), без годной NVIDIA не нужно вовсе. Остальные компоненты нужны везде.
 fn fits_this_machine(id: &str, accel: crate::accel::Accel) -> bool {
     use crate::accel::Accel;
-    let narrator = match accel {
-        Accel::Cuda13 => "narrator-engine",
-        Accel::Cuda12 => "narrator-engine-cuda12",
-        Accel::Vulkan => "narrator-engine-vulkan",
-        Accel::Cpu => "narrator-engine-cpu",
+    let (narrator, voice) = match accel {
+        Accel::Cuda13 => ("narrator-engine", "voice-engine"),
+        Accel::Cuda12 => ("narrator-engine-cuda12", "voice-engine-cuda12"),
+        Accel::Vulkan => ("narrator-engine-vulkan", "voice-engine-vulkan"),
+        Accel::Cpu => ("narrator-engine-cpu", "voice-engine-cpu"),
     };
     match id {
         "narrator-engine" | "narrator-engine-cuda12" | "narrator-engine-vulkan" | "narrator-engine-cpu" => id == narrator,
+        "voice-engine" | "voice-engine-cuda12" | "voice-engine-vulkan" | "voice-engine-cpu" => id == voice,
         "image-engine" => accel.nvidia(),
         "image-engine-vulkan" => accel == Accel::Vulkan,
         _ if id.starts_with("image-") => accel != Accel::Cpu,
-        "voice-engine" | "voice-model" | "asr-gpu" => accel.nvidia(),
+        "asr-gpu" => accel.nvidia(),
         _ => true,
     }
 }

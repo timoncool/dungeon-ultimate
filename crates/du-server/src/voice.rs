@@ -14,24 +14,6 @@ use crate::state::AppState;
 
 type ApiResult<T> = Result<T, ApiError>;
 
-/// Где лежит программа Whisper. Раскладка та же, что у Dub Studio: распакованный пак
-/// кладёт `faster-whisper-xxl.exe` либо прямо в `tools/whisper`, либо в подкаталог.
-fn whisper_bin(root: &std::path::Path) -> std::path::PathBuf {
-    let dir = root.join("tools").join("whisper");
-    // Имя зависит от пака: обычная сборка кладёт `whisper-faster.exe`, XXL — свой файл в
-    // подкаталоге. Берём то, что реально лежит.
-    for candidate in [
-        dir.join("whisper-faster.exe"),
-        dir.join("faster-whisper-xxl.exe"),
-        dir.join("Faster-Whisper-XXL").join("faster-whisper-xxl.exe"),
-    ] {
-        if candidate.is_file() {
-            return candidate;
-        }
-    }
-    dir.join("whisper-faster.exe")
-}
-
 #[derive(serde::Deserialize)]
 pub struct AsrQuery {
     #[serde(default)]
@@ -115,24 +97,16 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
     }
     let runtime = crate::runtime::load(&state.root);
     let in_cloud = crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr);
-    let by_whisper = runtime.asr_engine.trim().eq_ignore_ascii_case("whisper");
+    let by_crisper = runtime.asr_engine.trim().eq_ignore_ascii_case(crate::runtime::ASR_CRISPERWHISPER);
     let models_root = state.root.join("models");
     let parakeet = crate::setup::parakeet_model(&runtime);
     let parakeet_path = dub_tcpp::model_path(&models_root, parakeet);
-    let whisper_bin = whisper_bin(&state.root);
-    let whisper_models = state.root.join("models").join("whisper");
+    let crisper_dir = models_root.join(crate::acpp::CRISPERWHISPER_DIR);
     if !in_cloud {
         // Выбранный вариант без файлов — ошибка с подсказкой, а не другой движок молча.
-        if by_whisper {
-            if !whisper_bin.is_file() {
-                return Err(ApiError::internal(UserError::WhisperBinMissing(whisper_bin.display().to_string())));
-            }
-            let model_dir = whisper_models.join(format!("faster-whisper-{}", runtime.whisper_model));
-            if !model_dir.join("model.bin").is_file() {
-                return Err(ApiError::internal(UserError::WhisperModelMissing {
-                    model: runtime.whisper_model.clone(),
-                    path: model_dir.display().to_string(),
-                }));
+        if by_crisper {
+            if !crisper_dir.join("model.safetensors").is_file() {
+                return Err(ApiError::internal(UserError::CrisperWhisperMissing(crisper_dir.display().to_string())));
             }
         } else if !parakeet_path.is_file() {
             return Err(ApiError::internal(UserError::ParakeetModelMissing(parakeet_path.display().to_string())));
@@ -154,42 +128,18 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                 let text = crate::cloud::transcribe(&root, &runtime, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-            let device = if by_whisper { crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr) } else { parakeet_device(&runtime, &root) };
+            let device = if by_crisper { crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr) } else { parakeet_device(&runtime, &root) };
             if !device.is_cpu() {
                 if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
                     return Err(problem);
                 }
             }
-            if !by_whisper {
+            if !by_crisper {
                 let models_root = root.join("models");
                 let text = parakeet_text(&models_root, parakeet, &parakeet_path, device, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-
-            use du_asr::AsrEngine as _;
-            let segments = {
-                // Whisper на видеокарте требует библиотек CUDA 11 рядом с программой: без них он
-                // упал бы, а молча считать на процессоре нельзя.
-                if !device.is_cpu() && !whisper_cuda_present(&whisper_bin) {
-                    return Err(UserError::WhisperCudaMissing);
-                }
-                du_asr::WhisperAsr::new(
-                    &whisper_bin,
-                    &whisper_models,
-                    runtime.whisper_model.clone(),
-                    // Веса int8 на обоих устройствах, на видеокарте активации в float16.
-                    if device.is_cpu() { "int8" } else { "int8_float16" },
-                    device.engine_name(),
-                )
-                .transcribe(&path, lang)
-            }
-            .map_err(|error| error.to_string())?;
-            let text = segments
-                .iter()
-                .map(|segment| segment.text.trim())
-                .filter(|text| !text.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let text = crisperwhisper_text(&root, device, &path, lang)?;
             Ok(json!({ "text": text }))
         }))
         .await;
@@ -202,10 +152,37 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
     Ok(Json(value?))
 }
 
-/// Лежат ли рядом с whisper-faster.exe библиотеки CUDA 11, которые он требует для видеокарты.
-fn whisper_cuda_present(bin: &std::path::Path) -> bool {
-    let dir = bin.parent().unwrap_or(std::path::Path::new("."));
-    dir.join("cublas64_11.dll").is_file() && dir.join("cudnn64_8.dll").is_file()
+/// Текст записи `wav` от CrisperWhisper в audiocpp_server, на языке игры. Сервер читает только WAV 16 кГц моно — запись
+/// окна перегоняется рядом. На видеокарте модель снимается с памяти сразу после разбора: карта нужна рассказчику.
+fn crisperwhisper_text(root: &std::path::Path, device: crate::backend::Backend, wav: &std::path::Path, lang: &str) -> Result<String, UserError> {
+    let (pcm, _) = du_asr::load_wav_16k_mono(wav).map_err(|error| error.to_string())?;
+    let mono = wav.with_extension("16k.wav");
+    let spec = hound::WavSpec { channels: 1, sample_rate: 16_000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+    {
+        let mut writer = hound::WavWriter::create(&mono, spec).map_err(|error| error.to_string())?;
+        for sample in &pcm {
+            writer.write_sample((sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16).map_err(|error| error.to_string())?;
+        }
+        writer.finalize().map_err(|error| error.to_string())?;
+    }
+    let server = crate::acpp::server(root, crate::acpp::CRISPERWHISPER, device.is_cpu());
+    let result = server.and_then(|server| {
+        let language = acpp_server::language::whisper_code(lang).map_err(UserError::Acpp)?;
+        let request = acpp_server::TranscribeRequest {
+            model: crate::acpp::CRISPERWHISPER.to_string(),
+            wav: mono.clone(),
+            language: Some(language.to_string()),
+            prompt: None,
+            options: serde_json::Map::new(),
+            within: None,
+        };
+        server.transcribe_details(&request).map_err(UserError::Acpp)
+    });
+    let _ = std::fs::remove_file(&mono);
+    if !device.is_cpu() {
+        crate::acpp::unload(&[crate::acpp::CRISPERWHISPER]);
+    }
+    Ok(result?.text.trim().to_string())
 }
 
 /// Голоса озвучки — по файлам эталонных клипов в каталоге голосов.

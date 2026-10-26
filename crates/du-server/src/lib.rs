@@ -5,6 +5,7 @@
 //! совпадения хватало, чтобы карта встала.
 
 pub mod accel;
+pub mod acpp;
 pub mod activity;
 pub mod assist;
 pub mod backend;
@@ -153,6 +154,7 @@ pub fn serve_blocking(root: &Path, port: u16) -> anyhow::Result<()> {
         du_llm::kill_orphans(&gpu::llama_dir(root, build));
     }
     accel::apply_saved_gpu(root);
+    du_llm::bind_children_to_this_process();
 
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {

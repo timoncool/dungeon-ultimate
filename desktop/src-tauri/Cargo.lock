@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "acpp-server"
+version = "2.0.0"
+source = "git+https://github.com/timoncool/dub-studio?rev=5440c78#5440c7833ed359431e5447a177b0af16a31a2723"
+dependencies = [
+ "base64 0.23.1",
+ "hound",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1216,6 +1230,7 @@ dependencies = [
 name = "du-server"
 version = "0.13.4"
 dependencies = [
+ "acpp-server",
  "anyhow",
  "async-stream",
  "audioadapter",
@@ -1229,7 +1244,6 @@ dependencies = [
  "du-llm",
  "du-prompts",
  "du-rpg",
- "du-tts",
  "dub-tcpp",
  "futures-util",
  "hound",
@@ -1258,19 +1272,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "du-tts"
-version = "0.13.4"
-dependencies = [
- "libloading 0.9.0",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "dub-tcpp"
 version = "2.0.0"
-source = "git+https://github.com/timoncool/dub-studio?rev=cf25033#cf25033698427813a9917e40d7b78c6521206e7c"
+source = "git+https://github.com/timoncool/dub-studio?rev=5440c78#5440c7833ed359431e5447a177b0af16a31a2723"
 dependencies = [
  "libloading 0.9.0",
 ]

@@ -14,8 +14,9 @@ du-image = { path = "../du-image" }
 du-prompts = { path = "../du-prompts" }
 du-asr = { path = "../du-asr" }
 # Parakeet на transcribe.cpp — та же привязка, что у Dub Studio, Speech Studio и музыкальных студий
-dub-tcpp = { git = "https://github.com/timoncool/dub-studio", rev = "cf25033" }
-du-tts = { path = "../du-tts" }
+dub-tcpp = { git = "https://github.com/timoncool/dub-studio", rev = "5440c78" }
+# Голос (Higgs) и CrisperWhisper — в audiocpp_server, тот же клиент, что у Dub Studio
+acpp-server = { git = "https://github.com/timoncool/dub-studio", rev = "5440c78" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

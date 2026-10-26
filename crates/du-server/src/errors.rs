@@ -87,7 +87,16 @@ pub enum UserError {
     VoiceMissing(String),
     NoVoices,
     TtsEngineMissing,
-    Tts(du_tts::EngineError),
+    /// audiocpp_server (голос и CrisperWhisper) не запустился или ответил ошибкой.
+    Acpp(acpp_server::AcppError),
+    /// Нет программы audiocpp_server этой машины.
+    AcppMissing(String),
+    /// Серверу не хватает библиотек CUDA, без которых Windows его не запустит.
+    AcppLibrariesMissing(String),
+    /// Выбран CrisperWhisper, а его модели нет.
+    CrisperWhisperMissing(String),
+    /// Нет весов голоса Higgs.
+    VoiceModelMissing(String),
     VoiceReference(String),
     TtsEmptyText,
     TtsNothing,
@@ -95,9 +104,6 @@ pub enum UserError {
     Image(du_image::ImageError),
     ImageNoFrame,
     AsrFailed(String),
-    WhisperBinMissing(String),
-    WhisperModelMissing { model: String, path: String },
-    WhisperCudaMissing,
     ParakeetModelMissing(String),
     /// Нет сборки transcribe.cpp; `gpu` — нужна была сборка для видеокарты.
     AsrEngineMissing { path: String, gpu: bool },
@@ -158,12 +164,18 @@ impl UserError {
             UserError::VoiceMissing(_) => "voice_missing",
             UserError::NoVoices => "no_voices",
             UserError::TtsEngineMissing => "tts_engine_missing",
-            UserError::Tts(error) => match error {
-                du_tts::EngineError::LibraryLoad(_) => "tts_engine_load",
-                du_tts::EngineError::Cancelled => "tts_cancelled",
-                du_tts::EngineError::Generation(_) => "tts_failed",
-                du_tts::EngineError::InvalidParam(_) => "tts_bad_param",
+            UserError::Acpp(error) => match error {
+                acpp_server::AcppError::Spawn { .. } | acpp_server::AcppError::NotReady { .. } | acpp_server::AcppError::Exited { .. } => {
+                    "acpp_start"
+                }
+                acpp_server::AcppError::Stalled { .. } => "acpp_stalled",
+                acpp_server::AcppError::Cancelled => "tts_cancelled",
+                _ => "acpp_failed",
             },
+            UserError::AcppMissing(_) => "acpp_missing",
+            UserError::AcppLibrariesMissing(_) => "acpp_libraries_missing",
+            UserError::CrisperWhisperMissing(_) => "crisperwhisper_missing",
+            UserError::VoiceModelMissing(_) => "voice_model_missing",
             UserError::VoiceReference(_) => "voice_reference",
             UserError::TtsEmptyText => "tts_empty_text",
             UserError::TtsNothing => "tts_nothing",
@@ -177,9 +189,6 @@ impl UserError {
             },
             UserError::ImageNoFrame => "image_no_frame",
             UserError::AsrFailed(_) => "asr_failed",
-            UserError::WhisperBinMissing(_) => "whisper_bin_missing",
-            UserError::WhisperModelMissing { .. } => "whisper_model_missing",
-            UserError::WhisperCudaMissing => "whisper_cuda_missing",
             UserError::ParakeetModelMissing(_) => "parakeet_model_missing",
             UserError::AsrEngineMissing { gpu: false, .. } => "asr_engine_missing",
             UserError::AsrEngineMissing { gpu: true, .. } => "asr_engine_gpu_missing",
@@ -231,13 +240,12 @@ impl UserError {
             UserError::Llm { error, .. } => llm_params(error, &mut put),
             UserError::TextModelMissing(path)
             | UserError::ImageWeightsMissing(path)
-            | UserError::WhisperBinMissing(path)
             | UserError::ParakeetModelMissing(path)
+            | UserError::AcppMissing(path)
+            | UserError::CrisperWhisperMissing(path)
+            | UserError::VoiceModelMissing(path)
             | UserError::AsrEngineMissing { path, .. } => put("path", json!(path)),
-            UserError::WhisperModelMissing { model, path } => {
-                put("model", json!(model));
-                put("path", json!(path));
-            }
+            UserError::AcppLibrariesMissing(files) => put("files", json!(files)),
             UserError::ParakeetCudaLibMissing { name, path } => {
                 put("name", json!(name));
                 put("path", json!(path));
@@ -273,12 +281,7 @@ impl UserError {
                 put("detail", json!(detail));
             }
             UserError::VoiceMissing(voice) => put("voice", json!(voice)),
-            UserError::Tts(error) => match error {
-                du_tts::EngineError::LibraryLoad(detail)
-                | du_tts::EngineError::Generation(detail)
-                | du_tts::EngineError::InvalidParam(detail) => put("detail", json!(detail)),
-                du_tts::EngineError::Cancelled => {}
-            },
+            UserError::Acpp(error) => put("detail", json!(error.to_string())),
             UserError::Image(error) => match error {
                 du_image::ImageError::LibraryMissing(path) => put("path", json!(path.display().to_string())),
                 du_image::ImageError::Library { dll, detail } => put("detail", json!(format!("{dll}: {detail}"))),
@@ -417,7 +420,21 @@ impl fmt::Display for UserError {
                 "голосов для озвучки нет: поставьте «Пак голосов» в Настройках → Модели или добавьте свой голос",
             ),
             UserError::TtsEngineMissing => f.write_str("движок озвучки не установлен"),
-            UserError::Tts(error) => write!(f, "{error}"),
+            UserError::Acpp(acpp_server::AcppError::Cancelled) => f.write_str("озвучка отменена"),
+            UserError::Acpp(error) => write!(f, "сервер голоса и распознавания: {error}"),
+            UserError::AcppMissing(path) => write!(
+                f,
+                "нет сервера голоса и распознавания ({path}) — скачайте «Программа озвучки» в «Что скачать»"
+            ),
+            UserError::AcppLibrariesMissing(files) => write!(
+                f,
+                "серверу голоса и распознавания не хватает библиотек CUDA ({files}) — скачайте «Программа озвучки» в «Что скачать» заново"
+            ),
+            UserError::CrisperWhisperMissing(path) => write!(
+                f,
+                "выбран CrisperWhisper, но его модели нет в {path} — скачайте её в «Что скачать» или выберите Parakeet"
+            ),
+            UserError::VoiceModelMissing(path) => write!(f, "нет модели голоса ({path}) — скачайте «Голос» в «Что скачать»"),
             UserError::VoiceReference(detail) => write!(f, "не удалось подготовить эталон голоса: {detail}"),
             UserError::TtsEmptyText => f.write_str("пустой текст для озвучки"),
             UserError::TtsNothing => f.write_str("нечего озвучивать"),
@@ -428,16 +445,6 @@ impl fmt::Display for UserError {
             UserError::Image(error) => write!(f, "движок картинок: {error}"),
             UserError::ImageNoFrame => f.write_str("движок не вернул кадр"),
             UserError::AsrFailed(detail) => write!(f, "Parakeet не распознал запись: {detail}"),
-            UserError::WhisperBinMissing(path) => write!(
-                f,
-                "выбран Whisper, но его программы нет в {path} — скачайте вариант Whisper в «Что скачать» или выберите Parakeet"
-            ),
-            UserError::WhisperModelMissing { model, path } => {
-                write!(f, "выбран Whisper {model}, но модели нет в {path} — скачайте её в «Что скачать»")
-            }
-            UserError::WhisperCudaMissing => f.write_str(
-                "Whisper должен считать на видеокарте, но библиотек CUDA для него нет — скачайте «Whisper на видеокарте» в «Что скачать» или переключите распознавание на процессор",
-            ),
             UserError::ParakeetModelMissing(path) => write!(
                 f,
                 "нет модели распознавания {path} — либо скачайте её в «Что скачать», либо включите облако"
@@ -512,11 +519,6 @@ impl From<du_llm::LlmError> for UserError {
     }
 }
 
-impl From<du_tts::EngineError> for UserError {
-    fn from(error: du_tts::EngineError) -> Self {
-        UserError::Tts(error)
-    }
-}
 
 impl From<du_image::ImageError> for UserError {
     fn from(error: du_image::ImageError) -> Self {
@@ -584,10 +586,14 @@ mod tests {
             UserError::VoiceMissing("x".into()),
             UserError::NoVoices,
             UserError::TtsEngineMissing,
-            UserError::Tts(du_tts::EngineError::LibraryLoad("x".into())),
-            UserError::Tts(du_tts::EngineError::Cancelled),
-            UserError::Tts(du_tts::EngineError::Generation("x".into())),
-            UserError::Tts(du_tts::EngineError::InvalidParam("x".into())),
+            UserError::Acpp(acpp_server::AcppError::NotReady { secs: 1, log: "x".into() }),
+            UserError::Acpp(acpp_server::AcppError::Stalled { secs: 1 }),
+            UserError::Acpp(acpp_server::AcppError::Cancelled),
+            UserError::Acpp(acpp_server::AcppError::Protocol("x".into())),
+            UserError::AcppMissing("x".into()),
+            UserError::AcppLibrariesMissing("x".into()),
+            UserError::CrisperWhisperMissing("x".into()),
+            UserError::VoiceModelMissing("x".into()),
             UserError::VoiceReference("x".into()),
             UserError::TtsEmptyText,
             UserError::TtsNothing,
@@ -599,9 +605,6 @@ mod tests {
             UserError::Image(du_image::ImageError::GenerationFailed("x".into())),
             UserError::ImageNoFrame,
             UserError::AsrFailed("x".into()),
-            UserError::WhisperBinMissing("x".into()),
-            UserError::WhisperModelMissing { model: "x".into(), path: "x".into() },
-            UserError::WhisperCudaMissing,
             UserError::ParakeetModelMissing("x".into()),
             UserError::AsrEngineMissing { path: "x".into(), gpu: false },
             UserError::AsrEngineMissing { path: "x".into(), gpu: true },
@@ -657,7 +660,11 @@ mod tests {
                 | UserError::VoiceMissing(_)
                 | UserError::NoVoices
                 | UserError::TtsEngineMissing
-                | UserError::Tts(_)
+                | UserError::Acpp(_)
+                | UserError::AcppMissing(_)
+                | UserError::AcppLibrariesMissing(_)
+                | UserError::CrisperWhisperMissing(_)
+                | UserError::VoiceModelMissing(_)
                 | UserError::VoiceReference(_)
                 | UserError::TtsEmptyText
                 | UserError::TtsNothing
@@ -665,9 +672,6 @@ mod tests {
                 | UserError::Image(_)
                 | UserError::ImageNoFrame
                 | UserError::AsrFailed(_)
-                | UserError::WhisperBinMissing(_)
-                | UserError::WhisperModelMissing { .. }
-                | UserError::WhisperCudaMissing
                 | UserError::ParakeetModelMissing(_)
                 | UserError::AsrEngineMissing { .. }
                 | UserError::ParakeetCudaLibMissing { .. }

@@ -111,7 +111,7 @@ pub struct Gpu {
     text: Mutex<Option<LlamaServer>>,
     /// Движок озвучки держим загруженным между ходами: его загрузка занимает секунды, и
     /// платить их на каждой реплике незачем. Освобождается, когда карта нужна картинке.
-    speech: Mutex<Option<Arc<du_tts::AudiocppEngine>>>,
+    speech: Mutex<Option<Arc<acpp_server::Server>>>,
     resident: Mutex<Resident>,
 }
 
@@ -207,53 +207,34 @@ impl Gpu {
         }
     }
 
-    /// Загруженный движок озвучки. Первый вызов грузит веса, дальше отдаётся тот же.
-    pub fn speech_engine(&self) -> Result<Arc<du_tts::AudiocppEngine>, UserError> {
+    /// Сервер голоса (audiocpp_server с Higgs). Первая фраза грузит веса, дальше говорит тот же сервер.
+    pub fn speech_engine(&self) -> Result<Arc<acpp_server::Server>, UserError> {
         {
             let speech = self.speech.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(engine) = speech.as_ref() {
-                return Ok(engine.clone());
+            if let Some(server) = speech.as_ref().filter(|server| server.alive()) {
+                return Ok(server.clone());
             }
         }
-        // Движок голоса собран только под CUDA: на AMD, Intel и без карты он не загрузится.
         let runtime = crate::runtime::load(&self.root);
-        if !crate::accel::accel(&runtime).nvidia() {
-            return Err(UserError::NeedsNvidia(crate::errors::CloudStage::Tts));
-        }
-        if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
-            return Err(problem);
-        }
-        let dll = self.root.join("models").join("tts-engine").join("audiocpp_engine.dll");
-        let model_root = self.root.join("models").join("tts");
-        if !dll.is_file() {
-            return Err(UserError::TtsEngineMissing);
-        }
-        dub_tcpp::cpu_floor("Higgs").map_err(UserError::CpuFloor)?;
+        let on_cpu = crate::backend::stage_backend(&runtime, crate::backend::Stage::Tts).is_cpu();
+        let server = crate::acpp::server(&self.root, crate::acpp::HIGGS, on_cpu)?;
         // Голосу нужна карта — значит текстовая модель с неё уходит. Без этого Гемма на 8 ГБ
         // и голос на 4 ГБ жили на карте одновременно, всё упиралось в память и ход занимал
         // одиннадцать минут вместо десятков секунд. Кадр так делал давно, озвучка — нет.
-        self.release_text();
+        if !on_cpu {
+            self.release_text();
+        }
         *self.resident.lock().unwrap_or_else(|e| e.into_inner()) = Resident::Speech;
-
-        let engine = du_tts::AudiocppEngine::load(&dll)?;
-        engine
-            .load_model(
-                &model_root,
-                crate::backend::stage_backend(&runtime, crate::backend::Stage::Tts).engine_name(),
-                0,
-                8,
-                None,
-            )?;
-        let engine = Arc::new(engine);
-        *self.speech.lock().unwrap_or_else(|e| e.into_inner()) = Some(engine.clone());
-        Ok(engine)
+        *self.speech.lock().unwrap_or_else(|e| e.into_inner()) = Some(server.clone());
+        Ok(server)
     }
 
-    /// Освободить карту от озвучки.
+    /// Освободить карту от озвучки: веса Higgs уходят с памяти, сам сервер остаётся до следующей фразы.
     fn release_speech(&self) {
         let mut speech = self.speech.lock().unwrap_or_else(|e| e.into_inner());
         if speech.take().is_some() {
-            tracing::info!("освобождаю карту: выгружаю движок озвучки");
+            tracing::info!("освобождаю карту: выгружаю голос");
+            crate::acpp::unload(&[crate::acpp::HIGGS]);
         }
         let mut resident = self.resident.lock().unwrap_or_else(|e| e.into_inner());
         if *resident == Resident::Speech {

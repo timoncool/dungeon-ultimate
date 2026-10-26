@@ -12,7 +12,7 @@ pub use client::{
     EmptyStream, Effort, Reasoning, chat_endpoint, parse_json_lenient, ChatClient, Message, Part, Sampling};
 pub mod tools;
 pub use tools::{Tool, ToolCall};
-pub use server::{kill_orphans, resolve_llama_bin, LlamaServer, ServerOpts};
+pub use server::{bind_children_to_this_process, kill_orphans, resolve_llama_bin, LlamaServer, ServerOpts};
 
 /// Ошибки текстовой модели. Тексты — для журнала и статистики; окно игрока переводит их по
 /// виду ошибки и её полям.

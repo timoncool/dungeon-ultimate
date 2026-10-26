@@ -314,6 +314,26 @@ pub fn kill_orphans(tools_dir: &Path) {
     }
 }
 
+/// Положить в задание сам процесс игры: каждый его будущий ребёнок (рассказчик, audiocpp_server) наследует задание
+/// и умирает вместе с игрой, даже если его запускал чужой крейт.
+#[cfg(windows)]
+pub fn bind_children_to_this_process() {
+    use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let job = job_handle();
+    if job == 0 {
+        return;
+    }
+    let ok = unsafe { AssignProcessToJobObject(job, GetCurrentProcess()) };
+    if ok == 0 {
+        tracing::warn!("игру не удалось положить в задание: её дочерние процессы переживут её");
+    }
+}
+
+#[cfg(not(windows))]
+pub fn bind_children_to_this_process() {}
+
 /// Задание, в котором живут все запущенные нами модели.
 ///
 /// Одно на процесс: система закрывает его дескриптор при нашей смерти — и убивает всё, что

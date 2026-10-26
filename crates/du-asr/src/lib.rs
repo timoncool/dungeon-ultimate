@@ -1,9 +1,7 @@
-//! Распознавание речи для голосового ввода: Whisper (faster-whisper сабпроцессом) за общим [`AsrEngine`];
-//! Parakeet считает transcribe.cpp через `dub-tcpp` прямо в du-server. Входной WAV приводится к 16 кГц моно здесь.
+//! Запись голосового ввода для распознавания: Parakeet считает transcribe.cpp через `dub-tcpp`, CrisperWhisper —
+//! audiocpp_server, оба прямо из du-server. Входной WAV приводится к 16 кГц моно здесь.
 
 mod segment;
-mod whisper;
-pub use whisper::WhisperAsr;
 
 pub use segment::{segment_words, Segment, Word, SEG_MAX_GAP, SEG_MAX_DUR};
 

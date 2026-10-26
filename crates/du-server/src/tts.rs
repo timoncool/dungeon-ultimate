@@ -70,9 +70,9 @@ fn no_voice(voice: &str) -> UserError {
     }
 }
 
-/// Озвучить ОДНУ фразу уже загруженным движком и записать клип. Возвращает адрес клипа.
+/// Озвучить ОДНУ фразу сервером голоса и записать клип. Возвращает адрес клипа.
 pub fn speak_sentence(
-    engine: &du_tts::AudiocppEngine,
+    server: &acpp_server::Server,
     generated: &std::path::Path,
     reference: &std::path::Path,
     transcript: Option<&str>,
@@ -89,10 +89,40 @@ pub fn speak_sentence(
     if playable_wav(&path) {
         return Ok(url);
     }
-    let (samples, rate) = engine.voice_clone(sentence, &reference.to_string_lossy(), transcript, "{}")?;
-    let wav = du_tts::AudiocppEngine::encode_wav(&samples, rate, 1);
-    std::fs::write(&path, wav).map_err(|error| error.to_string())?;
+    let request = acpp_server::SpeechRequest {
+        model: crate::acpp::HIGGS.to_string(),
+        input: sentence.to_string(),
+        voice_ref: Some(acpp_server::VoiceRef::Path(reference.to_path_buf())),
+        reference_text: transcript.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string),
+        language: None,
+        options: serde_json::Map::new(),
+        stall: SPEECH_STALL,
+    };
+    let speech = match server.speech(&request, &std::sync::atomic::AtomicBool::new(false)) {
+        Ok(speech) => speech,
+        Err(error @ acpp_server::AcppError::Stalled { .. }) => {
+            // зависший сервер следующей фразе не ответит: её поднимет новый
+            crate::acpp::stop();
+            return Err(UserError::Acpp(error));
+        }
+        Err(error) => return Err(UserError::Acpp(error)),
+    };
+    write_wav(&path, &speech.samples, speech.sample_rate)?;
     Ok(url)
+}
+
+/// Сколько сервер может молчать посреди фразы, прежде чем фраза считается зависшей.
+const SPEECH_STALL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Клип: WAV 16 бит моно — его играют и окно, и проверка `playable_wav`.
+fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) -> Result<(), UserError> {
+    let spec = hound::WavSpec { channels: 1, sample_rate: rate, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+    let mut writer = hound::WavWriter::create(path, spec).map_err(|error| error.to_string())?;
+    for sample in samples {
+        writer.write_sample((sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16).map_err(|error| error.to_string())?;
+    }
+    writer.finalize().map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Эталонный клип голоса, готовый к передаче движку.
@@ -234,7 +264,7 @@ pub fn synthesize_streaming(
     let sentences = split_sentences(text);
     let mut first: Option<String> = None;
     // Движок голоса один на игру и живёт в `Gpu`: он же освобождает карту от рассказчика.
-    let mut engine: Option<std::sync::Arc<du_tts::AudiocppEngine>> = None;
+    let mut engine: Option<std::sync::Arc<acpp_server::Server>> = None;
 
     for (index, sentence) in sentences.iter().enumerate() {
         let name = format!("tts-{}-{index}-{}.wav", safe_name(key, 80), text_mark(sentence));

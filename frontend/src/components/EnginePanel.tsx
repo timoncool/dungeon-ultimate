@@ -19,7 +19,6 @@ type Runtime = {
   asrBackend: string;
   asrEngine: string;
   asrModel: string;
-  whisperModel: string;
   narratorCtx: number;
   narratorGpuLayers: number;
   imageSteps: number;
@@ -56,11 +55,7 @@ type Setup = { components: Array<{ id: string; present: boolean }> };
 const ASR_VARIANTS: Array<{ id: string; engine: string; model: string }> = [
   { id: "asr", engine: "parakeet", model: "int8" },
   { id: "asr-ultra", engine: "parakeet", model: "ultra" },
-  ...["large-v3-turbo", "large-v3", "medium", "small", "base", "tiny"].map((model) => ({
-    id: `whisper-${model}`,
-    engine: "whisper",
-    model,
-  })),
+  { id: "asr-crisperwhisper", engine: "crisperwhisper", model: "" },
 ];
 
 type CloudVoice = { name: string; gender: string; age: string; ru: boolean };
@@ -661,14 +656,14 @@ export default function EnginePanel() {
                             value={
                               ASR_VARIANTS.find((variant) =>
                                 variant.engine === (runtime.asrEngine || "parakeet") &&
-                                variant.model === (variant.engine === "whisper" ? runtime.whisperModel : runtime.asrModel || "int8"),
+                                (variant.engine === "crisperwhisper" || variant.model === (runtime.asrModel || "int8")),
                               )?.id ?? "asr"
                             }
                             onChange={(event) => {
                               const variant = ASR_VARIANTS.find((v) => v.id === event.target.value);
                               if (!variant) return;
-                              const next = (variant.engine === "whisper"
-                                ? { asrEngine: "whisper", whisperModel: variant.model }
+                              const next = (variant.engine === "crisperwhisper"
+                                ? { asrEngine: "crisperwhisper" }
                                 : { asrEngine: "parakeet", asrModel: variant.model }) as Partial<Runtime>;
                               setRuntime((current) => (current ? { ...current, ...next } : current));
                               void save(next);
@@ -681,7 +676,7 @@ export default function EnginePanel() {
                                   ? panel.asrParakeet
                                   : variant.id === "asr-ultra"
                                     ? panel.asrUltra
-                                    : panel.asrWhisperModel.replace("{model}", variant.model)}
+                                    : panel.asrCrisperWhisper}
                                 {installed.has(variant.id) ? "" : panel.notDownloaded}
                               </option>
                             ))}

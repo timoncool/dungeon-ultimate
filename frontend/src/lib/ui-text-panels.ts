@@ -84,7 +84,7 @@ export type PanelText = {
   googleKeyFromEnv: string;
   asrVariant: string;
   asrUltra: string;
-  asrWhisperModel: string;
+  asrCrisperWhisper: string;
   notDownloaded: string;
   hubNotices: string;
   hubClose: string;
@@ -203,7 +203,7 @@ const RU: PanelText = {
   googleKeyFromEnv: "задан переменной GEMINI_API_KEY",
   asrVariant: "Чем распознавать речь",
   asrUltra: "Parakeet Ultra — точнее на тех же 25 языках",
-  asrWhisperModel: "Whisper {model} — понимает почти все языки мира",
+  asrCrisperWhisper: "CrisperWhisper — понимает почти все языки мира, пишет дословно",
   notDownloaded: " — не скачан",
   hubNotices: "Объявления",
   hubClose: "Закрыть",
@@ -321,7 +321,7 @@ const EN: PanelText = {
   googleKeyFromEnv: "set by the GEMINI_API_KEY variable",
   asrVariant: "How speech is recognised",
   asrUltra: "Parakeet Ultra — more precise on the same 25 languages",
-  asrWhisperModel: "Whisper {model} — understands almost every language",
+  asrCrisperWhisper: "CrisperWhisper — understands almost every language, writes verbatim",
   notDownloaded: " — not downloaded",
   hubNotices: "Notices",
   hubClose: "Close",
@@ -439,7 +439,7 @@ const ES: PanelText = {
   googleKeyFromEnv: "definida en la variable GEMINI_API_KEY",
   asrVariant: "Cómo se reconoce la voz",
   asrUltra: "Parakeet Ultra: más preciso en los mismos 25 idiomas",
-  asrWhisperModel: "Whisper {model}: entiende casi todos los idiomas",
+  asrCrisperWhisper: "CrisperWhisper: entiende casi todos los idiomas, transcribe literal",
   notDownloaded: " (sin descargar)",
   hubNotices: "Avisos",
   hubClose: "Cerrar",
@@ -557,7 +557,7 @@ const FR: PanelText = {
   googleKeyFromEnv: "définie par la variable GEMINI_API_KEY",
   asrVariant: "Comment la parole est reconnue",
   asrUltra: "Parakeet Ultra — plus précis sur les mêmes 25 langues",
-  asrWhisperModel: "Whisper {model} — comprend presque toutes les langues",
+  asrCrisperWhisper: "CrisperWhisper — comprend presque toutes les langues, transcrit mot à mot",
   notDownloaded: " — pas téléchargé",
   hubNotices: "Annonces",
   hubClose: "Fermer",
@@ -675,7 +675,7 @@ const DE: PanelText = {
   googleKeyFromEnv: "über die Variable GEMINI_API_KEY gesetzt",
   asrVariant: "Womit Sprache erkannt wird",
   asrUltra: "Parakeet Ultra — genauer bei denselben 25 Sprachen",
-  asrWhisperModel: "Whisper {model} — versteht fast alle Sprachen",
+  asrCrisperWhisper: "CrisperWhisper — versteht fast alle Sprachen, schreibt wörtlich mit",
   notDownloaded: " — nicht geladen",
   hubNotices: "Hinweise",
   hubClose: "Schließen",
@@ -793,7 +793,7 @@ const ZH: PanelText = {
   googleKeyFromEnv: "由环境变量 GEMINI_API_KEY 提供",
   asrVariant: "用什么识别语音",
   asrUltra: "Parakeet Ultra——同样 25 种语言，更准",
-  asrWhisperModel: "Whisper {model}——几乎能听懂所有语言",
+  asrCrisperWhisper: "CrisperWhisper——几乎能听懂所有语言，逐字转写",
   notDownloaded: "（未下载）",
   hubNotices: "通知",
   hubClose: "关闭",
@@ -911,7 +911,7 @@ const JA: PanelText = {
   googleKeyFromEnv: "環境変数 GEMINI_API_KEY で設定済み",
   asrVariant: "音声を何で認識するか",
   asrUltra: "Parakeet Ultra——同じ25言語でより正確",
-  asrWhisperModel: "Whisper {model}——ほぼすべての言語がわかる",
+  asrCrisperWhisper: "CrisperWhisper——ほぼすべての言語がわかり、そのまま書き取る",
   notDownloaded: "（未ダウンロード）",
   hubNotices: "お知らせ",
   hubClose: "閉じる",

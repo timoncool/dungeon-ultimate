@@ -9,7 +9,6 @@ members = [
     "crates/du-prompts",
     "crates/du-server",
     "crates/du-asr",
-    "crates/du-tts",
 ]
 # Оболочка Tauri — отдельная единица сборки (тяжёлое дерево tauri), собирается своим
 # `npx tauri build`, не тянется в `cargo build --workspace`.
