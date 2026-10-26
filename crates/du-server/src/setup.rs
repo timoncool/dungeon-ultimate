@@ -41,12 +41,12 @@ pub enum Extract {
     None,
     /// Zip распаковывается ПЛОСКО в каталог назначения: паки приходят и с папкой внутри,
     /// и без неё, а раскладка должна получаться одинаковая.
-    ZipFlat,
+    Flat,
     /// Zip распаковывается с сохранением поддерева.
-    ZipTree,
+    Tree,
     /// Из zip берутся только библиотеки `.dll`, плоско: архивы NVIDIA несут ещё заголовки и
     /// `.lib`, которые рядом с программой не нужны.
-    ZipDlls,
+    Libs,
 }
 
 /// Один скачиваемый файл компонента.
@@ -143,13 +143,13 @@ impl Component {
 
 /// Рантайм CUDA 13 и cuBLAS 13 из колёс NVIDIA: их импортируют движок озвучки и сборка transcribe.cpp под
 /// видеокарту, путь один, поэтому файлы качаются один раз на оба компонента.
-const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
+const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::Libs, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
 // cuFFT 12 — третья библиотека CUDA 13, которую импортирует audiocpp_server (cudart в нём слинкован статически)
-const CUFFT12: FileSpec = FileSpec::archive("downloads/tts-cufft.zip", "https://developer.download.nvidia.com/compute/cuda/redist/libcufft/windows-x86_64/libcufft-windows-x86_64-12.4.0.43-archive.zip", 159_602_693, "69d0ad8dc3a1be66f01a748a8206d0ceaafa56939474663fbe790dc3e91d2009", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cufft64_12.dll");
+const CUFFT12: FileSpec = FileSpec::archive("downloads/tts-cufft.zip", "https://developer.download.nvidia.com/compute/cuda/redist/libcufft/windows-x86_64/libcufft-windows-x86_64-12.4.0.43-archive.zip", 159_602_693, "69d0ad8dc3a1be66f01a748a8206d0ceaafa56939474663fbe790dc3e91d2009", Extract::Libs, "models/tts-engine", "models/tts-engine/cufft64_12.dll");
 
 /// Сборка audiocpp_server (голос Higgs и CrisperWhisper) — архив релиза, закреплённый в крейте `acpp-server`.
 const fn audiocpp(asset: acpp_server::asset::Asset, download: &'static str, dir: &'static str, marker: &'static str) -> FileSpec {
-    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::ZipFlat, dir, marker)
+    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::Flat, dir, marker)
 }
 const AUDIOCPP_CUDA13: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CUDA13, "downloads/audiocpp.zip", "tools/audiocpp", "tools/audiocpp/audiocpp_server.exe");
 const AUDIOCPP_CUDA12: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CUDA12, "downloads/audiocpp-cuda12.zip", "tools/audiocpp-cuda12", "tools/audiocpp-cuda12/audiocpp_server.exe");
@@ -158,13 +158,13 @@ const AUDIOCPP_CPU: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CPU, "dow
 
 /// CUDA 12.9 для сборки сервера под CUDA 12 (колёса PyPI, их `.dll` раскладываются плоско) — те же файлы и папка, что у Dub.
 const fn cuda12_runtime(asset: acpp_server::asset::Asset, download: &'static str, marker: &'static str) -> FileSpec {
-    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::ZipDlls, "models/cuda12-runtime", marker)
+    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::Libs, "models/cuda12-runtime", marker)
 }
 const CUDA12_CUDART: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[0], "downloads/cuda12-cudart.whl", "models/cuda12-runtime/cudart64_12.dll");
 const CUDA12_CUBLAS: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[1], "downloads/cuda12-cublas.whl", "models/cuda12-runtime/cublas64_12.dll");
 const CUDA12_CUFFT: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[2], "downloads/cuda12-cufft.whl", "models/cuda12-runtime/cufft64_11.dll");
 
-const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::ZipDlls, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
+const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::Libs, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
 
 /// Сборки transcribe.cpp (видеокарта и процессор) в папках и с файлами Dub Studio: процессорная идёт с моделью,
 /// видеокарточная — отдельным компонентом `asr-gpu`.
@@ -193,8 +193,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/sd-engine.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-cuda12-x64.zip", 337_974_452, "144b9631bf2eeb9bf6bf7f148cf40aaf05739ce7c49d3ac0ec2ddf6b65765d69", Extract::ZipFlat, "models/runtime/sd", "models/runtime/sd/stable-diffusion.dll"),
-                FileSpec::archive("downloads/sd-cuda.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/cudart-sd-bin-win-cu12-x64.zip", 563_452_046, "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d", Extract::ZipFlat, "models/runtime/sd", "models/runtime/sd/cudart64_12.dll"),
+                FileSpec::archive("downloads/sd-engine.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-cuda12-x64.zip", 337_974_452, "144b9631bf2eeb9bf6bf7f148cf40aaf05739ce7c49d3ac0ec2ddf6b65765d69", Extract::Flat, "models/runtime/sd", "models/runtime/sd/stable-diffusion.dll"),
+                FileSpec::archive("downloads/sd-cuda.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/cudart-sd-bin-win-cu12-x64.zip", 563_452_046, "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d", Extract::Flat, "models/runtime/sd", "models/runtime/sd/cudart64_12.dll"),
             ],
         },
         Component {
@@ -204,7 +204,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/sd-engine-vulkan.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-vulkan-x64.zip", 30_123_908, "9e8b9baff514fe5dfb77e51bf08d85f11e6f10128eac14d4474c87f563309725", Extract::ZipFlat, "models/runtime/sd-vulkan", "models/runtime/sd-vulkan/stable-diffusion.dll"),
+                FileSpec::archive("downloads/sd-engine-vulkan.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-vulkan-x64.zip", 30_123_908, "9e8b9baff514fe5dfb77e51bf08d85f11e6f10128eac14d4474c87f563309725", Extract::Flat, "models/runtime/sd-vulkan", "models/runtime/sd-vulkan/stable-diffusion.dll"),
             ],
         },
         Component {
@@ -254,8 +254,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-13.4-x64.zip", 164_721_212, "0d75ad36367da00622c146a97e82fac3dcfcbe960afc2f0234eef026886b16f6", Extract::ZipFlat, "tools/llama", "tools/llama/llama-server.exe"),
-                FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::ZipFlat, "tools/llama", "tools/llama/cudart64_13.dll"),
+                FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-13.4-x64.zip", 164_721_212, "0d75ad36367da00622c146a97e82fac3dcfcbe960afc2f0234eef026886b16f6", Extract::Flat, "tools/llama", "tools/llama/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::Flat, "tools/llama", "tools/llama/cudart64_13.dll"),
             ],
         },
         Component {
@@ -265,8 +265,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-12.4-x64.zip", 279_417_051, "387ad76c926cdb301971851a11df018165a7b4df4b1b7c64cf4b09a367ec82bc", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
-                FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
+                FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-12.4-x64.zip", 279_417_051, "387ad76c926cdb301971851a11df018165a7b4df4b1b7c64cf4b09a367ec82bc", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
             ],
         },
         Component {
@@ -276,7 +276,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-vulkan-x64.zip", 37_051_563, "baf0183b1906d7cc0cfe9a0bd3fae34ceb4048acecc371ff3b7a91456783d051", Extract::ZipFlat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
+                FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-vulkan-x64.zip", 37_051_563, "baf0183b1906d7cc0cfe9a0bd3fae34ceb4048acecc371ff3b7a91456783d051", Extract::Flat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
             ],
         },
         Component {
@@ -286,7 +286,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cpu-x64.zip", 24_228_419, "d3bbbbb7d1b4979b72052fd73cdeeb5a4d5a4e6a3f52aeb40abd6f116558e323", Extract::ZipFlat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cpu-x64.zip", 24_228_419, "d3bbbbb7d1b4979b72052fd73cdeeb5a4d5a4e6a3f52aeb40abd6f116558e323", Extract::Flat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
             ],
         },
         Component {
@@ -354,7 +354,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Recommended,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/voice-pack.zip", "https://huggingface.co/datasets/nerualdreming/VibeVoice/resolve/5c884b3cbdc932c39a5167951c4072120e1a0310/voice-pack.zip", 104_685_334, "682e73c189dbe9bc66fc35bc8fb29438641155957a917a7cc914f2f176a65264", Extract::ZipFlat, "models/voices", "models/voices"),
+                FileSpec::archive("downloads/voice-pack.zip", "https://huggingface.co/datasets/nerualdreming/VibeVoice/resolve/5c884b3cbdc932c39a5167951c4072120e1a0310/voice-pack.zip", 104_685_334, "682e73c189dbe9bc66fc35bc8fb29438641155957a917a7cc914f2f176a65264", Extract::Flat, "models/voices", "models/voices"),
             ],
         },
         Component {
@@ -779,8 +779,13 @@ fn verify_sha256(part: &Path, spec: &FileSpec, abort: &AtomicBool) -> Result<(),
         .map_err(|error| format!("прочитать {}: {error}", part.display()))?
         .ok_or_else(|| "отменено".to_string())?;
     if got != spec.sha256 {
-        let _ = std::fs::remove_file(part);
-        let _ = std::fs::remove_file(done_path(&part.with_extension("")));
+        for path in [part.to_path_buf(), done_path(&part.with_extension(""))] {
+            if let Err(error) = std::fs::remove_file(&path) {
+                if path.exists() {
+                    tracing::warn!("не убрать испорченную закачку {}: {error}", path.display());
+                }
+            }
+        }
         return Err(format!(
             "{}: контрольная сумма не совпала (ждали {}, получили {got}) — файл удалён, скачайте заново",
             spec.path, spec.sha256
@@ -1019,12 +1024,11 @@ fn download_range(
             Ok(()) if got == want => {
                 // Сначала данные на диск, только потом отметка: иначе после жёсткого
                 // выключения возобновление пропустит чанк, у которого на диске нули.
-                let _ = file.sync_data();
-                if let Ok(mut manifest) = done.lock() {
-                    use std::io::Write;
-                    let _ = manifest.write_all(&start.to_le_bytes());
-                    let _ = manifest.sync_data();
-                }
+                file.sync_data().map_err(|error| format!("запись: {error}"))?;
+                let mut manifest = done.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                use std::io::Write;
+                manifest.write_all(&start.to_le_bytes()).map_err(|error| format!("манифест докачки: {error}"))?;
+                manifest.sync_data().map_err(|error| format!("манифест докачки: {error}"))?;
                 return Ok(());
             }
             Ok(()) => last = format!("неполный диапазон: {got} из {want} байт"),
@@ -1305,7 +1309,9 @@ fn download_file(
     // Манифест докачки живёт до конца сверки: прерванная сверка не должна стоить всей закачки.
     verify_sha256(&part, spec, &abort)?;
     std::fs::rename(&part, &target).map_err(|error| format!("финализация: {error}"))?;
-    let _ = std::fs::remove_file(&done_file);
+    if let Err(error) = std::fs::remove_file(&done_file) {
+        tracing::warn!("не убрать манифест докачки {}: {error}", done_file.display());
+    }
     unpack_if_archive(root, spec, &target)?;
     progress(total, total);
     Ok(())
@@ -1319,7 +1325,9 @@ fn unpack_if_archive(root: &Path, spec: &FileSpec, target: &Path) -> Result<(), 
     }
     let dir = root.join(spec.extract_dir);
     unpack(target, &dir, spec.extract)?;
-    let _ = std::fs::remove_file(target);
+    if let Err(error) = std::fs::remove_file(target) {
+        tracing::warn!("не убрать распакованный архив {}: {error}", target.display());
+    }
     std::fs::write(stamp_path(root, spec), spec.url).map_err(|error| format!("метка установки: {error}"))
 }
 
@@ -1341,45 +1349,121 @@ fn voices_installed(dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Распаковать архив. Плоско — берём только имя файла, вложенные каталоги схлопываем; поддеревом —
-/// путь записи сохраняется, но только безопасный (`enclosed_name`): выход за каталог назначения
-/// отвергается; только библиотеки — плоско и лишь `.dll`.
+/// Распаковать архив: zip (и колесо PyPI) или tar.gz — по имени, под которым он скачан. Плоско — берём только имя
+/// файла, вложенные каталоги схлопываем; поддеревом — путь записи сохраняется, но только безопасный: выход за каталог
+/// назначения отвергается; только библиотеки — плоско и лишь библиотеки этой системы (`.dll`, `.so*`, `.dylib`).
+/// Ссылки tar встают ссылками (на Windows — копиями), права на запуск сохраняются.
 fn unpack(archive: &Path, dir: &Path, mode: Extract) -> Result<(), String> {
     let file = File::open(archive).map_err(|error| format!("открыть архив: {error}"))?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|error| format!("это не архив: {error}"))?;
     std::fs::create_dir_all(dir).map_err(|error| format!("создать каталог: {error}"))?;
-    for index in 0..zip.len() {
-        let mut entry = zip.by_index(index).map_err(|error| format!("запись архива: {error}"))?;
-        if entry.is_dir() {
-            continue;
-        }
-        let name = entry
-            .name()
-            .map_err(|error| format!("имя записи архива: {error}"))?
-            .replace('\\', "/");
-        let leaf = name.rsplit('/').next().unwrap_or_default().to_string();
-        if leaf.is_empty() || leaf == "." || leaf == ".." {
-            continue;
-        }
-        let out = match mode {
-            Extract::ZipTree => match entry.enclosed_name() {
-                Some(relative) => dir.join(relative),
-                None => return Err(format!("запись архива ведёт за каталог назначения: {name}")),
-            },
-            Extract::ZipDlls if !leaf.to_ascii_lowercase().ends_with(".dll") => continue,
-            // Имя с диском («C:x.dll») заменило бы каталог назначения при join.
-            _ if !matches!(Path::new(&leaf).components().collect::<Vec<_>>()[..], [std::path::Component::Normal(_)]) => {
-                return Err(format!("запись архива ведёт за каталог назначения: {name}"));
+    let lower = archive.to_string_lossy().to_ascii_lowercase();
+    let mut links: Vec<(PathBuf, String)> = Vec::new();
+    if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+        let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(std::io::BufReader::new(file)));
+        let entries = tar.entries().map_err(|error| format!("это не архив: {error}"))?;
+        for entry in entries {
+            let mut entry = entry.map_err(|error| format!("запись архива: {error}"))?;
+            let kind = entry.header().entry_type();
+            if !(kind.is_file() || kind.is_symlink() || kind.is_hard_link()) {
+                continue;
             }
-            _ => dir.join(&leaf),
-        };
-        if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("создать каталог: {error}"))?;
+            let name = entry.path().map_err(|error| format!("имя записи архива: {error}"))?.to_string_lossy().replace('\\', "/");
+            let Some(out) = place(dir, &name, mode)? else { continue };
+            if kind.is_symlink() || kind.is_hard_link() {
+                let target = entry.link_name().ok().flatten().map(|target| target.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                links.push((out, target.rsplit('/').next().unwrap_or_default().to_string()));
+                continue;
+            }
+            let unix_mode = entry.header().mode().ok();
+            write_entry(&mut entry, &out, unix_mode)?;
         }
-        let mut target = File::create(&out).map_err(|error| format!("создать {leaf}: {error}"))?;
-        std::io::copy(&mut entry, &mut target)
-            .map_err(|error| format!("распаковка {leaf}: {error}"))?;
+    } else {
+        let mut zip = zip::ZipArchive::new(file).map_err(|error| format!("это не архив: {error}"))?;
+        for index in 0..zip.len() {
+            let mut entry = zip.by_index(index).map_err(|error| format!("запись архива: {error}"))?;
+            if entry.is_dir() {
+                continue;
+            }
+            let name = entry.name().map_err(|error| format!("имя записи архива: {error}"))?.replace('\\', "/");
+            let Some(out) = place(dir, &name, mode)? else { continue };
+            let unix_mode = entry.unix_mode();
+            write_entry(&mut entry, &out, unix_mode)?;
+        }
     }
+    // Ссылка может вести на другую ссылку (libX.so -> libX.so.1 -> libX.so.1.2) в любом порядке записей.
+    while !links.is_empty() {
+        let before = links.len();
+        let mut rest = Vec::new();
+        for (out, target) in links {
+            let source = out.parent().unwrap_or(dir).join(&target);
+            if target.is_empty() || !source.is_file() {
+                rest.push((out, target));
+                continue;
+            }
+            if out.exists() {
+                std::fs::remove_file(&out).map_err(|error| format!("распаковка {}: {error}", out.display()))?;
+            }
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, &out).map_err(|error| format!("распаковка {}: {error}", out.display()))?;
+            #[cfg(not(unix))]
+            std::fs::copy(&source, &out).map_err(|error| format!("распаковка {}: {error}", out.display()))?;
+        }
+        if rest.len() == before {
+            let names: Vec<String> = rest.iter().map(|(out, target)| format!("{} -> {target}", out.display())).collect();
+            return Err(format!("распаковка: ссылки архива ведут в никуда: {}", names.join(", ")));
+        }
+        links = rest;
+    }
+    Ok(())
+}
+
+/// Куда положить запись архива; None — запись не нужна (не библиотека при [`Extract::Libs`]).
+fn place(dir: &Path, name: &str, mode: Extract) -> Result<Option<PathBuf>, String> {
+    let leaf = name.rsplit('/').next().unwrap_or_default();
+    if leaf.is_empty() || leaf == "." || leaf == ".." {
+        return Ok(None);
+    }
+    if mode == Extract::Tree {
+        let relative = Path::new(name);
+        let safe = relative.components().all(|part| matches!(part, std::path::Component::Normal(_) | std::path::Component::CurDir));
+        return if safe { Ok(Some(dir.join(relative))) } else { Err(format!("запись архива ведёт за каталог назначения: {name}")) };
+    }
+    if mode == Extract::Libs && !is_library(leaf) {
+        return Ok(None);
+    }
+    // Имя с диском («C:x.dll») заменило бы каталог назначения при join.
+    if !matches!(Path::new(leaf).components().collect::<Vec<_>>()[..], [std::path::Component::Normal(_)]) {
+        return Err(format!("запись архива ведёт за каталог назначения: {name}"));
+    }
+    Ok(Some(dir.join(leaf)))
+}
+
+/// Библиотека этой системы: `.dll` на Windows, `.so`/`.so.N` на Linux, `.dylib` на macOS.
+fn is_library(leaf: &str) -> bool {
+    let leaf = leaf.to_ascii_lowercase();
+    if cfg!(windows) {
+        leaf.ends_with(".dll")
+    } else if cfg!(target_os = "macos") {
+        leaf.ends_with(".dylib")
+    } else {
+        leaf.ends_with(".so") || leaf.contains(".so.")
+    }
+}
+
+/// Записать файл архива; на Unix — с правами записи, чтобы программа оставалась запускаемой.
+fn write_entry(reader: &mut impl std::io::Read, out: &Path, unix_mode: Option<u32>) -> Result<(), String> {
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("создать каталог: {error}"))?;
+    }
+    let mut target = File::create(out).map_err(|error| format!("создать {}: {error}", out.display()))?;
+    std::io::copy(reader, &mut target).map_err(|error| format!("распаковка {}: {error}", out.display()))?;
+    #[cfg(unix)]
+    if let Some(mode) = unix_mode {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(out, std::fs::Permissions::from_mode(mode & 0o777)).map_err(|error| format!("распаковка {}: {error}", out.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = unix_mode;
     Ok(())
 }
 
@@ -1424,6 +1508,38 @@ mod tests {
         assert_eq!(failure_code("диапазон 0-9: x не дался за 8 попыток: запись: Отказано в доступе"), "disk");
         assert_eq!(failure_code("не удалось узнать размер X: нет соединения с huggingface.co (3 попытки) для u: x"), "network");
         assert_eq!(failure_code("запись архива ведёт за каталог назначения: a"), "archive");
+    }
+
+    /// tar.gz сборок под Linux и macOS: плоско, со ссылками библиотек; «только библиотеки» берёт библиотеки системы.
+    #[test]
+    fn a_tarball_unpacks_flat_with_its_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("engine.tar.gz");
+        {
+            let gz = flate2::write::GzEncoder::new(File::create(&archive).unwrap(), flate2::Compression::fast());
+            let mut builder = tar::Builder::new(gz);
+            let lib = if cfg!(windows) { "lib.dll" } else if cfg!(target_os = "macos") { "libx.1.dylib" } else { "libx.so.1" };
+            for (name, body) in [("build/bin/llama-server", &b"exe"[..]), (&format!("build/bin/{lib}")[..], &b"lib"[..])] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o755);
+                header.set_cksum();
+                builder.append_data(&mut header, name, body).unwrap();
+            }
+            let mut link = tar::Header::new_gnu();
+            link.set_entry_type(tar::EntryType::Symlink);
+            link.set_size(0);
+            link.set_cksum();
+            builder.append_link(&mut link, "build/bin/libx.link", lib).unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        let flat = dir.path().join("flat");
+        unpack(&archive, &flat, Extract::Flat).unwrap();
+        assert_eq!(std::fs::read(flat.join("llama-server")).unwrap(), b"exe");
+        assert_eq!(std::fs::read(flat.join("libx.link")).unwrap(), b"lib", "ссылка ведёт на библиотеку");
+        let libs = dir.path().join("libs");
+        unpack(&archive, &libs, Extract::Libs).unwrap();
+        assert!(!libs.join("llama-server").exists(), "программа — не библиотека");
     }
 
     /// Хост, где никто не слушает, бросается после трёх попыток, а не восьми, и ошибка называет его рядом с адресом.
@@ -1510,7 +1626,7 @@ mod tests {
             "https://example/llama.zip",
             10,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            Extract::ZipFlat,
+            Extract::Flat,
             "tools/llama",
             "tools/llama/llama-server.exe",
         );
@@ -1530,7 +1646,7 @@ mod tests {
         writer.start_file("../outside.dll", zip::write::SimpleFileOptions::default()).unwrap();
         writer.write_all(b"x").unwrap();
         writer.finish().unwrap();
-        let error = super::unpack(&archive, &dir.path().join("out"), super::Extract::ZipTree).unwrap_err();
+        let error = super::unpack(&archive, &dir.path().join("out"), super::Extract::Tree).unwrap_err();
         assert!(error.contains("за каталог"), "{error}");
         assert!(!dir.path().join("outside.dll").exists());
     }
