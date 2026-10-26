@@ -72,8 +72,8 @@ fn no_voice(voice: &str) -> UserError {
 
 /// Озвучить ОДНУ фразу сервером голоса и записать клип. Возвращает адрес клипа.
 ///
-/// Higgs иногда не находит конец фразы и говорит до потолка токенов: потолок ставится по длине текста, а сорвавшаяся
-/// попытка повторяется со своим seed.
+/// Higgs иногда не находит конец фразы и говорит дальше. Защита общая для студий (`acpp_server::higgs`): потолок
+/// токенов по длине фразы и письму, дубль длиннее фразы — разнос, каждая попытка со своим seed.
 pub fn speak_sentence(
     server: &acpp_server::Server,
     generated: &std::path::Path,
@@ -83,6 +83,7 @@ pub fn speak_sentence(
     key: &str,
     index: usize,
 ) -> Result<String, UserError> {
+    use acpp_server::higgs;
     let name = format!("tts-{}-{index}-{}.wav", safe_name(key, 80), text_mark(sentence));
     let path = generated.join(&name);
     let url = format!("/generated/{name}");
@@ -92,23 +93,34 @@ pub fn speak_sentence(
     if playable_wav(&path) {
         return Ok(url);
     }
-    let cap = higgs_token_cap(sentence);
-    let mut last = None;
+    let chars = higgs::spoken_chars(sentence);
+    let pace = higgs::pace_lang(sentence, "");
+    let base_seed = u64::from_str_radix(&text_mark(sentence), 16).unwrap_or(0);
+    let mut last: Option<UserError> = None;
     for attempt in 0..HIGGS_ATTEMPTS {
+        let mut options = serde_json::Map::new();
+        options.insert("seed".into(), json!(higgs::attempt_seed(base_seed, attempt)));
+        higgs::guard(&mut options, sentence, pace);
         let request = acpp_server::SpeechRequest {
             model: crate::acpp::HIGGS.to_string(),
-            input: speakable(sentence),
+            input: sentence.to_string(),
             voice_ref: Some(acpp_server::VoiceRef::Path(reference.to_path_buf())),
             reference_text: transcript.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string),
             language: None,
-            options: higgs_options(attempt, cap, text_mark_seed(sentence, attempt)),
+            options,
             stall: SPEECH_STALL,
         };
         let started = std::time::Instant::now();
         match server.speech(&request, &std::sync::atomic::AtomicBool::new(false)) {
             Ok(speech) => {
+                let secs = speech.samples.len() as f64 / f64::from(speech.sample_rate.max(1));
+                if higgs::is_runaway(secs, chars, pace) {
+                    tracing::warn!("фраза {index} «{sentence}» голосом {}, попытка {}: разнос, {secs:.1} с", reference.display(), attempt + 1);
+                    last = Some(UserError::VoiceRunaway(sentence.to_string()));
+                    continue;
+                }
                 // фраза звучит по одной на сервер голоса, который в это время один на карте (рассказчик выгружен)
-                crate::hub::worked("tts", speech.samples.len() as f64 / f64::from(speech.sample_rate.max(1)), started.elapsed());
+                crate::hub::worked("tts", secs, started.elapsed());
                 write_wav(&path, &speech.samples, speech.sample_rate)?;
                 return Ok(url);
             }
@@ -119,50 +131,16 @@ pub fn speak_sentence(
             }
             Err(error @ acpp_server::AcppError::Server { .. }) => {
                 tracing::warn!("фраза {index} «{sentence}» голосом {}, попытка {}: {error}", reference.display(), attempt + 1);
-                last = Some(error);
+                last = Some(if higgs::is_token_cap(&error) { UserError::VoiceRunaway(sentence.to_string()) } else { UserError::Acpp(error) });
             }
             Err(error) => return Err(UserError::Acpp(error)),
         }
     }
-    Err(UserError::Acpp(last.expect("хотя бы одна попытка")))
+    Err(last.expect("хотя бы одна попытка"))
 }
 
-/// Попыток на фразу, которую Higgs договорил до потолка или оборвал ошибкой.
+/// Попыток на фразу, которую Higgs разнёс или оборвал ошибкой.
 const HIGGS_ATTEMPTS: u32 = 3;
-/// Higgs v3 в audio.cpp делает токен на кадр кодека в 40 мс.
-const HIGGS_TOKENS_PER_SEC: f64 = 25.0;
-/// Русская речь Higgs — около 10,5 знака в секунду (замер 26.10: 57 знаков — 5,4 с); запас втрое.
-const CHARS_PER_SEC: f64 = 10.0;
-const HIGGS_CAP_MARGIN: f64 = 3.0;
-
-/// Потолок токенов на фразу по её длине: дальше — уже не речь, а разгон без конца.
-fn higgs_token_cap(sentence: &str) -> u32 {
-    let secs = sentence.chars().count() as f64 / CHARS_PER_SEC;
-    (((secs * HIGGS_TOKENS_PER_SEC * HIGGS_CAP_MARGIN).ceil() as u32) + 32).clamp(64, 2048)
-}
-
-/// Текст фразы для Higgs без кавычек: с «ёлочками» и лапками реплика не находила конца и говорила до потолка токенов —
-/// живой ход 26.10, все срывы были у фраз в кавычках. Звучат кавычки всё равно никак.
-fn speakable(sentence: &str) -> String {
-    let stripped: String = sentence.chars().filter(|ch| !matches!(ch, '«' | '»' | '„' | '“' | '”' | '"')).collect();
-    stripped.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Параметры попытки: сэмплирование сервера по умолчанию (на кванте q4_k_m пониженная температура Higgs зацикливает
-/// чаще, проверено живым ходом 26.10), потолок по длине фразы, со второй попытки свой seed.
-fn higgs_options(attempt: u32, cap: u32, seed: u64) -> serde_json::Map<String, Value> {
-    let mut options = serde_json::Map::new();
-    options.insert("max_tokens".into(), json!(cap));
-    if attempt > 0 {
-        options.insert("seed".into(), json!(seed));
-    }
-    options
-}
-
-/// Seed попытки, постоянный для фразы: повтор хода даёт тот же дубль.
-fn text_mark_seed(sentence: &str, attempt: u32) -> u64 {
-    u64::from_str_radix(&text_mark(sentence), 16).unwrap_or(0) * 10 + u64::from(attempt)
-}
 
 /// Сколько сервер может молчать посреди фразы, прежде чем фраза считается зависшей.
 const SPEECH_STALL: std::time::Duration = std::time::Duration::from_secs(60);
@@ -476,23 +454,6 @@ mod tests {
         assert!(!escaped.contains('.') && !escaped.contains('/'), "в имени не должно остаться пути: {escaped}");
         assert_eq!(safe_name("RU_Male_kuravlev_leonid", 120), "RU_Male_kuravlev_leonid");
         assert_eq!(safe_name("very-long-name", 4), "very");
-    }
-
-    #[test]
-    fn a_phrase_gets_a_token_ceiling_by_its_length_and_attempts_cool_down() {
-        let short = higgs_token_cap("Да.");
-        let long = higgs_token_cap(&"слово ".repeat(40));
-        assert_eq!(short, 64, "у короткой фразы потолок не ниже 64");
-        assert!(long > short && long <= 2048, "{long}");
-        assert_eq!(higgs_token_cap(&"слово ".repeat(1000)), 2048);
-        let first = higgs_options(0, 100, 7);
-        let third = higgs_options(2, 100, 7);
-        assert!(first.get("seed").is_none() && first.get("temperature").is_none());
-        assert_eq!(third["seed"], json!(7));
-        assert_eq!(third["max_tokens"], json!(100));
-        assert_eq!(text_mark_seed("Фраза.", 1), text_mark_seed("Фраза.", 1));
-        assert_eq!(speakable("««Ищешь работу? »»"), "Ищешь работу?");
-        assert_eq!(speakable("Он сказал: “нет” и „ушёл\"."), "Он сказал: нет и ушёл.");
     }
 
     #[test]

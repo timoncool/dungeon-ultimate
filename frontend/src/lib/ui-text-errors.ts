@@ -54,6 +54,7 @@ const RU: ErrorTexts = {
   voice_reference: "не удалось подготовить эталон голоса: {detail}",
   tts_empty_text: "пустой текст для озвучки",
   tts_nothing: "нечего озвучивать",
+  voice_runaway: "голос не нашёл конца фразы ни в одной попытке: «{detail}»",
   image_weights_missing:
     "не хватает файлов модели: нет весов картинок в {path} — скачайте их в «Что скачать» или уведите кадр в облако в «Движки и облако»",
   image_engine_missing: "движок картинок не найден: {path}",
@@ -152,6 +153,7 @@ const EN: ErrorTexts = {
   voice_reference: "could not prepare the voice sample: {detail}",
   tts_empty_text: "there is no text to voice",
   tts_nothing: "nothing to voice",
+  voice_runaway: "the voice found no end to the phrase in any attempt: “{detail}”",
   image_weights_missing:
     "model files are missing: no image weights in {path} — download them in «What to download» or move the frame to the cloud in «Engines and cloud»",
   image_engine_missing: "the image engine was not found: {path}",
@@ -251,6 +253,7 @@ const ES: ErrorTexts = {
   voice_reference: "no se pudo preparar la muestra de voz: {detail}",
   tts_empty_text: "no hay texto que leer",
   tts_nothing: "no hay nada que leer",
+  voice_runaway: "la voz no encontró el final de la frase en ningún intento: «{detail}»",
   image_weights_missing:
     "faltan archivos del modelo: no hay pesos de imágenes en {path}: descárgalos en «Qué descargar» o pasa la imagen a la nube en «Motores y nube»",
   image_engine_missing: "no se encontró el motor de imágenes: {path}",
@@ -350,6 +353,7 @@ const FR: ErrorTexts = {
   voice_reference: "impossible de préparer l’échantillon de voix : {detail}",
   tts_empty_text: "aucun texte à lire",
   tts_nothing: "rien à lire",
+  voice_runaway: "la voix n’a trouvé la fin de la phrase à aucun essai : « {detail} »",
   image_weights_missing:
     "fichiers du modèle manquants : pas de poids d’images dans {path} — télécharge-les dans « Que télécharger » ou passe l’image dans le nuage dans « Moteurs et nuage »",
   image_engine_missing: "moteur d’images introuvable : {path}",
@@ -451,6 +455,7 @@ const DE: ErrorTexts = {
   voice_reference: "die Stimmprobe ließ sich nicht vorbereiten: {detail}",
   tts_empty_text: "kein Text zum Vorlesen",
   tts_nothing: "nichts zum Vorlesen",
+  voice_runaway: "die Stimme fand in keinem Versuch das Ende des Satzes: „{detail}“",
   image_weights_missing:
     "Modelldateien fehlen: keine Bildgewichte in {path} — lade sie unter «Was herunterladen» oder verlege das Bild unter «Engines und Cloud» in die Cloud",
   image_engine_missing: "die Bild-Engine wurde nicht gefunden: {path}",
@@ -545,6 +550,7 @@ const ZH: ErrorTexts = {
   voice_reference: "无法准备声音样本：{detail}",
   tts_empty_text: "没有要朗读的文本",
   tts_nothing: "没有可朗读的内容",
+  voice_runaway: "语音在每次尝试中都没能读完这句话：“{detail}”",
   image_weights_missing: "缺少模型文件：{path} 中没有图像权重——请在「下载什么」中下载，或在「引擎与云端」中把出图切换到云端",
   image_engine_missing: "找不到图像引擎：{path}",
   image_engine_load: "无法加载图像引擎：{detail}",
@@ -641,6 +647,7 @@ const JA: ErrorTexts = {
   voice_reference: "声のサンプルを用意できない：{detail}",
   tts_empty_text: "読み上げる文がない",
   tts_nothing: "読み上げるものがない",
+  voice_runaway: "どの試行でも音声が文の終わりを見つけられなかった：「{detail}」",
   image_weights_missing:
     "モデルのファイルが足りない：{path} に画像の重みがない。「何を落とすか」でダウンロードするか、「エンジンと雲」でカット生成をクラウドに切り替えて",
   image_engine_missing: "画像エンジンが見つからない：{path}",

@@ -100,6 +100,8 @@ pub enum UserError {
     VoiceReference(String),
     TtsEmptyText,
     TtsNothing,
+    /// Higgs ни в одной попытке не нашёл конца фразы (`acpp_server::higgs::is_runaway`); поле — фраза.
+    VoiceRunaway(String),
     ImageWeightsMissing(String),
     Image(du_image::ImageError),
     ImageNoFrame,
@@ -179,6 +181,7 @@ impl UserError {
             UserError::VoiceReference(_) => "voice_reference",
             UserError::TtsEmptyText => "tts_empty_text",
             UserError::TtsNothing => "tts_nothing",
+            UserError::VoiceRunaway(_) => "voice_runaway",
             UserError::ImageWeightsMissing(_) => "image_weights_missing",
             UserError::Image(error) => match error {
                 du_image::ImageError::LibraryMissing(_) => "image_engine_missing",
@@ -236,7 +239,8 @@ impl UserError {
             | UserError::VoiceReference(detail)
             | UserError::AsrFailed(detail)
             | UserError::BadSetting(detail)
-            | UserError::CpuFloor(detail) => put("detail", json!(detail)),
+            | UserError::CpuFloor(detail)
+            | UserError::VoiceRunaway(detail) => put("detail", json!(detail)),
             UserError::Llm { error, .. } => llm_params(error, &mut put),
             UserError::TextModelMissing(path)
             | UserError::ImageWeightsMissing(path)
@@ -438,6 +442,7 @@ impl fmt::Display for UserError {
             UserError::VoiceReference(detail) => write!(f, "не удалось подготовить эталон голоса: {detail}"),
             UserError::TtsEmptyText => f.write_str("пустой текст для озвучки"),
             UserError::TtsNothing => f.write_str("нечего озвучивать"),
+            UserError::VoiceRunaway(phrase) => write!(f, "голос не нашёл конца фразы ни в одной попытке: «{phrase}»"),
             UserError::ImageWeightsMissing(path) => write!(
                 f,
                 "не хватает файлов модели: нет весов картинок в {path} — скачайте их в «Что скачать» или уведите кадр в облако в «Движки и облако»"
@@ -597,6 +602,7 @@ mod tests {
             UserError::VoiceReference("x".into()),
             UserError::TtsEmptyText,
             UserError::TtsNothing,
+            UserError::VoiceRunaway("x".into()),
             UserError::ImageWeightsMissing("x".into()),
             UserError::Image(du_image::ImageError::LibraryMissing("x".into())),
             UserError::Image(du_image::ImageError::Library { dll: "x".into(), detail: "x".into() }),
@@ -668,6 +674,7 @@ mod tests {
                 | UserError::VoiceReference(_)
                 | UserError::TtsEmptyText
                 | UserError::TtsNothing
+                | UserError::VoiceRunaway(_)
                 | UserError::ImageWeightsMissing(_)
                 | UserError::Image(_)
                 | UserError::ImageNoFrame
