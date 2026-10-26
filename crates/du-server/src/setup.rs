@@ -234,8 +234,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-cuda-13.4-x64.zip", 153_446_322, "9a0d41f868d34b1c39a9dc4f0b2250d1ef32fb2aed978c54f4380b06a21b8d9f", Extract::ZipFlat, "tools/llama", "tools/llama/llama-server.exe"),
-                FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::ZipFlat, "tools/llama", "tools/llama/cudart64_13.dll"),
+                FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-13.4-x64.zip", 164_721_212, "0d75ad36367da00622c146a97e82fac3dcfcbe960afc2f0234eef026886b16f6", Extract::ZipFlat, "tools/llama", "tools/llama/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::ZipFlat, "tools/llama", "tools/llama/cudart64_13.dll"),
             ],
         },
         Component {
@@ -245,8 +245,8 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-cuda-12.4-x64.zip", 265_207_448, "1108e4e77a62009365caee1208c33c1d76859b1e45c02e21f63b54090388cc29", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
-                FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
+                FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-12.4-x64.zip", 279_417_051, "387ad76c926cdb301971851a11df018165a7b4df4b1b7c64cf4b09a367ec82bc", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::ZipFlat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
             ],
         },
         Component {
@@ -256,7 +256,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-vulkan-x64.zip", 32_084_441, "6db23c5cf69e51f3dc2bf7f68277f4a791217bab853bd5b93afac1898d450b83", Extract::ZipFlat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
+                FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-vulkan-x64.zip", 37_051_563, "baf0183b1906d7cc0cfe9a0bd3fae34ceb4048acecc371ff3b7a91456783d051", Extract::ZipFlat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
             ],
         },
         Component {
@@ -266,7 +266,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Required,
             variant_of: "",
             files: &[
-                FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11557/llama-b11557-bin-win-cpu-x64.zip", 19_501_541, "bcfca9c8198899d4268e4e6b586113905280dec372a82c7106ebe78bc0eacb5b", Extract::ZipFlat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
+                FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cpu-x64.zip", 24_228_419, "d3bbbbb7d1b4979b72052fd73cdeeb5a4d5a4e6a3f52aeb40abd6f116558e323", Extract::ZipFlat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
             ],
         },
         Component {
