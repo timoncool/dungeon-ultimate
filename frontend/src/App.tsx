@@ -103,6 +103,7 @@ import { UiTextProvider, useUi, useUiLanguage } from "./lib/ui-text-context";
 import { errorText, type ServerError } from "./lib/ui-text-errors";
 import { uiText, type UiText } from "./lib/ui-text";
 import { settingsText, type SettingsText } from "./lib/ui-text-settings";
+import DiagnosticsBlock from "./components/DiagnosticsBlock";
 
 const SELECTED_CHAT_KEY = "local-roleplay:selected-chat";
 const MAX_IMAGE_REFERENCES = 2;
@@ -7091,6 +7092,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
           <CryptoRow key={coin} coin={coin} address={address} />
         ))}
       </div>
+      {open && <DiagnosticsBlock />}
       <div className="space-y-2 border-t border-stone-800 pt-3">
         <p className="text-[11px] leading-relaxed text-stone-500">
           {settings_.madeBy}{" "}

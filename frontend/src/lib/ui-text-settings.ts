@@ -166,6 +166,15 @@ export type SettingsText = {
   allWays: string;
   reportIssue: string;
   byCard: string;
+  diagTitle: string;
+  diagHint: string;
+  diagCopy: string;
+  diagCopied: string;
+  diagPack: string;
+  diagPacked: string;
+  diagShow: string;
+  diagLogs: string;
+  diagRefresh: string;
 
   // Кнопки хода и подсказки
   openStoryTools: string;
@@ -448,6 +457,15 @@ const RU: SettingsText = {
   allWays: "Все способы",
   reportIssue: "Сообщить о проблеме",
   byCard: "💳 Картой",
+  diagTitle: "Диагностика",
+  diagHint: "Как игра видит компьютер: карты, сборки, компоненты, недостающие библиотеки и последние строки лога. Скопируйте в сообщение о проблеме или соберите отчёт — ключей в нём нет.",
+  diagCopy: "Скопировать",
+  diagCopied: "Скопировано",
+  diagPack: "Собрать отчёт",
+  diagPacked: "Отчёт собран:",
+  diagShow: "Показать",
+  diagLogs: "Папка логов",
+  diagRefresh: "Обновить",
 
   openStoryTools: "Открыть инструменты истории",
   closeStoryTools: "Закрыть инструменты истории",
@@ -726,6 +744,15 @@ const EN: SettingsText = {
   allWays: "All the ways",
   reportIssue: "Report a problem",
   byCard: "💳 By card",
+  diagTitle: "Diagnostics",
+  diagHint: "How the game sees this computer: cards, builds, components, missing libraries and the latest log lines. Copy it into a problem report or pack a report — no keys get in.",
+  diagCopy: "Copy",
+  diagCopied: "Copied",
+  diagPack: "Pack a report",
+  diagPacked: "Report packed:",
+  diagShow: "Show",
+  diagLogs: "Logs folder",
+  diagRefresh: "Refresh",
 
   openStoryTools: "Open the story tools",
   closeStoryTools: "Close the story tools",
@@ -1004,6 +1031,15 @@ const ES: SettingsText = {
   allWays: "Todas las formas",
   reportIssue: "Informar de un problema",
   byCard: "💳 Con tarjeta",
+  diagTitle: "Diagnóstico",
+  diagHint: "Cómo ve el juego este equipo: tarjetas, compilaciones, componentes, bibliotecas que faltan y las últimas líneas del registro. Cópialo en un informe de problema o crea un informe: no incluye claves.",
+  diagCopy: "Copiar",
+  diagCopied: "Copiado",
+  diagPack: "Crear informe",
+  diagPacked: "Informe creado:",
+  diagShow: "Mostrar",
+  diagLogs: "Carpeta de registros",
+  diagRefresh: "Actualizar",
 
   openStoryTools: "Abrir las herramientas de la historia",
   closeStoryTools: "Cerrar las herramientas de la historia",
@@ -1283,6 +1319,15 @@ const FR: SettingsText = {
   allWays: "Tous les moyens",
   reportIssue: "Signaler un problème",
   byCard: "💳 Par carte",
+  diagTitle: "Diagnostic",
+  diagHint: "Comment le jeu voit cet ordinateur : cartes, versions, composants, bibliothèques manquantes et dernières lignes du journal. Copiez-le dans un signalement ou créez un rapport — aucune clé n’y figure.",
+  diagCopy: "Copier",
+  diagCopied: "Copié",
+  diagPack: "Créer un rapport",
+  diagPacked: "Rapport créé :",
+  diagShow: "Afficher",
+  diagLogs: "Dossier des journaux",
+  diagRefresh: "Actualiser",
 
   openStoryTools: "Ouvrir les outils de l'histoire",
   closeStoryTools: "Fermer les outils de l'histoire",
@@ -1561,6 +1606,15 @@ const DE: SettingsText = {
   allWays: "Alle Möglichkeiten",
   reportIssue: "Problem melden",
   byCard: "💳 Mit Karte",
+  diagTitle: "Diagnose",
+  diagHint: "Wie das Spiel diesen Computer sieht: Grafikkarten, Builds, Komponenten, fehlende Bibliotheken und die letzten Logzeilen. In eine Problemmeldung kopieren oder einen Bericht packen — Schlüssel gelangen nicht hinein.",
+  diagCopy: "Kopieren",
+  diagCopied: "Kopiert",
+  diagPack: "Bericht packen",
+  diagPacked: "Bericht gepackt:",
+  diagShow: "Zeigen",
+  diagLogs: "Log-Ordner",
+  diagRefresh: "Aktualisieren",
 
   openStoryTools: "Story-Werkzeuge öffnen",
   closeStoryTools: "Story-Werkzeuge schließen",
@@ -1839,6 +1893,15 @@ const ZH: SettingsText = {
   allWays: "所有方式",
   reportIssue: "报告问题",
   byCard: "💳 银行卡支付",
+  diagTitle: "诊断",
+  diagHint: "游戏眼中的这台电脑：显卡、构建、组件、缺少的库和最新的日志行。复制到问题报告中，或打包一份报告——其中不含密钥。",
+  diagCopy: "复制",
+  diagCopied: "已复制",
+  diagPack: "打包报告",
+  diagPacked: "报告已打包：",
+  diagShow: "显示",
+  diagLogs: "日志文件夹",
+  diagRefresh: "刷新",
 
   openStoryTools: "打开故事工具",
   closeStoryTools: "关闭故事工具",
@@ -2117,6 +2180,15 @@ const JA: SettingsText = {
   allWays: "すべての方法",
   reportIssue: "問題を報告",
   byCard: "💳 カードで",
+  diagTitle: "診断",
+  diagHint: "ゲームから見たこのコンピューター：グラフィックカード、ビルド、コンポーネント、足りないライブラリ、最新のログ。問題報告に貼り付けるか、レポートにまとめてください。キーは含まれません。",
+  diagCopy: "コピー",
+  diagCopied: "コピーしました",
+  diagPack: "レポートを作成",
+  diagPacked: "レポートを作成しました：",
+  diagShow: "表示",
+  diagLogs: "ログフォルダー",
+  diagRefresh: "更新",
 
   openStoryTools: "物語ツールを開く",
   closeStoryTools: "物語ツールを閉じる",
