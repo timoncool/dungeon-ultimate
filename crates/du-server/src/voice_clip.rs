@@ -17,20 +17,34 @@ use symphonia::core::meta::MetadataOptions;
 /// Частота эталона, которую ждёт движок голоса.
 pub const RATE: u32 = 16_000;
 
-/// Первые `seconds` секунд клипа `source` в WAV 16 кГц моно 16 бит по пути `out`.
-pub fn to_wav(source: &Path, seconds: u32, out: &Path) -> Result<(), String> {
-    let (mut mono, rate) = decode_mono(source)?;
-    mono.truncate(rate as usize * seconds as usize);
+/// Весь клип `source` в 16 кГц моно.
+pub fn decode_16k(source: &Path) -> Result<Vec<f32>, String> {
+    let (mono, rate) = decode_mono(source)?;
     let samples = resample(&mono, rate, RATE)?;
     if samples.is_empty() {
         return Err(format!("в {} нет звука", source.display()));
     }
+    Ok(samples)
+}
+
+/// Отрезок `start..end` секунд звука 16 кГц в WAV 16 кГц моно 16 бит по пути `out`.
+pub fn cut_to_wav(samples: &[f32], start: f64, end: f64, out: &Path) -> Result<(), String> {
+    let at = |seconds: f64| ((seconds.max(0.0) * f64::from(RATE)) as usize).min(samples.len());
+    let (from, to) = (at(start), at(end));
+    if to <= from {
+        return Err(format!("пустой отрезок эталона {start:.2}–{end:.2} с"));
+    }
+    write_wav(&samples[from..to], out)
+}
+
+/// Звук 16 кГц в WAV 16 бит по пути `out`.
+fn write_wav(samples: &[f32], out: &Path) -> Result<(), String> {
     let spec = hound::WavSpec { channels: 1, sample_rate: RATE, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
     // two first syntheses with one voice prepare it at once: each writes its own file and the last rename wins
     let partial = out.with_extension(format!("{}.part", uuid::Uuid::new_v4().simple()));
     let written = (|| -> Result<(), hound::Error> {
         let mut writer = hound::WavWriter::create(&partial, spec)?;
-        for sample in &samples {
+        for sample in samples {
             writer.write_sample((sample.clamp(-1.0, 1.0) * 32_767.0).round() as i16)?;
         }
         writer.finalize()
@@ -120,7 +134,7 @@ mod tests {
         }
         writer.finalize().unwrap();
         let out = dir.path().join("Голос.ref3s.wav");
-        to_wav(&source, 3, &out).unwrap();
+        cut_to_wav(&decode_16k(&source).unwrap(), 0.0, 3.0, &out).unwrap();
         let reader = hound::WavReader::open(&out).unwrap();
         assert_eq!((reader.spec().channels, reader.spec().sample_rate), (1, RATE));
         let frames = reader.duration() as i64;
@@ -139,7 +153,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("ref.wav");
-        to_wav(&pack, 5, &out).unwrap();
+        cut_to_wav(&decode_16k(&pack).unwrap(), 0.0, 5.0, &out).unwrap();
         let reader = hound::WavReader::open(&out).unwrap();
         assert_eq!(reader.spec().sample_rate, RATE);
         assert!(reader.duration() > RATE * 4, "{}", reader.duration());

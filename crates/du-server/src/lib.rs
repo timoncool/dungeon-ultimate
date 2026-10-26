@@ -35,6 +35,7 @@ pub mod mcp;
 pub mod narrator;
 mod model_caps;
 pub mod resolve;
+mod ref_pick;
 pub mod release;
 mod routes;
 pub mod scene;

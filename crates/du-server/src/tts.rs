@@ -178,15 +178,103 @@ fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) -> Result<(), U
     Ok(())
 }
 
-/// Эталонный клип голоса, готовый к передаче движку.
+/// Эталон голоса под предел `seconds`, как в Speech Studio (`voices/reference.rs`): короткий клип — целиком с его
+/// расшифровкой; длинный — лучший кусок по словам распознавания с его текстом; без слов — первые `seconds` секунд без
+/// текста. Расшифровка целого клипа к вырезанному куску не подходит: Higgs с ней чаще говорит до потолка токенов.
+/// Готовые куски лежат в `voices/.work/refs` по ключу из файла, предела и слов.
 pub fn prepared_reference(
     root: &std::path::Path,
     voice: &str,
     seconds: u32,
 ) -> Result<(std::path::PathBuf, Option<String>), UserError> {
-    let (reference, transcript) = voice_reference(root, voice)
-        .ok_or_else(|| no_voice(voice))?;
-    Ok((ensure_wav_reference(&reference, seconds)?, transcript))
+    let (source, transcript) = voice_reference(root, voice).ok_or_else(|| no_voice(voice))?;
+    let voices = root.join("models").join("voices");
+    let stem = safe_name(voice, 120);
+    let limit = f64::from(seconds);
+    let failed = |error: &dyn std::fmt::Display| UserError::VoiceReference(format!("{}: {error}", source.display()));
+    let meta = std::fs::metadata(&source).map_err(|error| failed(&error))?;
+    let stamp = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+    let cache = voices.join(".work").join("refs");
+    std::fs::create_dir_all(&cache).map_err(|error| UserError::VoiceReference(format!("{}: {error}", cache.display())))?;
+    let tag_of = |words: &Option<Vec<crate::ref_pick::Word>>| {
+        use sha2::Digest;
+        let timed = words.as_ref().map(|w| serde_json::to_string(w).unwrap_or_default()).unwrap_or_default();
+        let key = format!("{stem}|{}|{stamp}|{limit:.1}|{}|{timed}", meta.len(), transcript.as_deref().unwrap_or(""));
+        let hash = sha2::Sha256::digest(key.as_bytes());
+        hash.iter().take(8).map(|byte| format!("{byte:02x}")).collect::<String>()
+    };
+    let cached = |tag: &str| {
+        let wav = cache.join(format!("{tag}.wav"));
+        wav.is_file().then(|| {
+            let text = std::fs::read_to_string(cache.join(format!("{tag}.txt"))).ok().filter(|t| !t.trim().is_empty());
+            (wav, text)
+        })
+    };
+    let words = read_words(&voices, &stem);
+    if words.is_some() {
+        if let Some(found) = cached(&tag_of(&words)) {
+            return Ok(found);
+        }
+    }
+    let samples = crate::voice_clip::decode_16k(&source).map_err(UserError::VoiceReference)?;
+    let rate = f64::from(crate::voice_clip::RATE);
+    let duration = samples.len() as f64 / rate;
+    let words = if duration <= limit + 0.5 { words } else { words.or_else(|| ensure_words(root, &voices, &stem, &samples)) };
+    let tag = tag_of(&words);
+    if let Some(found) = cached(&tag) {
+        return Ok(found);
+    }
+    let (start, end, text) = if duration <= limit + 0.5 {
+        (0.0, duration, transcript)
+    } else if let Some(words) = &words {
+        let pieces = crate::ref_pick::candidates(words, &samples, crate::voice_clip::RATE, (limit * 0.4).min(5.0), limit, 1);
+        match pieces.first() {
+            Some(piece) => (piece.start, piece.end, Some(piece.text.clone())),
+            None => (0.0, limit, None),
+        }
+    } else {
+        (0.0, limit, None)
+    };
+    let wav = cache.join(format!("{tag}.wav"));
+    crate::voice_clip::cut_to_wav(&samples, start, end, &wav).map_err(UserError::VoiceReference)?;
+    let txt = cache.join(format!("{tag}.txt"));
+    std::fs::write(&txt, text.as_deref().unwrap_or("")).map_err(|error| UserError::VoiceReference(format!("{}: {error}", txt.display())))?;
+    Ok((wav, text.filter(|t| !t.trim().is_empty())))
+}
+
+/// Слова клипа голоса со временем, `voices/<голос>.words.json`, как у Speech Studio.
+fn read_words(voices: &std::path::Path, stem: &str) -> Option<Vec<crate::ref_pick::Word>> {
+    std::fs::read_to_string(voices.join(format!("{stem}.words.json"))).ok().and_then(|text| serde_json::from_str(&text).ok())
+}
+
+/// Слова длинного клипа голоса, если их ещё нет: Parakeet на процессоре (карта в это время занята голосом) читает клип
+/// один раз, слова ложатся рядом с ним. Нет Parakeet — None, и эталон берётся без текста.
+fn ensure_words(root: &std::path::Path, voices: &std::path::Path, stem: &str, samples: &[f32]) -> Option<Vec<crate::ref_pick::Word>> {
+    let runtime = crate::runtime::load(root);
+    let models_root = root.join("models");
+    let model_path = dub_tcpp::model_path(&models_root, crate::setup::parakeet_model(&runtime));
+    let engine_dir = dub_tcpp::engine_dir(&models_root, dub_tcpp::Build::Cpu);
+    if !model_path.is_file() || !engine_dir.join(dub_tcpp::LIBRARY).is_file() {
+        tracing::warn!("голос «{stem}»: Parakeet на процессоре не скачан, эталон берётся без текста");
+        return None;
+    }
+    let heard = dub_tcpp::Build::Cpu.runs_here().and_then(|()| dub_tcpp::shared(&engine_dir, &model_path)).and_then(|asr| asr.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).words(samples, ""));
+    let words: Vec<crate::ref_pick::Word> = match heard {
+        Ok(words) => words.into_iter().map(|w| crate::ref_pick::Word { word: w.word, start: w.start, end: w.end }).collect(),
+        Err(error) => {
+            tracing::warn!("голос «{stem}»: слова клипа не распознаны, эталон берётся без текста: {error}");
+            return None;
+        }
+    };
+    if words.is_empty() {
+        tracing::warn!("голос «{stem}»: в клипе не услышано слов, эталон берётся без текста");
+        return None;
+    }
+    let path = voices.join(format!("{stem}.words.json"));
+    if let Err(error) = serde_json::to_string(&words).map_err(|e| e.to_string()).and_then(|text| std::fs::write(&path, text).map_err(|e| e.to_string())) {
+        tracing::error!("[ERROR] {}: слова голоса не записаны: {error}", path.display());
+    }
+    Some(words)
 }
 
 /// Разбить пассаж на фразы. Озвучка идёт пофразно, поэтому первая фраза уходит игроку через
@@ -219,19 +307,6 @@ pub fn split_sentences(text: &str) -> Vec<String> {
         }
     }
     out
-}
-
-/// Привести эталонный клип к WAV 16 кГц 16 бит. Результат кладётся рядом и переиспользуется.
-///
-/// WAV перегоняется так же, как mp3: движок читает только PCM 16 бит, а свой WAV игрока
-/// бывает и float, и extensible.
-fn ensure_wav_reference(source: &std::path::Path, seconds: u32) -> Result<std::path::PathBuf, UserError> {
-    let prepared = source.with_extension(format!("ref{seconds}s.wav"));
-    if prepared.is_file() {
-        return Ok(prepared);
-    }
-    crate::voice_clip::to_wav(source, seconds, &prepared).map_err(UserError::VoiceReference)?;
-    Ok(prepared)
 }
 
 /// Первый голос из пака — им озвучиваем, когда игрок не выбрал свой.
@@ -308,11 +383,7 @@ pub fn synthesize_streaming(
         return Ok(url);
     }
 
-    let (reference, transcript) = voice_reference(root, voice)
-        .ok_or_else(|| no_voice(voice))?;
-    // Движку нужен WAV: паки лежат в mp3, поэтому клип один раз перегоняется и дальше
-    // берётся готовым.
-    let reference = ensure_wav_reference(&reference, runtime.tts_reference_seconds)?;
+    let (reference, transcript) = prepared_reference(root, voice, runtime.tts_reference_seconds)?;
 
     let sentences = split_sentences(text);
     let mut first: Option<String> = None;
@@ -488,6 +559,67 @@ mod tests {
         std::fs::write(voices.join("Goblin.mp3"), b"x").unwrap();
         let (_, transcript) = voice_reference(dir.path(), "Goblin").unwrap();
         assert!(transcript.is_none());
+    }
+
+    /// Клип голоса `seconds` секунд: тон на «словах» каждые полсекунды, тишина между ними.
+    fn voice_clip(path: &std::path::Path, seconds: f64) {
+        let spec = hound::WavSpec { channels: 1, sample_rate: 16_000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for i in 0..(seconds * 16_000.0) as usize {
+            let t = i as f64 / 16_000.0;
+            let speaking = t % 0.5 < 0.4;
+            let sample = if speaking { ((t * 440.0 * std::f64::consts::TAU).sin() * 12_000.0) as i16 } else { 0 };
+            writer.write_sample(sample).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    fn wav_seconds(path: &std::path::Path) -> f64 {
+        let reader = hound::WavReader::open(path).unwrap();
+        f64::from(reader.duration()) / f64::from(reader.spec().sample_rate)
+    }
+
+    #[test]
+    fn a_short_clip_goes_whole_with_its_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let voices = dir.path().join("models").join("voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        voice_clip(&voices.join("Short.wav"), 6.0);
+        std::fs::write(voices.join("Short.txt"), "весь текст").unwrap();
+        let (wav, text) = prepared_reference(dir.path(), "Short", 12).unwrap();
+        assert_eq!(text.as_deref(), Some("весь текст"));
+        assert!((wav_seconds(&wav) - 6.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn a_long_clip_gives_a_piece_with_the_words_said_in_it_not_the_whole_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let voices = dir.path().join("models").join("voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        voice_clip(&voices.join("Long.wav"), 40.0);
+        std::fs::write(voices.join("Long.txt"), "расшифровка всех сорока секунд").unwrap();
+        let words: Vec<crate::ref_pick::Word> = (0..80)
+            .map(|k| crate::ref_pick::Word { word: if k % 8 == 7 { format!("с{k}.") } else { format!("с{k}") }, start: k as f64 * 0.5, end: k as f64 * 0.5 + 0.4 })
+            .collect();
+        std::fs::write(voices.join("Long.words.json"), serde_json::to_string(&words).unwrap()).unwrap();
+        let (wav, text) = prepared_reference(dir.path(), "Long", 12).unwrap();
+        let text = text.expect("the piece has the words said in it");
+        assert!(text.starts_with('с') && !text.contains("расшифровка"), "{text}");
+        assert!(wav_seconds(&wav) <= 12.5, "{}", wav_seconds(&wav));
+        let again = prepared_reference(dir.path(), "Long", 12).unwrap();
+        assert_eq!(again.0, wav, "the piece is cut once");
+    }
+
+    #[test]
+    fn a_long_clip_without_words_or_parakeet_is_cut_without_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let voices = dir.path().join("models").join("voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        voice_clip(&voices.join("Plain.wav"), 30.0);
+        std::fs::write(voices.join("Plain.txt"), "расшифровка всех тридцати секунд").unwrap();
+        let (wav, text) = prepared_reference(dir.path(), "Plain", 12).unwrap();
+        assert!(text.is_none(), "the whole transcript does not belong to a cut clip");
+        assert!((wav_seconds(&wav) - 12.0).abs() < 0.1);
     }
 }
 
