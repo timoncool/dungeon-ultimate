@@ -131,9 +131,11 @@ fn hide_console_window() {
 /// каталог, из которого прямо сейчас запущена игра, нельзя — предлагаем открыть страницу.
 const RELEASES_URL: &str = "https://github.com/timoncool/dungeon-ultimate/releases/latest";
 
-fn open_in_browser(app: &tauri::AppHandle, url: &tauri::Url) {
-    use tauri_plugin_opener::OpenerExt;
-    if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+/// Ссылку открывает программа системы, из AppImage — без библиотек образа (`dub_core::proc::host_command`): иначе
+/// xdg-open и браузер наследуют их и падают на дистрибутивах новее образа.
+fn open_in_browser(url: &str) {
+    let opener = if cfg!(windows) { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    if let Err(e) = dub_core::proc::host_command(opener).arg(url).spawn() {
         eprintln!("[ERROR] ссылка {url} не открылась в браузере: {e}");
     }
 }
@@ -173,7 +175,6 @@ fn spawn_update_check(app: tauri::AppHandle) {
             Ok(_) => app.restart(),
             Err(error) => {
                 // Не вышло само — не оставляем игрока ни с чем: предлагаем страницу релиза.
-                use tauri_plugin_opener::OpenerExt;
                 let open = app
                     .dialog()
                     .message(text("update-failed", &[("error", &error.to_string())]))
@@ -182,7 +183,7 @@ fn spawn_update_check(app: tauri::AppHandle) {
                     .buttons(MessageDialogButtons::OkCancelCustom(text("update-button-open", &[]), text("update-button-later", &[])))
                     .blocking_show();
                 if open {
-                    let _ = app.opener().open_url(RELEASES_URL, None::<&str>);
+                    open_in_browser(RELEASES_URL);
                 }
             }
         }
@@ -231,7 +232,6 @@ pub fn run() {
             // Иконка бандла для GUI-окна: без явной установки окно оставалось пустым в ALT+TAB/панели задач
             // (иконка висела на консольном окне). Ставим её на само GUI-окно.
             let icon = app.default_window_icon().cloned();
-            let (for_tabs, for_links) = (app.handle().clone(), app.handle().clone());
             let win = WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -263,7 +263,7 @@ pub fn run() {
             )
             // WebView2 молча глотает target="_blank" и window.open, если у окна нет обработчика новых окон.
             .on_new_window(move |target, _features| {
-                open_in_browser(&for_tabs, &target);
+                open_in_browser(target.as_str());
                 tauri::webview::NewWindowResponse::Deny
             })
             .on_navigation(move |target| {
@@ -271,7 +271,7 @@ pub fn run() {
                 if own || !matches!(target.scheme(), "http" | "https") {
                     return true;
                 }
-                open_in_browser(&for_links, target);
+                open_in_browser(target.as_str());
                 false
             })
             .build()?;

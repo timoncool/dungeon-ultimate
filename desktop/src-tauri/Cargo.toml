@@ -21,6 +21,8 @@ serde_json = "1"
 # axum-бэкенд встроен В ЭТОТ ЖЕ процесс (один exe, без dub-server.exe-сайдкара): serve_blocking с фонового потока.
 du-server = { path = "../../crates/du-server" }
 du-core = { path = "../../crates/du-core" }
+# proc::host_command: ссылки открывает браузер компьютера без библиотек AppImage, как у Dub Studio
+dub-core = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
 
 # Оболочка исключена из корневого воркспейса (свой Cargo.lock), поэтому корневой
 # [profile.release] на неё не действует — дублируем, иначе установщик собирается без LTO.
