@@ -95,7 +95,8 @@ import EnginePanel from "./components/EnginePanel";
 import SetupPanel from "./components/SetupPanel";
 import HubNews from "./components/HubNews";
 import { HubBars } from "./components/HubBars";
-import { reportUiLanguage } from "./lib/studioHub";
+import { HubPopup } from "./components/HubPopup";
+import { SELF_POLL, hubChanged, reportUiLanguage, showsNow, useHubState, type HubTarget, type HubView } from "./lib/studioHub";
 import ActivityPanel from "./components/ActivityPanel";
 import { CHANGED, PLAY, startBridge, useBridgeCommand } from "./lib/mcpBridge";
 import { UiTextProvider, useUi, useUiLanguage } from "./lib/ui-text-context";
@@ -477,6 +478,28 @@ function splitForSpeech(text: string): string[] {
   return out.length ? out : [raw];
 }
 
+/// Раздел окна так, как его называет хаб: игра — create, истории и их итоги — library, новости — news,
+/// служебное — tools, движки и настройки — settings.
+function hubView(panel: DesktopPanel | null): HubView {
+  switch (panel) {
+    case null:
+    case "story":
+    case "characters":
+      return "create";
+    case "chats":
+    case "achievements":
+    case "localData":
+      return "library";
+    case "news":
+      return "news";
+    case "activity":
+    case "support":
+      return "tools";
+    default:
+      return "settings";
+  }
+}
+
 export default function Home() {
   const [chats, setChats] = useState<StoryChatSummary[]>([]);
   const [selectedChatId, setSelectedChatId] = useState("");
@@ -522,7 +545,7 @@ export default function Home() {
     let alive = true;
     const read = async () => {
       try {
-        const data = await (await fetch("/api/runtime")).json();
+        const data = await (await fetch("/api/runtime", SELF_POLL)).json();
         const runtime = data.runtime ?? {};
         const cloud: string[] = [];
         const local: string[] = [];
@@ -621,6 +644,26 @@ export default function Home() {
   const storyJobRef = useRef<string>("");
   const stoppedByUserRef = useRef(false);
   const [speakingId, setSpeakingId] = useState("");
+  // Уведомления хаба: задержки считаются от готовности окна, окно ждёт, пока ничего не делается
+  // (ни хода рассказчика, ни озвучки, ни картинки).
+  const hub = useHubState(settings.language);
+  const [hubElapsed, setHubElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = window.setInterval(() => setHubElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const [hubPopupsClosed, setHubPopupsClosed] = useState<Set<string>>(() => new Set());
+  const hubSection = hubView(activeDesktopPanel);
+  const making = busy || speakingId !== "" || Object.values(imageStatus).includes("loading");
+  const hubPopup = making
+    ? undefined
+    : (hub?.items ?? [])
+        .filter((item) => item.kind === "popup" && !hubPopupsClosed.has(item.id) && showsNow(item, hubElapsed, hubSection))
+        .sort((a, b) => b.priority - a.priority)[0];
+  const openHubTarget = (target: HubTarget) => {
+    setActiveDesktopPanel(target === "models" ? "setup" : target === "settings" ? "engines" : "news");
+  };
   const audioCacheRef = useRef<Map<string, string>>(new Map());
   const speakSeqRef = useRef(0);
   // Available voice ids from the TTS reader. Used to auto-assign a distinct,
@@ -2506,7 +2549,7 @@ export default function Home() {
     }
 
     if (panel === "news") {
-      return <HubNews key={panel} />;
+      return <HubNews key={panel} onOpen={openHubTarget} />;
     }
 
     if (panel === "activity") {
@@ -2552,7 +2595,17 @@ export default function Home() {
         />
       )}
       <section className="mx-auto flex h-dvh min-h-0 w-full max-w-[1700px] flex-1 flex-col px-3 pt-3 sm:px-4 md:px-8 md:pt-4 2xl:px-12">
-        <HubBars />
+        <HubBars view={hubSection} elapsed={hubElapsed} />
+        {hubPopup && (
+          <HubPopup
+            item={hubPopup}
+            onClose={() => {
+              setHubPopupsClosed((previous) => new Set(previous).add(hubPopup.id));
+              hubChanged();
+            }}
+            onOpen={openHubTarget}
+          />
+        )}
         <UpdateNotice />
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
           <div className="flex min-w-0 items-center gap-3">

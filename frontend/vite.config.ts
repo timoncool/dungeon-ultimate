@@ -22,6 +22,7 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8770",
       "/generated": "http://127.0.0.1:8770",
       "/uploads": "http://127.0.0.1:8770",
+      "/v1": "http://127.0.0.1:8770",
     },
   },
 });

@@ -1,19 +1,38 @@
 // Studio Hub в окне — как в Dub Studio: анонимная статистика (выбор и что уходит), полоски и новости хаба.
 import { useEffect, useState } from "react";
 
-export interface HubButton { label: string; action: "url" | "dismiss" | "open"; url?: string; style: "primary" | "secondary" }
+export type HubTarget = "news" | "settings" | "models" | "update";
+export interface HubButton { label: string; action: "url" | "dismiss" | "open"; url?: string; target?: HubTarget; style: "primary" | "secondary" }
 export interface HubContent { title: string; body: string; buttons: HubButton[] }
+/** Разделы окна так, как их называет хаб (`rules.views`). */
+export type HubView = "create" | "library" | "news" | "tools" | "settings";
 export interface HubItem {
   id: string;
   kind: "news" | "bar" | "popup";
   priority: number;
   date: string | null;
   content: Record<string, HubContent>;
+  /** Правила хаба пускают его в этот запуск; задержку и разделы применяет окно. */
   eligible: boolean;
   dismissible: boolean;
   theme: HubTheme | null;
-  rules: { delay_s: number };
+  image: string | null;
+  ad: { label: boolean; erid?: string } | null;
+  rules: { delay_s: number; views: HubView[] | null };
 }
+
+/** Показывается ли уведомление сейчас: хаб его пустил, задержка от готовности окна прошла, раздел подходит. */
+export function showsNow(item: HubItem, elapsed: number, view: HubView): boolean {
+  return item.eligible && elapsed >= (item.rules?.delay_s ?? 0) && (!item.rules?.views || item.rules.views.includes(view));
+}
+
+/** Картинка уведомления — через сервис, он держит копию для запуска без сети. */
+export function hubMediaUrl(image: string): string {
+  return /^https?:\/\//.test(image) ? image : `/v1/hub/media/${encodeURIComponent(image)}`;
+}
+
+/** Запрос, который окно делает само, чтобы держать экран свежим: хаб его не считает за действие человека. */
+export const SELF_POLL: RequestInit = { headers: { "x-hub-skip": "1" } };
 export type HubTheme = "sunset" | "orchid" | "lime" | "graphite";
 export interface HubState {
   telemetry: { enabled: boolean; acknowledged: boolean; disabledByEnv: boolean; install: string | null };
@@ -39,6 +58,17 @@ export const telemetryPreview = () => call<{ enabled: boolean; report: unknown }
 /** `button` names a click: `b0`, `b1`... the notice's buttons in order, `link` a link in its text. */
 export const reportNotice = (id: string, event: "shown" | "clicked" | "dismissed", button?: string) =>
   call<{ ok: true }>(`/v1/hub/notices/${encodeURIComponent(id)}/${event}${button ? `?button=${encodeURIComponent(button)}` : ""}`, { method: "POST" });
+
+/** Показ уведомления считается один раз за запуск окна: перерисовка и повторное открытие раздела — не новый показ. */
+const shownThisLaunch = new Set<string>();
+export function reportShown(id: string): void {
+  if (shownThisLaunch.has(id)) return;
+  shownThisLaunch.add(id);
+  reportNotice(id, "shown").catch((e: Error) => {
+    shownThisLaunch.delete(id);
+    console.warn("[hub] shown not recorded:", e.message);
+  });
+}
 
 /** Состояние хаба для языка окна: один опрос на окно раз в минуту и после любого изменения выбора. */
 const listeners = new Set<(state: HubState) => void>();

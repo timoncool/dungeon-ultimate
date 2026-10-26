@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { SELF_POLL } from "./studioHub";
 
 /// Настройки движка — общие на всё приложение, в отличие от настроек истории.
 ///
@@ -57,7 +58,7 @@ export function useEngineRuntime(): RuntimeHandle {
   const [note, setNote] = useState("");
 
   const reload = useCallback(async () => {
-    const data = await (await fetch("/api/runtime", { cache: "no-store" })).json();
+    const data = await (await fetch("/api/runtime", { ...SELF_POLL, cache: "no-store" })).json();
     setRuntime(data.runtime);
     setKeySet(Boolean(data.openrouterKeySet));
   }, []);

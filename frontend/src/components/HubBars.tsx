@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { HUB_GRADIENTS, HUB_TEXT, hubChanged, hubText, reportNotice, stackTheme, useHubState, type HubItem } from "@/lib/studioHub";
+import { HUB_GRADIENTS, HUB_TEXT, hubChanged, hubText, reportNotice, reportShown, showsNow, stackTheme, useHubState, type HubItem, type HubView } from "@/lib/studioHub";
 import { useUiLanguage } from "@/lib/ui-text-context";
 import { panelText } from "@/lib/ui-text-panels";
 
@@ -22,25 +22,20 @@ export function inline(text: string, key: string): ReactNode[] {
   return out;
 }
 
-/** Полоски хаба вверху окна: во всю ширину, текст по центру со ссылками, крестик; не больше трёх. */
-export function HubBars() {
+/** Полоски хаба вверху окна: во всю ширину, текст по центру со ссылками, крестик; не больше трёх, по приоритету. */
+export function HubBars({ view, elapsed }: { view: HubView; elapsed: number }) {
   const lang = useUiLanguage();
   const panel = panelText(lang);
   const hub = useHubState(lang);
   const [closed, setClosed] = useState<Set<string>>(() => new Set());
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    const started = Date.now();
-    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
   const items: HubItem[] = hub?.items ?? [];
   const visible = items
-    .filter((item) => item.kind === "bar" && item.eligible && !closed.has(item.id) && elapsed >= (item.rules?.delay_s ?? 0))
+    .filter((item) => item.kind === "bar" && !closed.has(item.id) && showsNow(item, elapsed, view))
+    .sort((a, b) => b.priority - a.priority)
     .slice(0, MAX_VISIBLE);
   const shownIds = visible.map((item) => item.id).join(",");
   useEffect(() => {
-    for (const id of shownIds ? shownIds.split(",") : []) reportNotice(id, "shown").catch((e: Error) => console.warn("[hub] shown not recorded:", e.message));
+    for (const id of shownIds ? shownIds.split(",") : []) reportShown(id);
   }, [shownIds]);
   if (!visible.length) return null;
   const close = (id: string) => {
@@ -56,7 +51,10 @@ export function HubBars() {
           <div key={item.id} className="flex items-start justify-between gap-3 px-6 py-2 text-[13px] leading-6"
                style={{ background: HUB_GRADIENTS[theme], color: HUB_TEXT[theme] }}
                onClick={(e) => { if ((e.target as HTMLElement).closest("a")) reportNotice(item.id, "clicked", "link").catch((err: Error) => console.warn("[hub] click not recorded:", err.message)); }}>
-            <div className="w-full text-center">{inline((content?.body || content?.title || "").replace(/\s*\n\s*/g, " "), item.id)}</div>
+            <div className="w-full text-center">
+              {inline((content?.body || content?.title || "").replace(/\s*\n\s*/g, " "), item.id)}
+              {item.ad?.label && <span className="ml-2 text-xs opacity-75">{panel.hubAd}{item.ad.erid ? ` · erid ${item.ad.erid}` : ""}</span>}
+            </div>
             {item.dismissible && (
               <button type="button" onClick={() => close(item.id)} aria-label={panel.hubClose} className="shrink-0 rounded-md p-0.5 opacity-85 hover:opacity-100">
                 <X size={16} />

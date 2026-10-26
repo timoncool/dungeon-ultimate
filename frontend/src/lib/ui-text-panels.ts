@@ -88,6 +88,7 @@ export type PanelText = {
   notDownloaded: string;
   hubNotices: string;
   hubClose: string;
+  hubAd: string;
   news: string;
   newsEmpty: string;
   hubCheckbox: string;
@@ -207,6 +208,7 @@ const RU: PanelText = {
   notDownloaded: " — не скачан",
   hubNotices: "Объявления",
   hubClose: "Закрыть",
+  hubAd: "Реклама",
   news: "Новости",
   newsEmpty: "Пока новостей нет",
   hubCheckbox: "Отправлять анонимную статистику",
@@ -325,6 +327,7 @@ const EN: PanelText = {
   notDownloaded: " — not downloaded",
   hubNotices: "Notices",
   hubClose: "Close",
+  hubAd: "Ad",
   news: "News",
   newsEmpty: "No news yet",
   hubCheckbox: "Send anonymous statistics",
@@ -443,6 +446,7 @@ const ES: PanelText = {
   notDownloaded: " (sin descargar)",
   hubNotices: "Avisos",
   hubClose: "Cerrar",
+  hubAd: "Publicidad",
   news: "Noticias",
   newsEmpty: "Aún no hay noticias",
   hubCheckbox: "Enviar estadísticas anónimas",
@@ -561,6 +565,7 @@ const FR: PanelText = {
   notDownloaded: " — pas téléchargé",
   hubNotices: "Annonces",
   hubClose: "Fermer",
+  hubAd: "Publicité",
   news: "Nouveautés",
   newsEmpty: "Pas encore de nouvelles",
   hubCheckbox: "Envoyer des statistiques anonymes",
@@ -679,6 +684,7 @@ const DE: PanelText = {
   notDownloaded: " — nicht geladen",
   hubNotices: "Hinweise",
   hubClose: "Schließen",
+  hubAd: "Werbung",
   news: "Neuigkeiten",
   newsEmpty: "Noch keine Neuigkeiten",
   hubCheckbox: "Anonyme Statistik senden",
@@ -797,6 +803,7 @@ const ZH: PanelText = {
   notDownloaded: "（未下载）",
   hubNotices: "通知",
   hubClose: "关闭",
+  hubAd: "广告",
   news: "新闻",
   newsEmpty: "暂无新闻",
   hubCheckbox: "发送匿名统计",
@@ -915,6 +922,7 @@ const JA: PanelText = {
   notDownloaded: "（未ダウンロード）",
   hubNotices: "お知らせ",
   hubClose: "閉じる",
+  hubAd: "広告",
   news: "ニュース",
   newsEmpty: "まだニュースはありません",
   hubCheckbox: "匿名の統計を送る",

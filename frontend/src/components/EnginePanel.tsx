@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useUi, useUiLanguage } from "@/lib/ui-text-context";
 import { panelText, type PanelText } from "@/lib/ui-text-panels";
+import { SELF_POLL } from "@/lib/studioHub";
 
 // Настройки движков и облака.
 //
@@ -208,7 +209,7 @@ export default function EnginePanel() {
   useEffect(() => {
     void (async () => {
       try {
-        readRuntime(await (await fetch("/api/runtime")).json());
+        readRuntime(await (await fetch("/api/runtime", SELF_POLL)).json());
       } catch {
         setNote(panel.settingsUnreadable);
       }
@@ -219,7 +220,7 @@ export default function EnginePanel() {
     if (!open) return;
     void (async () => {
       try {
-        const data = (await (await fetch("/api/setup/status")).json()) as Setup;
+        const data = (await (await fetch("/api/setup/status", SELF_POLL)).json()) as Setup;
         setInstalled(new Set(data.components.filter((c) => c.present).map((c) => c.id)));
       } catch {
         setInstalled(new Set());
@@ -274,7 +275,7 @@ export default function EnginePanel() {
         body: JSON.stringify(patch),
       });
       if (!response.ok) throw new Error(await response.text());
-      readRuntime(await (await fetch("/api/runtime")).json());
+      readRuntime(await (await fetch("/api/runtime", SELF_POLL)).json());
       // Перезапуск не нужен: сервер перечитывает настройки на каждом запуске модели.
       setNote(panel.saved);
     } catch (error) {
@@ -282,7 +283,7 @@ export default function EnginePanel() {
       // Переключатель мы двигаем сразу, не дожидаясь ответа. Раз ответа нет — возвращаем
       // то, что на сервере: иначе панель показывала бы облако там, где его не включили.
       try {
-        const data = await (await fetch("/api/runtime")).json();
+        const data = await (await fetch("/api/runtime", SELF_POLL)).json();
         setRuntime(data.runtime);
       } catch {
         // связи нет вовсе — оставляем как есть, сообщение об ошибке уже показано
@@ -302,7 +303,7 @@ export default function EnginePanel() {
         body: JSON.stringify({ key }),
       });
       if (!response.ok) throw new Error(await response.text());
-      readRuntime(await (await fetch("/api/runtime")).json());
+      readRuntime(await (await fetch("/api/runtime", SELF_POLL)).json());
       setNote(panel.saved);
     } catch (error) {
       setNote(panel.notSaved.replace("{error}", error instanceof Error ? error.message : String(error)));
@@ -327,7 +328,7 @@ export default function EnginePanel() {
     let alive = true;
     const read = async () => {
       try {
-        const answer = await fetch("/api/where", { cache: "no-store" });
+        const answer = await fetch("/api/where", { ...SELF_POLL, cache: "no-store" });
         const data = (await answer.json()) as { stages?: Record<string, { where: string }> };
         if (!alive || !data.stages) return;
         setDecided(

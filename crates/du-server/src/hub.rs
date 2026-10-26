@@ -136,6 +136,14 @@ pub fn setup_ready() {
     }
 }
 
+/// Работа, у которой движок был один (очередь к карте пускает по задаче): секунды результата и секунды движка — для
+/// скорости по классу карты.
+pub fn worked(kind: &str, result_seconds: f64, work: std::time::Duration) {
+    if let Some(hub) = HUB.get().and_then(Option::as_ref) {
+        hub.worked(kind, result_seconds, work);
+    }
+}
+
 /// Закачка моделей упала; причину обезличивает клиент хаба.
 pub fn setup_failed(reason: &str) {
     if let Some(hub) = HUB.get().and_then(Option::as_ref) {

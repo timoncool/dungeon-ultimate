@@ -3,6 +3,7 @@ import { Bot, ChevronRight } from "lucide-react";
 import { useUiLanguage } from "@/lib/ui-text-context";
 import { panelText } from "@/lib/ui-text-panels";
 import { CHANGED } from "@/lib/mcpBridge";
+import { SELF_POLL } from "@/lib/studioHub";
 
 // Журнал «Активность» — что агент сделал в игре через MCP, как журнал студий.
 
@@ -18,8 +19,8 @@ export default function ActivityPanel() {
   const read = useCallback(async () => {
     try {
       const [activity, connection] = await Promise.all([
-        fetch("/api/activity", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/mcp/status", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/activity", { ...SELF_POLL, cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/mcp/status", { ...SELF_POLL, cache: "no-store" }).then((r) => r.json()),
       ]);
       setLines((activity.lines ?? []) as Line[]);
       setStatus(connection as Status);

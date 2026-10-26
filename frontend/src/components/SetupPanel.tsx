@@ -5,7 +5,7 @@ import { panelText } from "@/lib/ui-text-panels";
 import { componentText } from "@/lib/ui-text-components";
 import { errorText, type ServerError } from "@/lib/ui-text-errors";
 import { programName } from "@/lib/programs";
-import { hubChanged, setTelemetry, telemetryPreview, useHubState } from "@/lib/studioHub";
+import { SELF_POLL, hubChanged, setTelemetry, telemetryPreview, useHubState } from "@/lib/studioHub";
 
 // Первый запуск: докачка того, чего нет на диске.
 //
@@ -64,7 +64,7 @@ export default function SetupPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await (await fetch("/api/setup/status")).json();
+      const data = await (await fetch("/api/setup/status", SELF_POLL)).json();
       setComponents(data.components ?? []);
       return (data.components ?? []) as Component[];
     } catch {
