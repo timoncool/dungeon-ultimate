@@ -152,8 +152,10 @@ export default function SetupPanel() {
 
   /// Выбрать уже скачанный вариант: только настройка, без закачки.
   const choose = useCallback(async (component: Component) => {
-    const body =
-      component.id === "asr"
+    const quant = { "voice-model-q8_0": "q8_0", "voice-model-q6_k": "q6_k", "voice-model": "q4_k_m" }[component.id];
+    const body = quant
+      ? { ttsQuant: quant }
+      : component.id === "asr"
         ? { asrEngine: "parakeet", asrModel: "int8" }
         : component.id === "asr-ultra"
           ? { asrEngine: "parakeet", asrModel: "ultra" }
@@ -184,7 +186,11 @@ export default function SetupPanel() {
       members[0]
     );
   };
-  const covered = (group: string) => components.some((c) => c.variantOf === group && c.present);
+  // Квант голоса закрыт, только когда скачан рекомендуемый по карте: прежний меньший квант играет, а лучший предлагается.
+  const covered = (group: string) =>
+    group === "voice-model"
+      ? !components.some((c) => c.variantOf === group && c.requirement !== "optional" && !c.present)
+      : components.some((c) => c.variantOf === group && c.present);
   const singles = components.filter((c) => !c.variantOf);
   // Кнопка, как в Dub, берёт всё недостающее, кроме необязательного: из группы вариантов — выбранный,
   // если стадию ещё нечем считать.
@@ -201,7 +207,12 @@ export default function SetupPanel() {
   );
   // «Не хватает главного» и «Ещё нужно» — только обязательное: без рекомендованного игра идёт.
   const owed = [...missingSingles, ...uncoveredGroups].filter((c) => c.requirement === "required");
-  const missing = components.filter((component) => !component.present && (!component.variantOf || !covered(component.variantOf)));
+  const missing = components.filter(
+    (component) =>
+      !component.present &&
+      (!component.variantOf || !covered(component.variantOf)) &&
+      (component.variantOf !== "voice-model" || component.requirement !== "optional"),
+  );
   const totalMissing = missing.reduce((sum, component) => sum + missingBytes(component), 0);
   const telemetryOn = hub?.telemetry.enabled ?? true;
 
@@ -314,7 +325,7 @@ export default function SetupPanel() {
             return (
               <div key={group} className="rounded border border-stone-800 bg-stone-950 px-3 py-2">
                 <div className="mb-1.5 flex items-baseline justify-between gap-2">
-                  <span className="text-sm text-stone-200">{group === "asr" ? panel.variantGroupAsr : group}</span>
+                  <span className="text-sm text-stone-200">{group === "asr" ? panel.variantGroupAsr : group === "voice-model" ? panel.variantGroupVoice : group}</span>
                   <span className="text-[10px] uppercase tracking-wide text-amber-200/80">{panel.pickOneVariant}</span>
                 </div>
                 <div className="space-y-0.5">

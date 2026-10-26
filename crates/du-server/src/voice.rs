@@ -128,18 +128,24 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
                 let text = crate::cloud::transcribe(&root, &runtime, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-            let device = if by_crisper { crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr) } else { parakeet_device(&runtime, &root) };
+            let in_server = by_crisper || parakeet.id == crate::acpp::PARAKEET_V3;
+            let device = if in_server { crate::backend::stage_backend(&runtime, crate::backend::Stage::Asr) } else { parakeet_device(&runtime, &root) };
             if !device.is_cpu() {
                 if let Some(problem) = crate::accel::missing_chosen_card(&runtime) {
                     return Err(problem);
                 }
             }
-            if !by_crisper {
-                let models_root = root.join("models");
-                let text = parakeet_text(&models_root, parakeet, &parakeet_path, device, &path, lang)?;
+            if by_crisper {
+                let text = server_text(&root, crate::acpp::CRISPERWHISPER, device, &path, lang)?;
                 return Ok(json!({ "text": text }));
             }
-            let text = crisperwhisper_text(&root, device, &path, lang)?;
+            // Parakeet v3 — в audiocpp_server, как в Speech Studio; Ultra — на transcribe.cpp
+            if parakeet.id == crate::acpp::PARAKEET_V3 {
+                let text = server_text(&root, crate::acpp::PARAKEET_V3, device, &path, lang)?;
+                return Ok(json!({ "text": text }));
+            }
+            let models_root = root.join("models");
+            let text = parakeet_text(&models_root, parakeet, &parakeet_path, device, &path, lang)?;
             Ok(json!({ "text": text }))
         }))
         .await;
@@ -154,9 +160,12 @@ async fn transcribe_inner(State(state): State<AppState>, language: du_core::Lang
     Ok(Json(value?))
 }
 
-/// Текст записи `wav` от CrisperWhisper в audiocpp_server, на языке игры. Сервер читает только WAV 16 кГц моно — запись
-/// окна перегоняется рядом. На видеокарте модель снимается с памяти сразу после разбора: карта нужна рассказчику.
-fn crisperwhisper_text(root: &std::path::Path, device: crate::backend::Backend, wav: &std::path::Path, lang: &str) -> Result<String, UserError> {
+/// Текст записи `wav` от модели `model` в audiocpp_server (CrisperWhisper или Parakeet v3) через `dub_asr::acpp`, как в
+/// Speech Studio: CrisperWhisper получает язык игры кодом Whisper, Parakeet находит его сам. Сервер читает только WAV
+/// 16 кГц моно — запись окна перегоняется рядом. На видеокарте модель снимается с памяти сразу после разбора: карта
+/// нужна рассказчику.
+fn server_text(root: &std::path::Path, model: &str, device: crate::backend::Backend, wav: &std::path::Path, lang: &str) -> Result<String, UserError> {
+    use dub_asr::AsrEngine;
     let (pcm, _) = du_asr::load_wav_16k_mono(wav).map_err(|error| error.to_string())?;
     let mono = wav.with_extension("16k.wav");
     let spec = hound::WavSpec { channels: 1, sample_rate: 16_000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
@@ -167,26 +176,27 @@ fn crisperwhisper_text(root: &std::path::Path, device: crate::backend::Backend, 
         }
         writer.finalize().map_err(|error| error.to_string())?;
     }
-    let server = crate::acpp::server(root, crate::acpp::CRISPERWHISPER, device.is_cpu());
-    let result = server.and_then(|server| {
-        let language = acpp_server::language::whisper_code(lang).map_err(UserError::Acpp)?;
-        let request = acpp_server::TranscribeRequest {
-            model: crate::acpp::CRISPERWHISPER.to_string(),
-            wav: mono.clone(),
-            language: Some(language.to_string()),
-            prompt: None,
-            options: serde_json::Map::new(),
-            within: None,
-        };
-        server.transcribe_details(&request).map_err(UserError::Acpp)
+    let models_root = root.join("models");
+    let language = if model == crate::acpp::CRISPERWHISPER {
+        dub_asr::acpp::Language::Whisper {
+            engine_dir: dub_asr::tcpp::engine_dir(&models_root, dub_asr::tcpp::Build::Cpu),
+            langid: dub_asr::tcpp::helper_path(&models_root, &dub_asr::tcpp::LANGID),
+        }
+    } else {
+        dub_asr::acpp::Language::Own
+    };
+    let result = crate::acpp::server(root, model, device.is_cpu()).and_then(|server| {
+        let mut engine = dub_asr::acpp::AcppAsr::new(server, model, language);
+        engine.transcribe(&mono, lang).map_err(|error| UserError::AsrFailed(error.to_string()))
     });
     if let Err(error) = std::fs::remove_file(&mono) {
-        tracing::warn!("не убрать запись для CrisperWhisper {}: {error}", mono.display());
+        tracing::warn!("не убрать запись для распознавания {}: {error}", mono.display());
     }
     if !device.is_cpu() {
-        crate::acpp::unload(&[crate::acpp::CRISPERWHISPER]);
+        crate::acpp::unload(&[model]);
     }
-    Ok(result?.text.trim().to_string())
+    let segments = result?;
+    Ok(dub_asr::join_text(segments.iter().map(|segment| segment.text.as_str())).trim().to_string())
 }
 
 /// Голоса озвучки — по файлам эталонных клипов в каталоге голосов.

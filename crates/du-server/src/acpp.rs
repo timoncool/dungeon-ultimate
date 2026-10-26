@@ -12,11 +12,48 @@ use crate::errors::UserError;
 
 pub const HIGGS: &str = "higgs";
 pub const CRISPERWHISPER: &str = "crisperwhisper";
+/// Parakeet TDT v3 в сервере; Parakeet Ultra считает transcribe.cpp.
+pub const PARAKEET_V3: &str = "parakeet-v3";
 
 /// Папка CrisperWhisper в `models` — репозиторий Hugging Face как есть, путь Dub Studio.
 pub const CRISPERWHISPER_DIR: &str = "crisperwhisper2-turbo";
-/// Веса Higgs игры (Higgs-Audio-v3-Studio, q4_k_m) — те же файлы, что читала прежняя библиотека голоса.
-pub const HIGGS_GGUF: &str = "models/tts/q4_k_m.gguf";
+/// Кванты Higgs (Higgs-Audio-v3-Studio) от лучшего к меньшему и их GGUF: q8_0 и q6_k по путям Speech Studio (их можно
+/// взять у неё), q4_k_m — прежний файл игры.
+pub const HIGGS_QUANTS: [(&str, &str); 3] =
+    [("q8_0", "models/higgs-q8_0/q8_0.gguf"), ("q6_k", "models/higgs-q6_k/q6_k.gguf"), ("q4_k_m", "models/tts/q4_k_m.gguf")];
+
+/// Квант Higgs по памяти карты, как пресеты Speech Studio: от 15 ГБ — q8_0, от 11 — q6_k, меньше — q4_k_m.
+pub fn recommended_quant(vram_gb: f64) -> &'static str {
+    if vram_gb >= 15.0 {
+        "q8_0"
+    } else if vram_gb >= 11.0 {
+        "q6_k"
+    } else {
+        "q4_k_m"
+    }
+}
+
+/// Квант Higgs игры: выбранный в настройках; без выбора — рекомендованный по карте, если он скачан, иначе лучший из
+/// скачанных (прежний q4_k_m играет, пока игрок не скачал рекомендованный), а не скачан ни один — рекомендованный.
+pub fn higgs_quant(root: &Path, runtime: &crate::runtime::Runtime) -> &'static str {
+    let on_disk = |quant: &str| HIGGS_QUANTS.iter().any(|(q, gguf)| *q == quant && root.join(gguf).is_file());
+    if let Some((quant, _)) = HIGGS_QUANTS.iter().find(|(q, _)| *q == runtime.tts_quant) {
+        return quant;
+    }
+    let vram = crate::accel::chosen_card(runtime).map(|card| card.vram_gb).unwrap_or(0.0);
+    let recommended = recommended_quant(vram);
+    if on_disk(recommended) {
+        return recommended;
+    }
+    HIGGS_QUANTS.iter().map(|(q, _)| *q).find(|q| on_disk(q)).unwrap_or(recommended)
+}
+
+/// GGUF Higgs игры (`higgs_quant`).
+pub fn higgs_gguf(root: &Path, runtime: &crate::runtime::Runtime) -> PathBuf {
+    let quant = higgs_quant(root, runtime);
+    let rel = HIGGS_QUANTS.iter().find(|(q, _)| *q == quant).map(|(_, gguf)| *gguf).unwrap_or(HIGGS_QUANTS[2].1);
+    root.join(rel)
+}
 
 /// Сервер моделей на старте не грузит, поэтому отвечает быстро.
 const READY_WITHIN: Duration = Duration::from_secs(60);
@@ -53,16 +90,22 @@ pub fn library_dir(root: &Path, build: Build) -> Option<PathBuf> {
 }
 
 /// Модели, файлы которых на диске: сервер читает контракт каждой настроенной модели при старте, и один
-/// недостающий файл остановил бы все.
+/// недостающий файл остановил бы все. Parakeet v3 читает GGUF transcribe.cpp (путь Dub Studio), как в Speech Studio.
 pub fn models(root: &Path) -> Vec<ModelEntry> {
     let mut out = Vec::new();
-    let higgs = root.join(HIGGS_GGUF);
+    let higgs = higgs_gguf(root, &crate::runtime::load(root));
     if higgs.is_file() {
         out.push(ModelEntry::higgs_tts(HIGGS, &higgs));
     }
     let crisper = root.join("models").join(CRISPERWHISPER_DIR);
     if crisper.join("model.safetensors").is_file() {
         out.push(ModelEntry::crisperwhisper(CRISPERWHISPER, &crisper));
+    }
+    if let Some(model) = dub_tcpp::model(PARAKEET_V3) {
+        let gguf = dub_tcpp::model_path(&root.join("models"), model);
+        if gguf.is_file() {
+            out.push(ModelEntry::parakeet_tdt(PARAKEET_V3, &gguf));
+        }
     }
     out
 }
@@ -111,7 +154,10 @@ pub fn server(root: &Path, model: &str, on_cpu: bool) -> Result<Arc<Server>, Use
     }
     if !config.models.iter().any(|entry| entry.id == model) {
         return Err(match model {
-            HIGGS => UserError::VoiceModelMissing(root.join(HIGGS_GGUF).display().to_string()),
+            HIGGS => UserError::VoiceModelMissing(higgs_gguf(root, &runtime).display().to_string()),
+            PARAKEET_V3 => UserError::ParakeetModelMissing(
+                dub_tcpp::model(PARAKEET_V3).map(|m| dub_tcpp::model_path(&root.join("models"), m)).unwrap_or_default().display().to_string(),
+            ),
             _ => UserError::CrisperWhisperMissing(root.join("models").join(CRISPERWHISPER_DIR).display().to_string()),
         });
     }

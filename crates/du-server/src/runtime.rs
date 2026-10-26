@@ -61,6 +61,8 @@ pub struct Runtime {
     pub tts_parallel: bool,
     /// Сколько секунд эталонного клипа отдавать движку голоса.
     pub tts_reference_seconds: u32,
+    /// Квант Higgs (`q8_0`, `q6_k`, `q4_k_m`); пусто — по памяти карты (`acpp::higgs_quant`).
+    pub tts_quant: String,
 
     // ── Облако ────────────────────────────────────────────────────────────────
     // Каждая стадия уводится в облако отдельно: так можно играть и совсем без карты, и
@@ -108,6 +110,7 @@ impl Default for Runtime {
             tts_enabled: true,
             tts_parallel: true,
             tts_reference_seconds: 12,
+            tts_quant: String::new(),
             openrouter_key: String::new(),
             openrouter_narrator_on: false,
             openrouter_narrator_model: String::new(),

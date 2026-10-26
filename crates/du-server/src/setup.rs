@@ -427,11 +427,41 @@ static COMPONENTS: &[Component] = &[
             files: platform::VOICE_ENGINE_CPU,
         },
         Component {
+            id: "voice-model-q8_0",
+            title: "Модель озвучки Q8_0",
+            note: "лучший квант, для карт от 15 ГБ; те же файлы, что у Speech Studio",
+            requirement: Requirement::Recommended,
+            variant_of: "voice-model",
+            files: &[
+                FileSpec::plain("models/higgs-q8_0/q8_0.gguf", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q8_0/q8_0.gguf", 5_519_235_296, "b857344af06b1b2497f4f8c1d0f0c134d0eeaf9c089c0d28ae6e58084d90f901"),
+                FileSpec::plain("models/higgs-q8_0/config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q8_0/config.json", 2_755, "2ead4442c079ee35c2123a5b197e126e18eccfc0bdb65d31c94767e75d7864d4"),
+                FileSpec::plain("models/higgs-q8_0/chat_template.jinja", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q8_0/chat_template.jinja", 2_427, "44d5f08f3f72b837eaad09f13a54c1f9f4eb58d75240334548b7fd52a5437fa5"),
+                FileSpec::plain("models/higgs-q8_0/tokenizer.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q8_0/tokenizer.json", 11_433_924, "eb883de2de5adc5113f1f02b54830a0ea7cd6ef191cde65c41aceb3737d4d1c1"),
+                FileSpec::plain("models/higgs-q8_0/tokenizer_config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q8_0/tokenizer_config.json", 1_937, "b4d632e1239569fb1829bf0bfa3c674fa54f22c42e9cb2669d77c438d4b4e02c"),
+                FileSpec::plain("models/higgs-q8_0/higgs_audio_v2_tokenizer_config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q8_0/higgs_audio_v2_tokenizer_config.json", 2_251, "1f96f10516c2bb59d5a127e04e659a331a50fb1684217b1492fabd1dc94def26"),
+            ],
+        },
+        Component {
+            id: "voice-model-q6_k",
+            title: "Модель озвучки Q6_K",
+            note: "квант для карт от 11 ГБ; те же файлы, что у Speech Studio",
+            requirement: Requirement::Recommended,
+            variant_of: "voice-model",
+            files: &[
+                FileSpec::plain("models/higgs-q6_k/q6_k.gguf", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q6_k/q6_k.gguf", 5_023_637_248, "764399ced4439adaf3d5d3ca95720276b8ab06fc92a6439f9ce28f3ad671ba4c"),
+                FileSpec::plain("models/higgs-q6_k/config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q6_k/config.json", 2_755, "2ead4442c079ee35c2123a5b197e126e18eccfc0bdb65d31c94767e75d7864d4"),
+                FileSpec::plain("models/higgs-q6_k/chat_template.jinja", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q6_k/chat_template.jinja", 2_427, "44d5f08f3f72b837eaad09f13a54c1f9f4eb58d75240334548b7fd52a5437fa5"),
+                FileSpec::plain("models/higgs-q6_k/tokenizer.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q6_k/tokenizer.json", 11_433_924, "eb883de2de5adc5113f1f02b54830a0ea7cd6ef191cde65c41aceb3737d4d1c1"),
+                FileSpec::plain("models/higgs-q6_k/tokenizer_config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q6_k/tokenizer_config.json", 1_937, "b4d632e1239569fb1829bf0bfa3c674fa54f22c42e9cb2669d77c438d4b4e02c"),
+                FileSpec::plain("models/higgs-q6_k/higgs_audio_v2_tokenizer_config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q6_k/higgs_audio_v2_tokenizer_config.json", 2_251, "1f96f10516c2bb59d5a127e04e659a331a50fb1684217b1492fabd1dc94def26"),
+            ],
+        },
+        Component {
             id: "voice-model",
             title: "Модель озвучки",
-            note: "квант Q4_K_M; вместе с ней идут настройки и словарь",
+            note: "квант Q4_K_M для карт меньше 11 ГБ; вместе с ней идут настройки и словарь",
             requirement: Requirement::Recommended,
-            variant_of: "",
+            variant_of: "voice-model",
             files: &[
                 FileSpec::plain("models/tts/q4_k_m.gguf", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q4_k_m/q4_k_m.gguf", 4_086_922_976, "a6c8a9b5c8c72965865988c6ef411d32446aeb0df730f59e7bd4a3e801cea3a1"),
                 FileSpec::plain("models/tts/config.json", "https://huggingface.co/drbaph/Higgs-Audio-v3-Studio/resolve/c6e9db5a2062c15accc1b9bfa54d927bbdb124dc/models/higgs-q4_k_m/config.json", 2_755, "2ead4442c079ee35c2123a5b197e126e18eccfc0bdb65d31c94767e75d7864d4"),
@@ -521,7 +551,21 @@ pub fn variant_selection(id: &str) -> Option<(&'static str, String)> {
     }
 }
 
+/// Квант Higgs компонента группы «voice-model».
+pub fn voice_quant_of(id: &str) -> Option<&'static str> {
+    match id {
+        "voice-model-q8_0" => Some("q8_0"),
+        "voice-model-q6_k" => Some("q6_k"),
+        "voice-model" => Some("q4_k_m"),
+        _ => None,
+    }
+}
+
 pub fn select_variant(runtime: &mut crate::runtime::Runtime, id: &str) -> bool {
+    if let Some(quant) = voice_quant_of(id) {
+        runtime.tts_quant = quant.to_string();
+        return true;
+    }
     let Some((engine, model)) = variant_selection(id) else { return false };
     runtime.asr_engine = engine.to_string();
     if engine != crate::runtime::ASR_CRISPERWHISPER {
@@ -531,6 +575,9 @@ pub fn select_variant(runtime: &mut crate::runtime::Runtime, id: &str) -> bool {
 }
 
 pub fn variant_selected(runtime: &crate::runtime::Runtime, id: &str) -> bool {
+    if voice_quant_of(id).is_some() {
+        return false;
+    }
     let crisper = runtime.asr_engine == crate::runtime::ASR_CRISPERWHISPER;
     match variant_selection(id) {
         Some((crate::runtime::ASR_CRISPERWHISPER, _)) => crisper,
@@ -954,7 +1001,7 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
         let narrator = id.starts_with("narrator");
         let image = id.starts_with("image-");
         let voice = id.starts_with("voice-");
-        let asr = !variant_of(id).is_empty();
+        let asr = variant_of(id) == "asr";
         (narrator
             && (crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Narrator) || runtime.narrator_provider == "agent"))
             || (image && crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Image))
@@ -962,7 +1009,17 @@ pub fn status(root: &Path) -> Vec<ComponentStatus> {
             || (asr && crate::cloud::stage_enabled(&runtime, crate::cloud::Stage::Asr))
     };
     let accel = crate::accel::accel(&runtime);
+    // квант Higgs: рекомендуемый по карте предлагается скачать и при скачанном прежнем, остальные — по выбору
+    let vram = crate::accel::chosen_card(&runtime).map(|card| card.vram_gb).unwrap_or(0.0);
+    let recommended = if runtime.tts_quant.is_empty() { crate::acpp::recommended_quant(vram) } else { runtime.tts_quant.as_str() };
+    let playing = crate::acpp::higgs_quant(root, &runtime);
     for status in statuses.iter_mut() {
+        if let Some(quant) = voice_quant_of(status.component.id) {
+            status.selected = quant == playing;
+            if quant != recommended {
+                status.component.requirement = Requirement::Optional;
+            }
+        }
         if status.component.requirement != Requirement::Optional
             && (elsewhere(status.component.id) || !fits_this_machine(status.component.id, accel))
         {
@@ -1004,11 +1061,11 @@ fn variant_of(id: &str) -> &'static str {
 
 /// Варианты одной стадии взаимозаменяемы: скачанный вариант закрывает группу, и вариант по
 /// умолчанию больше не числится нужным — иначе выбор на первом запуске упирается в докачку
-/// варианта, который игрок не выбирал.
+/// варианта, который игрок не выбирал. Кроме квантов Higgs: рекомендуемый по карте лучше скачанного, и его предлагают.
 fn installed_variant_covers_group(statuses: &mut [ComponentStatus]) {
     let covered: std::collections::BTreeSet<&'static str> = statuses
         .iter()
-        .filter(|status| status.present && !status.component.variant_of.is_empty())
+        .filter(|status| status.present && !status.component.variant_of.is_empty() && status.component.variant_of != "voice-model")
         .map(|status| status.component.variant_of)
         .collect();
     for status in statuses.iter_mut() {
@@ -1725,6 +1782,31 @@ mod tests {
         let mut left: Vec<String> = std::fs::read_dir(&voices).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         left.sort();
         assert_eq!(left, ["A.mp3", "A.txt", "B.wav"]);
+    }
+
+    /// Квант Higgs по памяти карты, как пресеты Speech Studio; прежний q4_k_m играет, пока рекомендуемый не скачан,
+    /// выбор игрока главнее; выбор кванта в «Что скачать» пишет его в настройки.
+    #[test]
+    fn the_voice_quant_follows_the_card_and_the_players_choice() {
+        assert_eq!(crate::acpp::recommended_quant(24.0), "q8_0");
+        assert_eq!(crate::acpp::recommended_quant(12.0), "q6_k");
+        assert_eq!(crate::acpp::recommended_quant(8.0), "q4_k_m");
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = crate::runtime::Runtime::default();
+        let q4 = dir.path().join("models/tts/q4_k_m.gguf");
+        std::fs::create_dir_all(q4.parent().unwrap()).unwrap();
+        std::fs::write(&q4, b"x").unwrap();
+        // без карты рекомендуется q4_k_m; есть файл — он и играет
+        if crate::accel::chosen_card(&runtime).is_none() {
+            assert_eq!(crate::acpp::higgs_quant(dir.path(), &runtime), "q4_k_m");
+        }
+        runtime.tts_quant = "q6_k".into();
+        assert_eq!(crate::acpp::higgs_quant(dir.path(), &runtime), "q6_k", "the choice stands even before its file is there");
+        assert!(crate::acpp::higgs_gguf(dir.path(), &runtime).ends_with("models/higgs-q6_k/q6_k.gguf"));
+        let mut chosen = crate::runtime::Runtime::default();
+        assert!(select_variant(&mut chosen, "voice-model-q8_0"));
+        assert_eq!(chosen.tts_quant, "q8_0");
+        assert_eq!(chosen.asr_engine, crate::runtime::Runtime::default().asr_engine, "a voice quant leaves recognition alone");
     }
 
     /// Хост, где никто не слушает, бросается после трёх попыток, а не восьми, и ошибка называет его рядом с адресом.

@@ -17,6 +17,8 @@ du-asr = { path = "../du-asr" }
 dub-tcpp = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
 # Голос (Higgs) и CrisperWhisper — в audiocpp_server, тот же клиент, что у Dub Studio
 acpp-server = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
+# Распознавание в audiocpp_server (Parakeet v3, CrisperWhisper), как в Speech Studio
+dub-asr = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
 # Программы компьютера и скачанные запускаются без библиотек AppImage (dub_core::proc::host_command)
 dub-core = { git = "https://github.com/timoncool/dub-studio", rev = "b63f1ef589f8969a23939d16019bac17c745dc7a" }
 

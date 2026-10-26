@@ -102,6 +102,7 @@ export type PanelText = {
   takenFrom: string;
   defaultWord: string;
   variantGroupAsr: string;
+  variantGroupVoice: string;
   downloadSelected: string;
   activity: string;
   activityEmpty: string;
@@ -222,6 +223,7 @@ const RU: PanelText = {
   takenFrom: "взят из {app}",
   defaultWord: "по умолчанию",
   variantGroupAsr: "Распознавание речи",
+  variantGroupVoice: "Модель голоса",
   downloadSelected: "Скачать выбранное · {size}",
   activity: "Активность агента",
   activityEmpty: "Агент пока ничего не делал",
@@ -341,6 +343,7 @@ const EN: PanelText = {
   takenFrom: "taken from {app}",
   defaultWord: "default",
   variantGroupAsr: "Speech recognition",
+  variantGroupVoice: "Voice model",
   downloadSelected: "Download the selection · {size}",
   activity: "Agent activity",
   activityEmpty: "The agent has done nothing yet",
@@ -460,6 +463,7 @@ const ES: PanelText = {
   takenFrom: "tomado de {app}",
   defaultWord: "por defecto",
   variantGroupAsr: "Reconocimiento de voz",
+  variantGroupVoice: "Modelo de voz",
   downloadSelected: "Descargar lo elegido · {size}",
   activity: "Actividad del agente",
   activityEmpty: "El agente aún no ha hecho nada",
@@ -579,6 +583,7 @@ const FR: PanelText = {
   takenFrom: "repris de {app}",
   defaultWord: "par défaut",
   variantGroupAsr: "Reconnaissance vocale",
+  variantGroupVoice: "Modèle de voix",
   downloadSelected: "Télécharger la sélection · {size}",
   activity: "Activité de l’agent",
   activityEmpty: "L’agent n’a encore rien fait",
@@ -698,6 +703,7 @@ const DE: PanelText = {
   takenFrom: "aus {app} übernommen",
   defaultWord: "Standard",
   variantGroupAsr: "Spracherkennung",
+  variantGroupVoice: "Stimmmodell",
   downloadSelected: "Auswahl laden · {size}",
   activity: "Agenten-Aktivität",
   activityEmpty: "Der Agent hat noch nichts getan",
@@ -817,6 +823,7 @@ const ZH: PanelText = {
   takenFrom: "取自 {app}",
   defaultWord: "默认",
   variantGroupAsr: "语音识别",
+  variantGroupVoice: "声音模型",
   downloadSelected: "下载所选 · {size}",
   activity: "智能体动态",
   activityEmpty: "智能体还没做任何事",
@@ -936,6 +943,7 @@ const JA: PanelText = {
   takenFrom: "{app} から取得",
   defaultWord: "既定",
   variantGroupAsr: "音声認識",
+  variantGroupVoice: "音声モデル",
   downloadSelected: "選んだものをダウンロード · {size}",
   activity: "エージェントの動き",
   activityEmpty: "エージェントはまだ何もしていません",
