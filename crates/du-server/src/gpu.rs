@@ -90,12 +90,14 @@ pub fn llama_dir(root: &Path, accel: crate::accel::Accel) -> PathBuf {
     }
 }
 
-/// Сборка sd.cpp: CUDA 12 на любой годной карте NVIDIA, Vulkan на остальных; на процессоре кадр не рисуется.
+/// Сборка sd.cpp: CUDA 12 на любой годной карте NVIDIA, Vulkan на остальных; на процессоре кадр не рисуется — кроме
+/// Mac, где одна сборка с Metal и машина считается процессорной.
 pub fn image_dir(root: &Path, accel: crate::accel::Accel) -> Option<PathBuf> {
     let runtime = root.join("models").join("runtime");
     match accel {
         crate::accel::Accel::Cuda13 | crate::accel::Accel::Cuda12 => Some(runtime.join("sd")),
         crate::accel::Accel::Vulkan => Some(runtime.join("sd-vulkan")),
+        crate::accel::Accel::Cpu if cfg!(target_os = "macos") => Some(runtime.join("sd")),
         crate::accel::Accel::Cpu => None,
     }
 }
@@ -161,8 +163,14 @@ impl Gpu {
             .with_ctx(runtime.narrator_ctx);
         opts.n_gpu_layers = narrator_layers(&runtime);
         opts.device = narrator_device(&runtime);
-        // VC++ runtime установщик кладёт рядом с exe игры.
+        // VC++ runtime установщик кладёт рядом с exe игры; на Linux cudart и cuBLAS сборки llama лежат в общей папке
+        // CUDA-рантайма (Windows-сборке их приносит её собственный архив).
         opts.library_dirs = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)).into_iter().collect();
+        if cfg!(target_os = "linux") {
+            if let Some(dir) = crate::acpp::library_dir(&self.root, crate::acpp::build(accel)) {
+                opts.library_dirs.push(dir);
+            }
+        }
         {
             let mut text = self.text.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(server) = text.as_mut() {

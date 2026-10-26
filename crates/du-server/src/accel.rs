@@ -185,7 +185,31 @@ fn display_adapter() -> Option<String> {
     best_adapter(&query("DriverDesc")?, &query("HardwareInformation.qwMemorySize")?).map(|(name, _)| name)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn display_adapter() -> Option<String> {
+    // Видеокарты в /sys/class/drm: производитель по коду PCI (AMD 0x1002, Intel 0x8086, NVIDIA 0x10de).
+    let cards = std::fs::read_dir("/sys/class/drm").ok()?;
+    let mut found: Vec<String> = Vec::new();
+    for card in cards.flatten() {
+        let name = card.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("card") || name.contains('-') {
+            continue;
+        }
+        let vendor = std::fs::read_to_string(card.path().join("device").join("vendor")).unwrap_or_default();
+        let vendor = match vendor.trim() {
+            "0x1002" => "AMD",
+            "0x8086" => "Intel",
+            "0x10de" => "NVIDIA",
+            _ => continue,
+        };
+        found.push(vendor.to_string());
+    }
+    // дискретная AMD важнее встроенной Intel
+    found.iter().find(|vendor| vendor.as_str() == "AMD").or_else(|| found.first()).cloned()
+}
+
+/// Mac: llama.cpp и sd.cpp считают на Metal своей единственной сборкой, отдельный адаптер не нужен.
+#[cfg(not(any(windows, target_os = "linux")))]
 fn display_adapter() -> Option<String> {
     None
 }

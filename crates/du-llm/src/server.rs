@@ -158,12 +158,20 @@ impl LlamaServer {
             cmd.arg("--device").arg(device);
         }
         if !opts.library_dirs.is_empty() {
+            // где система ищет библиотеки процесса: PATH на Windows, LD_LIBRARY_PATH на Linux, DYLD_LIBRARY_PATH на Mac
+            let variable = if cfg!(windows) {
+                "PATH"
+            } else if cfg!(target_os = "macos") {
+                "DYLD_LIBRARY_PATH"
+            } else {
+                "LD_LIBRARY_PATH"
+            };
             let mut dirs = opts.library_dirs.clone();
-            if let Some(current) = std::env::var_os("PATH") {
+            if let Some(current) = std::env::var_os(variable) {
                 dirs.extend(std::env::split_paths(&current));
             }
             if let Ok(joined) = std::env::join_paths(dirs) {
-                cmd.env("PATH", joined);
+                cmd.env(variable, joined);
             }
         }
         if let Some(mmproj) = opts.mmproj.as_ref().filter(|path| path.is_file()) {

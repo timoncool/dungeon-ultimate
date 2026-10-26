@@ -37,11 +37,12 @@ pub fn exe(root: &Path, build: Build) -> PathBuf {
     root.join("tools").join(build.folder()).join(name)
 }
 
-/// Где лежат библиотеки CUDA, которых нет в архиве сервера: CUDA 13 — в `models/tts-engine` (туда их кладут
-/// движок озвучки и «Parakeet на видеокарте»), CUDA 12.9 — в `models/cuda12-runtime`.
+/// Где лежат библиотеки CUDA, которых нет в архиве сервера: CUDA 13 — в `models/tts-engine` на Windows (туда их кладут
+/// движок озвучки и «Parakeet на видеокарте») и в `models/higgs-engine` на Linux (её называет RUNPATH сборок audio.cpp
+/// и transcribe.cpp), CUDA 12.9 — в `models/cuda12-runtime`.
 pub fn library_dir(root: &Path, build: Build) -> Option<PathBuf> {
     match build {
-        Build::Cuda13 => Some(root.join("models").join("tts-engine")),
+        Build::Cuda13 => Some(root.join("models").join(if cfg!(windows) { "tts-engine" } else { "higgs-engine" })),
         Build::Cuda12 => Some(root.join("models").join("cuda12-runtime")),
         Build::Vulkan | Build::Cpu => None,
     }

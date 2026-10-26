@@ -141,40 +141,148 @@ impl Component {
 // Движок картинок обязан совпадать с `du_image::PINNED_COMMIT`, иначе загрузчик откажется работать
 // с чужой сборкой. Адреса стоят целиком, потому что срез файлов статический.
 
-/// Рантайм CUDA 13 и cuBLAS 13 из колёс NVIDIA: их импортируют движок озвучки и сборка transcribe.cpp под
-/// видеокарту, путь один, поэтому файлы качаются один раз на оба компонента.
-const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::Libs, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
-// cuFFT 12 — третья библиотека CUDA 13, которую импортирует audiocpp_server (cudart в нём слинкован статически)
-const CUFFT12: FileSpec = FileSpec::archive("downloads/tts-cufft.zip", "https://developer.download.nvidia.com/compute/cuda/redist/libcufft/windows-x86_64/libcufft-windows-x86_64-12.4.0.43-archive.zip", 159_602_693, "69d0ad8dc3a1be66f01a748a8206d0ceaafa56939474663fbe790dc3e91d2009", Extract::Libs, "models/tts-engine", "models/tts-engine/cufft64_12.dll");
-
 /// Сборка audiocpp_server (голос Higgs и CrisperWhisper) — архив релиза, закреплённый в крейте `acpp-server`.
 const fn audiocpp(asset: acpp_server::asset::Asset, download: &'static str, dir: &'static str, marker: &'static str) -> FileSpec {
     FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::Flat, dir, marker)
 }
-const AUDIOCPP_CUDA13: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CUDA13, "downloads/audiocpp.zip", "tools/audiocpp", "tools/audiocpp/audiocpp_server.exe");
-const AUDIOCPP_CUDA12: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CUDA12, "downloads/audiocpp-cuda12.zip", "tools/audiocpp-cuda12", "tools/audiocpp-cuda12/audiocpp_server.exe");
-const AUDIOCPP_VULKAN: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_VULKAN, "downloads/audiocpp-vulkan.zip", "tools/audiocpp-vulkan", "tools/audiocpp-vulkan/audiocpp_server.exe");
-const AUDIOCPP_CPU: FileSpec = audiocpp(acpp_server::asset::SERVER_WIN_CPU, "downloads/audiocpp-cpu.zip", "tools/audiocpp-cpu", "tools/audiocpp-cpu/audiocpp_server.exe");
 
-/// CUDA 12.9 для сборки сервера под CUDA 12 (колёса PyPI, их `.dll` раскладываются плоско) — те же файлы и папка, что у Dub.
-const fn cuda12_runtime(asset: acpp_server::asset::Asset, download: &'static str, marker: &'static str) -> FileSpec {
-    FileSpec::archive(download, asset.url, asset.size, asset.sha256, Extract::Libs, "models/cuda12-runtime", marker)
-}
-const CUDA12_CUDART: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[0], "downloads/cuda12-cudart.whl", "models/cuda12-runtime/cudart64_12.dll");
-const CUDA12_CUBLAS: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[1], "downloads/cuda12-cublas.whl", "models/cuda12-runtime/cublas64_12.dll");
-const CUDA12_CUFFT: FileSpec = cuda12_runtime(acpp_server::asset::CUDA12_RUNTIME[2], "downloads/cuda12-cufft.whl", "models/cuda12-runtime/cufft64_11.dll");
-
-const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::Libs, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
-
-/// Сборки transcribe.cpp (видеокарта и процессор) в папках и с файлами Dub Studio: процессорная идёт с моделью,
-/// видеокарточная — отдельным компонентом `asr-gpu`.
-const TCPP_CUDA: FileSpec = tcpp_engine(dub_tcpp::Build::Cuda, "models/transcribe-engine/transcribe_engine.dll");
-const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/transcribe_engine.dll");
-
+/// Сборка transcribe.cpp по пути Dub Studio; её адрес под эту систему знает `dub-tcpp`.
 const fn tcpp_engine(build: dub_tcpp::Build, path: &'static str) -> FileSpec {
     let download = build.download();
     FileSpec::plain(path, download.url, download.size, download.sha256)
 }
+
+/// Движки под Windows: zip-сборки GitHub, колёса NVIDIA win_amd64. Библиотеки CUDA 13 лежат в `models/tts-engine`.
+#[cfg(windows)]
+mod platform {
+    use super::{audiocpp, tcpp_engine, Extract, FileSpec};
+
+    /// Рантайм CUDA 13, cuBLAS 13 и cuFFT 12 из колёс и redist NVIDIA: их импортируют audiocpp_server и сборка
+    /// transcribe.cpp под видеокарту, путь один, поэтому файлы качаются один раз на оба компонента.
+    pub const CUDART13: FileSpec = FileSpec::archive("downloads/tts-cudart.whl", "https://files.pythonhosted.org/packages/86/00/d5436004268f049214193659ebc36550b5ef3925c3d13b4cc980e13be6f5/nvidia_cuda_runtime-13.4.92-py3-none-win_amd64.whl", 2_778_543, "08dca5e4aba480c2fd5b55075c0fa71b84ef9dcf0521f2d58baa14a803a7311c", Extract::Libs, "models/tts-engine", "models/tts-engine/cudart64_13.dll");
+    pub const CUBLAS13: FileSpec = FileSpec::archive("downloads/tts-cublas.whl", "https://files.pythonhosted.org/packages/a3/df/f1246959833e2c437db8be3e5b477f66b87f8817821ed40de6c7561c9a36/nvidia_cublas-13.8.0.4-py3-none-win_amd64.whl", 423_266_897, "8c5494423bb8a46822cb6b0cb95d7fa4be2d7b96a31155dff083839ec8297910", Extract::Libs, "models/tts-engine", "models/tts-engine/cublas64_13.dll");
+    // cuFFT 12 — третья библиотека CUDA 13, которую импортирует audiocpp_server (cudart в нём слинкован статически)
+    pub const CUFFT12: FileSpec = FileSpec::archive("downloads/tts-cufft.zip", "https://developer.download.nvidia.com/compute/cuda/redist/libcufft/windows-x86_64/libcufft-windows-x86_64-12.4.0.43-archive.zip", 159_602_693, "69d0ad8dc3a1be66f01a748a8206d0ceaafa56939474663fbe790dc3e91d2009", Extract::Libs, "models/tts-engine", "models/tts-engine/cufft64_12.dll");
+
+    pub const IMAGE_ENGINE: &[FileSpec] = &[
+        FileSpec::archive("downloads/sd-engine.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-cuda12-x64.zip", 337_974_452, "144b9631bf2eeb9bf6bf7f148cf40aaf05739ce7c49d3ac0ec2ddf6b65765d69", Extract::Flat, "models/runtime/sd", "models/runtime/sd/stable-diffusion.dll"),
+        FileSpec::archive("downloads/sd-cuda.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/cudart-sd-bin-win-cu12-x64.zip", 563_452_046, "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d", Extract::Flat, "models/runtime/sd", "models/runtime/sd/cudart64_12.dll"),
+    ];
+    pub const IMAGE_ENGINE_VULKAN: &[FileSpec] = &[
+        FileSpec::archive("downloads/sd-engine-vulkan.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-vulkan-x64.zip", 30_123_908, "9e8b9baff514fe5dfb77e51bf08d85f11e6f10128eac14d4474c87f563309725", Extract::Flat, "models/runtime/sd-vulkan", "models/runtime/sd-vulkan/stable-diffusion.dll"),
+    ];
+
+    pub const NARRATOR_ENGINE: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-13.4-x64.zip", 164_721_212, "0d75ad36367da00622c146a97e82fac3dcfcbe960afc2f0234eef026886b16f6", Extract::Flat, "tools/llama", "tools/llama/llama-server.exe"),
+        FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::Flat, "tools/llama", "tools/llama/cudart64_13.dll"),
+    ];
+    pub const NARRATOR_ENGINE_CUDA12: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-12.4-x64.zip", 279_417_051, "387ad76c926cdb301971851a11df018165a7b4df4b1b7c64cf4b09a367ec82bc", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
+        FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
+    ];
+    pub const NARRATOR_ENGINE_VULKAN: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-vulkan-x64.zip", 37_051_563, "baf0183b1906d7cc0cfe9a0bd3fae34ceb4048acecc371ff3b7a91456783d051", Extract::Flat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
+    ];
+    pub const NARRATOR_ENGINE_CPU: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cpu-x64.zip", 24_228_419, "d3bbbbb7d1b4979b72052fd73cdeeb5a4d5a4e6a3f52aeb40abd6f116558e323", Extract::Flat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
+    ];
+
+    const CUDA12_CUDART: FileSpec = FileSpec::archive("downloads/cuda12-cudart.whl", acpp_server::asset::CUDA12_RUNTIME[0].url, acpp_server::asset::CUDA12_RUNTIME[0].size, acpp_server::asset::CUDA12_RUNTIME[0].sha256, Extract::Libs, "models/cuda12-runtime", "models/cuda12-runtime/cudart64_12.dll");
+    const CUDA12_CUBLAS: FileSpec = FileSpec::archive("downloads/cuda12-cublas.whl", acpp_server::asset::CUDA12_RUNTIME[1].url, acpp_server::asset::CUDA12_RUNTIME[1].size, acpp_server::asset::CUDA12_RUNTIME[1].sha256, Extract::Libs, "models/cuda12-runtime", "models/cuda12-runtime/cublas64_12.dll");
+    const CUDA12_CUFFT: FileSpec = FileSpec::archive("downloads/cuda12-cufft.whl", acpp_server::asset::CUDA12_RUNTIME[2].url, acpp_server::asset::CUDA12_RUNTIME[2].size, acpp_server::asset::CUDA12_RUNTIME[2].sha256, Extract::Libs, "models/cuda12-runtime", "models/cuda12-runtime/cufft64_11.dll");
+
+    // программа импортирует cuBLAS 13 и cuFFT 12: без них Windows её не запустит
+    pub const VOICE_ENGINE: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_WIN_CUDA13, "downloads/audiocpp.zip", "tools/audiocpp", "tools/audiocpp/audiocpp_server.exe"), CUBLAS13, CUFFT12];
+    pub const VOICE_ENGINE_CUDA12: &[FileSpec] = &[
+        audiocpp(acpp_server::asset::SERVER_WIN_CUDA12, "downloads/audiocpp-cuda12.zip", "tools/audiocpp-cuda12", "tools/audiocpp-cuda12/audiocpp_server.exe"),
+        CUDA12_CUDART,
+        CUDA12_CUBLAS,
+        CUDA12_CUFFT,
+    ];
+    pub const VOICE_ENGINE_VULKAN: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_WIN_VULKAN, "downloads/audiocpp-vulkan.zip", "tools/audiocpp-vulkan", "tools/audiocpp-vulkan/audiocpp_server.exe")];
+    pub const VOICE_ENGINE_CPU: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_WIN_CPU, "downloads/audiocpp-cpu.zip", "tools/audiocpp-cpu", "tools/audiocpp-cpu/audiocpp_server.exe")];
+
+    pub const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/transcribe_engine.dll");
+    pub const ASR_GPU: &[FileSpec] = &[tcpp_engine(dub_tcpp::Build::Cuda, "models/transcribe-engine/transcribe_engine.dll"), CUDART13, CUBLAS13];
+}
+
+/// Движки под Linux x86-64 (порог — Ubuntu 22.04, glibc 2.35): tar-сборки GitHub, колёса NVIDIA manylinux. Библиотеки
+/// CUDA 13 лежат в `models/higgs-engine` — там их ищут по RUNPATH audiocpp_server и transcribe.cpp; общий с Dub и
+/// Speech рантайм, те же файлы.
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::{audiocpp, tcpp_engine, Extract, FileSpec};
+
+    pub const CUDART13: FileSpec = FileSpec::archive("downloads/cuda13-cudart.whl", "https://files.pythonhosted.org/packages/98/8a/3431271f6344874b8f1ac03f16b3d679c91493f8da63f716160403e6d0a0/nvidia_cuda_runtime-13.4.92-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", 2_494_438, "9641f797da20ce1dd8e779b6e96d08cf9ba564cec8e8225458811ee26423f3a5", Extract::Libs, "models/higgs-engine", "models/higgs-engine/libcudart.so.13");
+    pub const CUBLAS13: FileSpec = FileSpec::archive("downloads/cuda13-cublas.whl", "https://files.pythonhosted.org/packages/7a/38/bdd540bf511d2c9b6f9efc71a81c60cb88e295be0b9312b61d19bbed2212/nvidia_cublas-13.8.0.4-py3-none-manylinux_2_27_x86_64.whl", 439_317_144, "9f17797dfcc048694461f4e47de17d2e3c25adf172ef723d2db0a07cd8744b89", Extract::Libs, "models/higgs-engine", "models/higgs-engine/libcublas.so.13");
+    pub const CUFFT12: FileSpec = FileSpec::archive("downloads/cuda13-cufft.whl", "https://files.pythonhosted.org/packages/76/bf/3fea3d1c6262bded26ae00e3106432d63235954965d7785f5051ac146651/nvidia_cufft-12.4.0.43-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", 161_750_089, "0e8385013596b112d29c9ce8c63dc575b308d77636c7169104e18714f03961a8", Extract::Libs, "models/higgs-engine", "models/higgs-engine/libcufft.so.12");
+    const CUDA12_CUDART: FileSpec = FileSpec::archive("downloads/cuda12-cudart.whl", "https://files.pythonhosted.org/packages/bc/46/a92db19b8309581092a3add7e6fceb4c301a3fd233969856a8cbf042cd3c/nvidia_cuda_runtime_cu12-12.9.79-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", 3_493_179, "25bba2dfb01d48a9b59ca474a1ac43c6ebf7011f1b0b8cc44f54eb6ac48a96c3", Extract::Libs, "models/cuda12-runtime", "models/cuda12-runtime/libcudart.so.12");
+    const CUDA12_CUBLAS: FileSpec = FileSpec::archive("downloads/cuda12-cublas.whl", "https://files.pythonhosted.org/packages/cb/c0/0a517bfe63ccd3b92eb254d264e28fca3c7cab75d07daea315250fb1bf73/nvidia_cublas_cu12-12.9.2.10-py3-none-manylinux_2_27_x86_64.whl", 581_240_110, "e4f53a8ca8c5d6e8c492d0d0a3d565ecb59a751b19cfdaa4f6da0ab2104c1702", Extract::Libs, "models/cuda12-runtime", "models/cuda12-runtime/libcublas.so.12");
+    const CUDA12_CUFFT: FileSpec = FileSpec::archive("downloads/cuda12-cufft.whl", "https://files.pythonhosted.org/packages/95/f4/61e6996dd20481ee834f57a8e9dca28b1869366a135e0d42e2aa8493bdd4/nvidia_cufft_cu12-11.4.1.4-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", 200_877_592, "c67884f2a7d276b4b80eb56a79322a95df592ae5e765cf1243693365ccab4e28", Extract::Libs, "models/cuda12-runtime", "models/cuda12-runtime/libcufft.so.11");
+
+    // Картинки: сборки sd.cpp апстрима под Linux — Ubuntu 24.04 (glibc 2.39) и без CUDA, наш порог 22.04; свои сборки
+    // (cuda12, vulkan, cpu) — в форке timoncool/stable-diffusion.cpp. Пока их нет, кадр на Linux — только в облаке.
+    pub const IMAGE_ENGINE: &[FileSpec] = &[];
+    pub const IMAGE_ENGINE_VULKAN: &[FileSpec] = &[];
+
+    // llama.cpp ищет cudart и cuBLAS через LD_LIBRARY_PATH, который ставит ему игра (`du_llm::ServerOpts::library_dirs`)
+    pub const NARRATOR_ENGINE: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama.tar.gz", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-ubuntu-cuda-13.4-x64.tar.gz", 163_678_003, "925078bca4277d495e7fc07cfd20aa1a9ed57640b218bce3ad49de9bcc1c5799", Extract::Flat, "tools/llama", "tools/llama/llama-server"),
+        CUDART13,
+        CUBLAS13,
+    ];
+    pub const NARRATOR_ENGINE_CUDA12: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-cuda12.tar.gz", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-ubuntu-cuda-12.8-x64.tar.gz", 182_211_176, "618c17e4e4ccc11953f21452ca34e4786a1554dc405e98a2c4d53d7c2ed5b415", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server"),
+        CUDA12_CUDART,
+        CUDA12_CUBLAS,
+    ];
+    pub const NARRATOR_ENGINE_VULKAN: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-vulkan.tar.gz", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-ubuntu-vulkan-x64.tar.gz", 35_162_561, "111ee8d3f61723859e57195bb9ba21241eb598163621840aaf3b5c066950c092", Extract::Flat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server"),
+    ];
+    pub const NARRATOR_ENGINE_CPU: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-cpu.tar.gz", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-ubuntu-x64.tar.gz", 22_497_562, "3effcc3009af64d6f30c217827d7982b3934577d282feb243b11fb6789ed124e", Extract::Flat, "tools/llama-cpu", "tools/llama-cpu/llama-server"),
+    ];
+
+    pub const VOICE_ENGINE: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_LINUX_CUDA13, "downloads/audiocpp.tar.gz", "tools/audiocpp", "tools/audiocpp/audiocpp_server"), CUBLAS13, CUFFT12];
+    pub const VOICE_ENGINE_CUDA12: &[FileSpec] = &[
+        audiocpp(acpp_server::asset::SERVER_LINUX_CUDA12, "downloads/audiocpp-cuda12.tar.gz", "tools/audiocpp-cuda12", "tools/audiocpp-cuda12/audiocpp_server"),
+        CUDA12_CUDART,
+        CUDA12_CUBLAS,
+        CUDA12_CUFFT,
+    ];
+    pub const VOICE_ENGINE_VULKAN: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_LINUX_VULKAN, "downloads/audiocpp-vulkan.tar.gz", "tools/audiocpp-vulkan", "tools/audiocpp-vulkan/audiocpp_server")];
+    pub const VOICE_ENGINE_CPU: &[FileSpec] = &[audiocpp(acpp_server::asset::SERVER_LINUX_CPU, "downloads/audiocpp-cpu.tar.gz", "tools/audiocpp-cpu", "tools/audiocpp-cpu/audiocpp_server")];
+
+    pub const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/libtranscribe_engine.so");
+    pub const ASR_GPU: &[FileSpec] = &[tcpp_engine(dub_tcpp::Build::Cuda, "models/transcribe-engine/libtranscribe_engine.so"), CUDART13, CUBLAS13];
+}
+
+/// Движки под macOS на Apple silicon: одна сборка каждого движка, Metal и процессор в ней; машина считается как
+/// процессорная (`Accel::Cpu`), и её сборки лежат в процессорных папках. Сервера голоса под macOS пока нет.
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::{tcpp_engine, Extract, FileSpec};
+
+    // sd.cpp апстрима под Apple silicon: одна библиотека, ggml и Metal внутри
+    pub const IMAGE_ENGINE: &[FileSpec] = &[
+        FileSpec::archive("downloads/sd-engine.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-Darwin-macOS-26.6.2-arm64.zip", 35_158_090, "72c18ca1ba4177ca77cd288a9cb1e0f78d63ad3bde4b91fd7c84f3f4187b5761", Extract::Flat, "models/runtime/sd", "models/runtime/sd/libstable-diffusion.dylib"),
+    ];
+    pub const IMAGE_ENGINE_VULKAN: &[FileSpec] = &[];
+    pub const NARRATOR_ENGINE: &[FileSpec] = &[];
+    pub const NARRATOR_ENGINE_CUDA12: &[FileSpec] = &[];
+    pub const NARRATOR_ENGINE_VULKAN: &[FileSpec] = &[];
+    pub const NARRATOR_ENGINE_CPU: &[FileSpec] = &[
+        FileSpec::archive("downloads/llama-cpu.tar.gz", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-macos-arm64.tar.gz", 16_295_973, "6d3af8649e687b288395ee79f4423a21376892edb94520fa6320bfd3eb81700b", Extract::Flat, "tools/llama-cpu", "tools/llama-cpu/llama-server"),
+    ];
+    pub const VOICE_ENGINE: &[FileSpec] = &[];
+    pub const VOICE_ENGINE_CUDA12: &[FileSpec] = &[];
+    pub const VOICE_ENGINE_VULKAN: &[FileSpec] = &[];
+    pub const VOICE_ENGINE_CPU: &[FileSpec] = &[];
+    pub const TCPP_CPU: FileSpec = tcpp_engine(dub_tcpp::Build::Cpu, "models/transcribe-engine-cpu/libtranscribe_engine.dylib");
+    pub const ASR_GPU: &[FileSpec] = &[];
+}
+
+use platform::TCPP_CPU;
 
 /// Модель Parakeet на transcribe.cpp по пути Dub Studio (`models/<dir>/<file>`).
 const fn parakeet_gguf(model: &'static dub_tcpp::Model, path: &'static str) -> FileSpec {
@@ -192,10 +300,7 @@ static COMPONENTS: &[Component] = &[
             note: "stable-diffusion.cpp с поддержкой видеокарты и библиотеки CUDA к нему",
             requirement: Requirement::Required,
             variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/sd-engine.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-cuda12-x64.zip", 337_974_452, "144b9631bf2eeb9bf6bf7f148cf40aaf05739ce7c49d3ac0ec2ddf6b65765d69", Extract::Flat, "models/runtime/sd", "models/runtime/sd/stable-diffusion.dll"),
-                FileSpec::archive("downloads/sd-cuda.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/cudart-sd-bin-win-cu12-x64.zip", 563_452_046, "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d", Extract::Flat, "models/runtime/sd", "models/runtime/sd/cudart64_12.dll"),
-            ],
+            files: platform::IMAGE_ENGINE,
         },
         Component {
             id: "image-engine-vulkan",
@@ -203,9 +308,7 @@ static COMPONENTS: &[Component] = &[
             note: "stable-diffusion.cpp для видеокарт AMD и Intel",
             requirement: Requirement::Required,
             variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/sd-engine-vulkan.zip", "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-vulkan-x64.zip", 30_123_908, "9e8b9baff514fe5dfb77e51bf08d85f11e6f10128eac14d4474c87f563309725", Extract::Flat, "models/runtime/sd-vulkan", "models/runtime/sd-vulkan/stable-diffusion.dll"),
-            ],
+            files: platform::IMAGE_ENGINE_VULKAN,
         },
         Component {
             id: "image-dit",
@@ -253,10 +356,7 @@ static COMPONENTS: &[Component] = &[
             note: "llama.cpp, считает текст на видеокарте, с библиотеками CUDA 13",
             requirement: Requirement::Required,
             variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/llama.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-13.4-x64.zip", 164_721_212, "0d75ad36367da00622c146a97e82fac3dcfcbe960afc2f0234eef026886b16f6", Extract::Flat, "tools/llama", "tools/llama/llama-server.exe"),
-                FileSpec::archive("downloads/llama-cuda.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-13.4-x64.zip", 423_535_356, "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", Extract::Flat, "tools/llama", "tools/llama/cudart64_13.dll"),
-            ],
+            files: platform::NARRATOR_ENGINE,
         },
         Component {
             id: "narrator-engine-cuda12",
@@ -264,10 +364,7 @@ static COMPONENTS: &[Component] = &[
             note: "llama.cpp с CUDA 12: Maxwell, Pascal, Volta и карты со старым драйвером",
             requirement: Requirement::Required,
             variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/llama-cuda12.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cuda-12.4-x64.zip", 279_417_051, "387ad76c926cdb301971851a11df018165a7b4df4b1b7c64cf4b09a367ec82bc", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/llama-server.exe"),
-                FileSpec::archive("downloads/llama-cuda12-runtime.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/cudart-llama-bin-win-cuda-12.4-x64.zip", 391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", Extract::Flat, "tools/llama-cuda12", "tools/llama-cuda12/cudart64_12.dll"),
-            ],
+            files: platform::NARRATOR_ENGINE_CUDA12,
         },
         Component {
             id: "narrator-engine-vulkan",
@@ -275,9 +372,7 @@ static COMPONENTS: &[Component] = &[
             note: "llama.cpp для видеокарт AMD и Intel",
             requirement: Requirement::Required,
             variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-vulkan-x64.zip", 37_051_563, "baf0183b1906d7cc0cfe9a0bd3fae34ceb4048acecc371ff3b7a91456783d051", Extract::Flat, "tools/llama-vulkan", "tools/llama-vulkan/llama-server.exe"),
-            ],
+            files: platform::NARRATOR_ENGINE_VULKAN,
         },
         Component {
             id: "narrator-engine-cpu",
@@ -285,9 +380,7 @@ static COMPONENTS: &[Component] = &[
             note: "llama.cpp для компьютера без видеокарты",
             requirement: Requirement::Required,
             variant_of: "",
-            files: &[
-                FileSpec::archive("downloads/llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b11900/llama-b11900-bin-win-cpu-x64.zip", 24_228_419, "d3bbbbb7d1b4979b72052fd73cdeeb5a4d5a4e6a3f52aeb40abd6f116558e323", Extract::Flat, "tools/llama-cpu", "tools/llama-cpu/llama-server.exe"),
-            ],
+            files: platform::NARRATOR_ENGINE_CPU,
         },
         Component {
             id: "narrator",
@@ -306,7 +399,7 @@ static COMPONENTS: &[Component] = &[
             requirement: Requirement::Recommended,
             variant_of: "",
             // программа импортирует cuBLAS 13 и cuFFT 12: без них Windows её не запустит
-            files: &[AUDIOCPP_CUDA13, CUBLAS13, CUFFT12],
+            files: platform::VOICE_ENGINE,
         },
         Component {
             id: "voice-engine-cuda12",
@@ -314,7 +407,7 @@ static COMPONENTS: &[Component] = &[
             note: "audiocpp_server под CUDA 12.9 с её библиотеками — для карт и драйверов, которым CUDA 13 не подходит",
             requirement: Requirement::Recommended,
             variant_of: "",
-            files: &[AUDIOCPP_CUDA12, CUDA12_CUDART, CUDA12_CUBLAS, CUDA12_CUFFT],
+            files: platform::VOICE_ENGINE_CUDA12,
         },
         Component {
             id: "voice-engine-vulkan",
@@ -322,7 +415,7 @@ static COMPONENTS: &[Component] = &[
             note: "audiocpp_server под Vulkan — для видеокарт AMD и Intel",
             requirement: Requirement::Recommended,
             variant_of: "",
-            files: &[AUDIOCPP_VULKAN],
+            files: platform::VOICE_ENGINE_VULKAN,
         },
         Component {
             id: "voice-engine-cpu",
@@ -330,7 +423,7 @@ static COMPONENTS: &[Component] = &[
             note: "audiocpp_server на процессоре — для компьютера без видеокарты",
             requirement: Requirement::Recommended,
             variant_of: "",
-            files: &[AUDIOCPP_CPU],
+            files: platform::VOICE_ENGINE_CPU,
         },
         Component {
             id: "voice-model",
@@ -409,12 +502,13 @@ static COMPONENTS: &[Component] = &[
             note: "сборка transcribe.cpp под CUDA и её библиотеки; без неё Parakeet работает на процессоре",
             requirement: Requirement::Optional,
             variant_of: "",
-            files: &[TCPP_CUDA, CUDART13, CUBLAS13],
+            files: platform::ASR_GPU,
         },
     ];
 
 pub fn manifest() -> Vec<Component> {
-    COMPONENTS.to_vec()
+    // компонента, у которого под этой системой нет файлов (голос на Mac, картинки на Linux до своих сборок), здесь нет
+    COMPONENTS.iter().filter(|component| !component.files.is_empty()).cloned().collect()
 }
 
 pub fn variant_selection(id: &str) -> Option<(&'static str, String)> {
@@ -534,7 +628,10 @@ fn downloads() -> std::sync::MutexGuard<'static, Downloads> {
 /// версии, которую распаковка кладёт рядом, — иначе движок прошлой версии считался бы новым.
 /// Скачан ли компонент `id` целиком: так же, как его видит экран «Что скачать».
 pub fn component_present(root: &Path, id: &str) -> bool {
-    COMPONENTS.iter().find(|component| component.id == id).is_some_and(|component| component.files.iter().all(|file| file_present(root, file)))
+    COMPONENTS
+        .iter()
+        .find(|component| component.id == id)
+        .is_some_and(|component| !component.files.is_empty() && component.files.iter().all(|file| file_present(root, file)))
 }
 
 fn file_present(root: &Path, file: &FileSpec) -> bool {

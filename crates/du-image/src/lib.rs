@@ -216,16 +216,33 @@ symbols! {
 /// Загруженная библиотека движка. Держать её нужно ровно столько, сколько живут контексты.
 pub struct Engine {
     // Библиотеки обязаны пережить символы, поэтому лежат перед ними и роняются последними.
-    _ggml: libloading::Library,
+    _ggml: Option<libloading::Library>,
     _lib: libloading::Library,
     symbols: Symbols,
 }
+
+/// Библиотека движка этой системы.
+#[cfg(windows)]
+pub const LIBRARY: &str = "stable-diffusion.dll";
+#[cfg(target_os = "macos")]
+pub const LIBRARY: &str = "libstable-diffusion.dylib";
+#[cfg(not(any(windows, target_os = "macos")))]
+pub const LIBRARY: &str = "libstable-diffusion.so";
+
+/// ggml отдельной библиотекой — у сборок с бэкендами-плагинами (Windows); у сборки, где ggml и бэкенд внутри
+/// (macOS), её нет.
+#[cfg(windows)]
+const GGML: &str = "ggml.dll";
+#[cfg(target_os = "macos")]
+const GGML: &str = "libggml.dylib";
+#[cfg(not(any(windows, target_os = "macos")))]
+const GGML: &str = "libggml.so";
 
 impl Engine {
     /// Загрузить движок. `dir` — каталог с `stable-diffusion.dll` и её зависимостями
     /// (`ggml-cuda.dll` и прочими); они грузятся оттуда же.
     pub fn load(dir: &Path) -> Result<Self, ImageError> {
-        let dll = dir.join("stable-diffusion.dll");
+        let dll = dir.join(LIBRARY);
         if !dll.is_file() {
             return Err(ImageError::LibraryMissing(dll));
         }
@@ -237,15 +254,20 @@ impl Engine {
         // Бэкенды ggml (CUDA, CPU) подключаются динамически и по умолчанию ищутся рядом с
         // EXE процесса. У нас движок лежит отдельным каталогом, поэтому регистрируем их
         // явно оттуда — иначе в процессе не будет видно ни одного устройства.
-        let ggml_path = dir.join("ggml.dll");
-        let ggml = unsafe { load_library(&ggml_path).map_err(|error| library_error(&ggml_path, &error))? };
-        unsafe {
-            let load_all: unsafe extern "C" fn(*const c_char) =
-                *ggml.get(b"ggml_backend_load_all_from_path\0").map_err(|error| library_error(&ggml_path, &error))?;
-            if let Ok(dir_c) = CString::new(dir.to_string_lossy().into_owned()) {
-                load_all(dir_c.as_ptr());
+        let ggml_path = dir.join(GGML);
+        let ggml = if ggml_path.is_file() {
+            let ggml = unsafe { load_library(&ggml_path).map_err(|error| library_error(&ggml_path, &error))? };
+            unsafe {
+                let load_all: unsafe extern "C" fn(*const c_char) =
+                    *ggml.get(b"ggml_backend_load_all_from_path\0").map_err(|error| library_error(&ggml_path, &error))?;
+                if let Ok(dir_c) = CString::new(dir.to_string_lossy().into_owned()) {
+                    load_all(dir_c.as_ptr());
+                }
             }
-        }
+            Some(ggml)
+        } else {
+            None
+        };
 
         let lib = unsafe { load_library(&dll).map_err(|error| library_error(&dll, &error))? };
         let symbols = unsafe { Symbols::load(&lib).map_err(|error| library_error(&dll, &error))? };
@@ -549,7 +571,7 @@ mod tests {
     #[test]
     fn engine_loads_and_reports_a_cuda_device() {
         let dir = runtime_dir();
-        if !dir.join("stable-diffusion.dll").is_file() {
+        if !dir.join(LIBRARY).is_file() {
             eprintln!("движок не разложен в {dir:?} — проверка пропущена");
             return;
         }
