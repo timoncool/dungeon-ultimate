@@ -170,8 +170,8 @@
 | [Dub Studio](https://github.com/timoncool/dub-studio) | Студия ИИ-дубляжа: расшифровка, перевод, озвучка, сведение |
 | [ACE-Step Studio](https://github.com/timoncool/ACE-Step-Studio) | ИИ-студия музыки: песни, вокал, каверы, клипы |
 | [VideoSOS](https://github.com/timoncool/videosos) | Производство видео с ИИ прямо в браузере |
-| [Foundation Music Lab](https://github.com/timoncool/Foundation-Music-Lab) | Генерация музыки и таймлайн-редактор |
-| [Qwen3-TTS](https://github.com/timoncool/Qwen3-TTS_portable_rus) | Портативный синтез речи с клонированием голоса |
+| [Speech Studio](https://github.com/timoncool/speech-studio) | Офлайн-студия: озвучка, клонирование голоса, распознавание речи |
+| [YuE2 Studio](https://github.com/timoncool/YuE2-Studio) | Полные песни с вокалом и редактируемой партитурой |
 | [SuperCaption Qwen3-VL](https://github.com/timoncool/SuperCaption_Qwen3-VL) | Портативное описание картинок |
 | [civitai-mcp-ultimate](https://github.com/timoncool/civitai-mcp-ultimate) | Civitai API как MCP-сервер |
 | [ScreenSavy](https://github.com/timoncool/ScreenSavy.com) | Генератор фоновых экранов |
