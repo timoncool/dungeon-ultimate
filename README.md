@@ -170,8 +170,8 @@ Never: your stories, pictures, voices, characters, file names or paths, anything
 | [Dub Studio](https://github.com/timoncool/dub-studio) | AI dubbing studio — transcribe, translate, voice, mix |
 | [ACE-Step Studio](https://github.com/timoncool/ACE-Step-Studio) | AI music studio — songs, vocals, covers, videos |
 | [VideoSOS](https://github.com/timoncool/videosos) | AI video production in the browser |
-| [Foundation Music Lab](https://github.com/timoncool/Foundation-Music-Lab) | Music generation + timeline editor |
-| [Qwen3-TTS](https://github.com/timoncool/Qwen3-TTS_portable_rus) | Portable text-to-speech with voice cloning |
+| [Speech Studio](https://github.com/timoncool/speech-studio) | Offline voice studio — text-to-speech, voice cloning, speech recognition |
+| [YuE2 Studio](https://github.com/timoncool/YuE2-Studio) | Full songs with vocals and an editable score |
 | [SuperCaption Qwen3-VL](https://github.com/timoncool/SuperCaption_Qwen3-VL) | Portable image captioning |
 | [civitai-mcp-ultimate](https://github.com/timoncool/civitai-mcp-ultimate) | Civitai API as an MCP server |
 | [ScreenSavy](https://github.com/timoncool/ScreenSavy.com) | Ambient screen generator |
