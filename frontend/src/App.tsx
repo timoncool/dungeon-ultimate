@@ -6951,6 +6951,7 @@ const DONATE = {
   boosty: "https://boosty.to/neuro_art",
   github: "https://github.com/timoncool/dungeon-ultimate",
   telegram: "https://t.me/nerual_dreming",
+  x: "https://x.com/nerualdreming",
   all: "https://github.com/timoncool/dungeon-ultimate/blob/main/DONATE.md",
   crypto: [
     ["BTC", "1E7dHL22RpyhJGVpcvKdbyZgksSYkYeEBC"],
@@ -7057,6 +7058,7 @@ function SupportPanel({ open, onOpenChange, divided }: PanelControlProps) {
             ["GitHub", DONATE.github],
             [settings_.reportIssue, reportUrl],
             ["Telegram", DONATE.telegram],
+            ["X", DONATE.x],
             [settings_.allWays, DONATE.all],
           ].map(([label, href]) => (
             <a

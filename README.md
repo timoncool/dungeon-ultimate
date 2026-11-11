@@ -178,7 +178,7 @@ Never: your stories, pictures, voices, characters, file names or paths, anything
 
 ## Authors
 
-- **Nerual Dreming** — [Telegram](https://t.me/nerual_dreming) | [neuro-cartel.com](https://neuro-cartel.com) | [ArtGeneration.me](https://artgeneration.me)
+- **Nerual Dreming** — [Telegram](https://t.me/nerual_dreming) | [X](https://x.com/nerualdreming) | [neuro-cartel.com](https://neuro-cartel.com) | [ArtGeneration.me](https://artgeneration.me)
 - **Нейро-Софт** — [Telegram](https://t.me/neuroport) | portable neural-network apps
 
 ## Acknowledgements
